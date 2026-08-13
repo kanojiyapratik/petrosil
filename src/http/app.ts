@@ -84,7 +84,7 @@ export function createApp(options: AppOptions) {
     })
 
     const summary = summarise(rows, body.price_date)
-    const title = body.title ?? `Bulk price update — ${body.price_date}`
+    const title = body.title ?? `Price update — ${body.price_date}`
     const model = body.model ?? options.defaultModel
 
     // The diff and the figures are this module's own work: they stay valid
