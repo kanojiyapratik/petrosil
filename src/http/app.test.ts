@@ -43,6 +43,28 @@ const post = (app: ReturnType<typeof createApp>, body: unknown, token: string | 
     body: JSON.stringify(body),
   })
 
+describe('GET /api/models', () => {
+  it('lists the configured provider and its models', async () => {
+    const response = await appWith(stubDriver({})).request('/api/models', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })
+
+    expect(response.status).toBe(200)
+
+    const json = (await response.json()) as any
+    const google = json.find((p: any) => p.provider === 'google')
+
+    expect(google).toMatchObject({ provider: 'google', available: true })
+    expect(google.models.map((m: any) => m.key)).toContain('gemini-2.5-flash')
+  })
+
+  it('needs a token', async () => {
+    const response = await appWith(stubDriver({})).request('/api/models')
+
+    expect(response.status).toBe(401)
+  })
+})
+
 describe('POST /api/price-reviews', () => {
   it('returns the diffed rows, the summary and the narration', async () => {
     const response = await post(appWith(stubDriver({})), validBody)

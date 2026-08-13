@@ -44,6 +44,26 @@ export function createApp(options: AppOptions) {
     return next()
   })
 
+  /**
+   * The model picker on the calling site's preview page. Only google is
+   * configured; the shape keeps the `available` flag so a site can grey out a
+   * provider rather than offer one that would fail.
+   */
+  app.get('/api/models', (c) =>
+    c.json([
+      {
+        provider: 'google',
+        label: 'Google Gemini',
+        available: true,
+        models: [
+          { key: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+          { key: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+          { key: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        ],
+      },
+    ]),
+  )
+
   app.post('/api/price-reviews', async (c) => {
     const parsed = requestSchema.safeParse(await c.req.json().catch(() => null))
 
