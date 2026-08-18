@@ -15,8 +15,19 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-# Money-shaped tokens: 3.690, $81.77, 1,234.50, INR 96,500.00
-PRICE_TOKEN = re.compile(r"(?:[$€£₹]\s?)?\d{1,3}(?:,\d{3})*\.\d{1,3}\b")
+# Money-shaped tokens. Either a decimal number (3.690, 1,234.50) or an
+# integer carrying a currency symbol (₹ 205, $85).
+#
+# The symbol is what makes the integer form safe to accept: a bare 205 is
+# indistinguishable from a year, a count or a viscosity grade, and counting
+# those would send the region picker to the wrong part of the page. Requiring
+# a decimal point was the earlier rule, and it made whole-rupee listings --
+# the normal way Indian sites quote -- invisible, so a page whose prices were
+# all integers looked priceless and the region picker centred elsewhere.
+PRICE_TOKEN = re.compile(
+    r"[$€£₹]\s?\d{1,3}(?:,\d{3})*(?:\.\d{1,3})?"
+    r"|\d{1,3}(?:,\d{3})*\.\d{1,3}\b"
+)
 
 _SCRIPT = re.compile(r"<script[\s\S]*?</script>", re.IGNORECASE)
 _STYLE = re.compile(r"<style[\s\S]*?</style>", re.IGNORECASE)

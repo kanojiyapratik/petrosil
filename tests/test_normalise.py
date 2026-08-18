@@ -78,3 +78,27 @@ class TestHashText:
         day_two = price_region("ad-slot-55512 " + "x " * 3000 + "Singapore 845.00", 400)
 
         assert hash_text(day_one.text) == hash_text(day_two.text)
+
+
+class TestIntegerPrices:
+    def test_counts_whole_rupee_and_dollar_listings(self):
+        # Indian sites quote in whole rupees. Requiring a decimal point made
+        # a page of "₹ 205 / LTR" rows look priceless, so the region picker
+        # centred somewhere else and the model never saw the prices.
+        assert count_price_tokens("Base Oil 8cST Bulk EX - Mumbai ₹ 205 / LTR") == 1
+        assert count_price_tokens("₹205 ₹225 $85") == 3
+
+    def test_still_ignores_bare_integers(self):
+        # A bare 205 is indistinguishable from a year, a count or a grade.
+        assert count_price_tokens("In 2026 the SN 150 grade moved 12 points") == 0
+
+    def test_still_counts_decimals_without_a_symbol(self):
+        assert count_price_tokens("U.S. 4.096 Gulf Coast 3.690") == 2
+
+    def test_finds_the_price_table_on_a_page_that_quotes_whole_rupees(self):
+        filler = "navigation and boilerplate " * 300
+        table = "Base Oil 8cST Bulk EX - Mumbai ₹ 205 / LTR Base Oil 4cST Bulk ₹ 225 / LTR "
+        region = price_region(filler + table + filler, max_chars=1500)
+
+        assert "₹ 205" in region.text
+        assert "₹ 225" in region.text
