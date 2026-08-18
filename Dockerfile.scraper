@@ -1,0 +1,22 @@
+# The Python price-URL crawler that ships with this module.
+#
+# Deployed as a second service from the same repo as the Node API: they are
+# one module, but two processes -- the API answers requests, the crawler runs
+# a loop. On Railway that is a second service pointed at this Dockerfile.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Installed before the source so a code edit does not reinstall the deps.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY scraper ./scraper
+
+# Unbuffered so `docker logs` shows a pass as it happens, not when the
+# buffer fills.
+ENV PYTHONUNBUFFERED=1
+
+# The loop. `--once` runs a single pass, which is what a manual re-check
+# would call.
+CMD ["python", "-m", "scraper.main"]
