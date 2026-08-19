@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
 
 from . import config as config_module
 from .ai import GeminiExtractor
+from .rules import RuleExtractor
 from .fetcher import Fetcher
 from .runner import run_once
 from app.console.site_client import SiteClient, SiteError
@@ -66,7 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     fetcher = Fetcher(user_agent=config.user_agent, timeout_seconds=config.timeout_seconds)
-    extractor = GeminiExtractor(api_key=config.api_key, model=config.model)
+    # CRAWL_EXTRACTOR=rules runs a pass with no model at all -- no key, no
+    # quota, no cost. It answers "is the crawler fetching and parsing?",
+    # which is otherwise indistinguishable from "is the model available?".
+    if os.environ.get("CRAWL_EXTRACTOR", "ai").lower() == "rules":
+        logger.warning("CRAWL_EXTRACTOR=rules — reading with rules, not AI")
+        extractor = RuleExtractor()
+    else:
+        extractor = GeminiExtractor(api_key=config.api_key, model=config.model)
 
     while True:
         _pass(client, fetcher, extractor, config)

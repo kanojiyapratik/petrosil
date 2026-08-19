@@ -16,6 +16,7 @@ import os
 from dataclasses import dataclass
 
 from scraper.ai import GeminiExtractor
+from scraper.rules import RuleExtractor
 from scraper.config import DEFAULT_USER_AGENT
 from scraper.fetcher import Fetcher
 from scraper.runner import run_once
@@ -37,7 +38,7 @@ class PassConfig:
     max_region_chars: int
 
 
-def crawl_site_now(site: StoredSite) -> list:
+def crawl_site_now(site: StoredSite, use_rules: bool | None = None) -> list:
     """One pass over one site's watched URLs. Returns the outcomes.
 
     Raises whatever the site client raises, so the screen can report why it
@@ -45,10 +46,18 @@ def crawl_site_now(site: StoredSite) -> list:
     """
     api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
 
-    if api_key == "":
+    # The screen can ask for a run without the model; otherwise the
+    # environment decides. Passing it in beats reading the environment here,
+    # so a diagnostic run is a choice someone made rather than a deployment
+    # setting nobody remembers.
+    if use_rules is None:
+        use_rules = os.environ.get("CRAWL_EXTRACTOR", "ai").lower() == "rules"
+
+    if api_key == "" and not use_rules:
         raise RuntimeError(
             "No Gemini key is configured, so pages cannot be read. Set "
-            "GOOGLE_GENERATIVE_AI_API_KEY."
+            "GOOGLE_GENERATIVE_AI_API_KEY, or CRAWL_EXTRACTOR=rules to check "
+            "without the model."
         )
 
     client = CrawlerSiteClient(
@@ -58,8 +67,10 @@ def crawl_site_now(site: StoredSite) -> list:
         user_agent=os.environ.get("CRAWL_USER_AGENT", DEFAULT_USER_AGENT),
         timeout_seconds=int(os.environ.get("CRAWL_TIMEOUT_SECONDS", "30")),
     )
-    extractor = GeminiExtractor(
-        api_key=api_key, model=os.environ.get("AI_MODEL", "gemini-2.5-flash")
+    extractor = (
+        RuleExtractor()
+        if use_rules
+        else GeminiExtractor(api_key=api_key, model=os.environ.get("AI_MODEL", "gemini-2.5-flash"))
     )
     config = PassConfig(
         max_urls_per_run=int(os.environ.get("CRAWL_MAX_URLS", "50")),
@@ -77,7 +88,7 @@ def crawl_site_now(site: StoredSite) -> list:
     return outcomes
 
 
-def describe(outcomes: list) -> str:
+def describe(outcomes: list, used_rules: bool = False) -> str:
     """A sentence an admin can act on, rather than a status vocabulary.
 
     An unchanged pass is the normal, healthy outcome most of the time, so it
@@ -85,6 +96,13 @@ def describe(outcomes: list) -> str:
     """
     if not outcomes:
         return "No URLs are being watched, so there was nothing to check."
+
+    prefix = (
+        "Read without AI, so the labels are rough and this is a check that the "
+        "crawler works — not data to publish. "
+        if used_rules
+        else ""
+    )
 
     read = [o for o in outcomes if o.status == "read"]
     unchanged = [o for o in outcomes if o.status == "unchanged"]
@@ -105,4 +123,4 @@ def describe(outcomes: list) -> str:
     if trouble:
         parts.append(f"{len(trouble)} could not be read — see the list below.")
 
-    return " ".join(parts)
+    return prefix + " ".join(parts)

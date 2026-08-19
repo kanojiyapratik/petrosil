@@ -10,7 +10,12 @@
   <div class="head">
     <h2>Watched URLs</h2><span class="spacer"></span>
     <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
-    <form method="post" action="/console/sites/{{ site.slug }}/crawler/check" style="margin:0">
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/check"
+      style="margin:0;display:flex;align-items:center;gap:.6rem">
+      <label class="check" style="font-weight:500;color:var(--muted)"
+        title="Fetches and parses the pages without calling the AI. Use it to tell a crawler problem from a model problem — the labels will be rough.">
+        <input type="checkbox" name="without_ai" value="1"> without AI
+      </label>
       <button class="ghost" type="submit">Check now</button>
     </form>
   </div>

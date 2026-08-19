@@ -329,7 +329,7 @@ def create_console(
         )
 
     @router.post("/console/sites/{slug}/crawler/check")
-    def check_now(request: Request, slug: str):
+    async def check_now(request: Request, slug: str):
         """The button that saves waiting a quarter of an hour after adding a
         URL. Runs one pass, synchronously -- it takes seconds when the pages
         have not changed, and an admin who pressed a button should see the
@@ -345,9 +345,16 @@ def create_console(
             return RedirectResponse("/console", status_code=303)
 
         path = f"/console/sites/{site.slug}/crawler"
+        form = await request.form()
+
+        # Ticking the box runs the pass with no model at all. It answers a
+        # different question from the normal run: not "what do these pages
+        # say" but "is the crawler reaching them", which is otherwise
+        # indistinguishable from the model being unavailable.
+        without_ai = form.get("without_ai") in ("on", "1")
 
         try:
-            outcomes = crawl_site_now(site)
+            outcomes = crawl_site_now(site, use_rules=without_ai or None)
         except Exception as error:  # noqa: BLE001 - report it, never 500 the screen
             return back(path, "err", str(error))
 
@@ -355,10 +362,10 @@ def create_console(
             user.email,
             "ran a crawl by hand",
             site.slug,
-            f"{len(outcomes)} URL(s), {len([o for o in outcomes if o.used_ai])} read with AI",
+            f"{len(outcomes)} URL(s)" + (" — without AI" if without_ai else ""),
         )
 
-        return back(path, "ok", describe(outcomes))
+        return back(path, "ok", describe(outcomes, used_rules=without_ai))
 
     # ---- your own account -------------------------------------------------
 

@@ -62,21 +62,22 @@ def load(env: dict[str, str] | None = None) -> Config:
         max_urls_per_run=int(source.get("CRAWL_MAX_URLS", "50")),
     )
 
-    missing = [
-        name
-        for name, value in (
-            ("SITE_API_URL", config.site_api_url),
-            ("SITE_API_TOKEN", config.site_api_token),
-            ("GOOGLE_GENERATIVE_AI_API_KEY", config.api_key),
-        )
-        if value == ""
+    required = [
+        ("SITE_API_URL", config.site_api_url),
+        ("SITE_API_TOKEN", config.site_api_token),
     ]
+
+    # The key is only needed when the model is the one reading. A rules pass
+    # is meant to run without one -- that is the whole point of it.
+    if source.get("CRAWL_EXTRACTOR", "ai").lower() != "rules":
+        required.append(("GOOGLE_GENERATIVE_AI_API_KEY", config.api_key))
+
+    missing = [name for name, value in required if value == ""]
 
     if missing:
         raise ConfigError(
-            "The crawler needs " + ", ".join(missing) + ". It reads pages with "
-            "the model and reports to the site over the API, so it will not "
-            "start without them."
+            "The crawler needs " + ", ".join(missing) + ". It reads pages and "
+            "reports to the site over the API, so it will not start without them."
         )
 
     return config
