@@ -245,6 +245,43 @@ def create_price_routes(
             )
 
         base = f"/console/sites/{site.slug}/prices"
+        items = envelope.get("items", [])
+        summary = envelope.get("summary") or {}
+
+        # A 500-row batch with three unmatched rows in it is otherwise a
+        # hunt. "blocking" is its own filter because that is the question an
+        # admin actually has: what is stopping me committing this.
+        chosen = request.query_params.get("status") or ""
+
+        if chosen == "blocking":
+            shown = [
+                item
+                for item in items
+                if item.get("status") in NEEDS_ATTENTION and item.get("is_included")
+            ]
+        elif chosen:
+            shown = [item for item in items if item.get("status") == chosen]
+        else:
+            shown = items
+
+        blocking = len(
+            [
+                item
+                for item in items
+                if item.get("status") in NEEDS_ATTENTION and item.get("is_included")
+            ]
+        )
+
+        filters = [{"key": "", "label": "All", "count": len(items)}]
+
+        if blocking:
+            filters.append({"key": "blocking", "label": "Blocking", "count": blocking})
+
+        filters += [
+            {"key": status, "label": status, "count": count}
+            for status, count in summary.items()
+            if count
+        ]
 
         return templates.TemplateResponse(
             request,
@@ -262,11 +299,12 @@ def create_price_routes(
                 "tone_for": tone_for,
                 "title": f"Batch #{batch_id} · {site.name}",
                 "envelope": envelope,
-                "items": envelope.get("items", []),
+                "items": shown,
+                "filters": filters,
+                "chosen": chosen,
+                "total_items": len(items),
                 "summary_counts": [
-                    (status, count)
-                    for status, count in (envelope.get("summary") or {}).items()
-                    if count
+                    (status, count) for status, count in summary.items() if count
                 ],
                 "draft": envelope.get("batch", {}).get("status") == "draft",
                 "base": base,

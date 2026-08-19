@@ -3,7 +3,7 @@
 <h1>Batch #{{ envelope.batch.id }}</h1>
 <p class="lede">
   {{ envelope.batch.source }} · <span class="badge {{ tone_for(envelope.batch.status) }}">{{ envelope.batch.status }}</span>
-  · {{ items | length }} row{{ "" if items | length == 1 else "s" }}
+  · {{ total_items }} row{{ "" if total_items == 1 else "s" }}
 </p>
 
 <div class="panel">
@@ -57,7 +57,24 @@
 </div>
 
 <div class="panel">
-  <div class="head"><h2>Rows</h2></div>
+  <div class="head">
+    <h2>Rows</h2>
+    <span class="spacer"></span>
+    <span class="filters">
+      {% for f in filters %}
+        <a class="chip {% if chosen == f.key %}on{% endif %}"
+           href="{{ base }}/{{ envelope.batch.id }}{% if f.key %}?status={{ f.key }}{% endif %}">{{ f.label }} <b>{{ f.count }}</b></a>
+      {% endfor %}
+    </span>
+  </div>
+  {% if chosen %}
+    <div class="body" style="padding-bottom:0">
+      <p class="hint" style="margin-top:0">
+        Showing {{ items | length }} of {{ total_items }} rows.
+        <a href="{{ base }}/{{ envelope.batch.id }}">Show all</a>
+      </p>
+    </div>
+  {% endif %}
   {% if items %}
     <table>
       <thead><tr>
@@ -125,7 +142,7 @@
       </tbody>
     </table>
   {% else %}
-    <div class="body empty">No rows.</div>
+    <div class="body empty">{% if chosen %}No rows with that status. <a href="{{ base }}/{{ envelope.batch.id }}">Show all</a>{% else %}No rows.{% endif %}</div>
   {% endif %}
 </div>
 {% endblock %}

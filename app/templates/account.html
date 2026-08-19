@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your account</h1>
+<p class="lede">{{ user.name }} · {{ user.email }}{% if user.is_admin %} · administrator{% endif %}</p>
+
+<div class="panel">
+  <div class="head"><h2>Change your password</h2></div>
+  <div class="body">
+    <form method="post" action="/console/account/password">
+      <div class="field">
+        <label for="current">Current password</label>
+        <input id="current" name="current" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label for="new">New password</label>
+          <input id="new" name="new" type="password" minlength="10" autocomplete="new-password" required>
+        </div>
+        <div class="field">
+          <label for="confirm">Repeat it</label>
+          <input id="confirm" name="confirm" type="password" minlength="10" autocomplete="new-password" required>
+        </div>
+      </div>
+      <p class="hint">
+        At least 10 characters. Changing it does not sign out sessions already
+        open elsewhere — sign out and back in on those, or ask an administrator
+        to disable and re-enable the account.
+      </p>
+      <div class="actions"><button type="submit">Change password</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

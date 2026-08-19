@@ -15,7 +15,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite, StoredUser
-from .auth import SESSION_COOKIE, authenticate, hash_password, new_session, read_session, sign_session
+from .auth import (
+    SESSION_COOKIE,
+    authenticate,
+    hash_password,
+    new_session,
+    read_session,
+    sign_session,
+    verify_password,
+)
 from .config import ConsoleConfigError, normalise_site_input
 from .crawl_now import crawl_site_now, describe
 from .site_client import SiteClient, SiteError
@@ -352,6 +360,52 @@ def create_console(
 
         return back(path, "ok", describe(outcomes))
 
+    # ---- your own account -------------------------------------------------
+
+    @router.get("/console/account", response_class=HTMLResponse)
+    def account(request: Request):
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        return page("account.html", request, user, title="Your account", section="account")
+
+    @router.post("/console/account/password")
+    async def change_password(request: Request):
+        """Changing your own password needs the current one.
+
+        Without that check, anyone who found an unattended signed-in browser
+        could lock the owner out of their own account.
+        """
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        form = await request.form()
+        path = "/console/account"
+        current = str(form.get("current") or "")
+        new = str(form.get("new") or "")
+
+        if not verify_password(current, user.password_hash):
+            return back(path, "err", "That is not your current password.")
+
+        if new != str(form.get("confirm") or ""):
+            return back(path, "err", "The two new passwords do not match.")
+
+        if len(new) < 10:
+            return back(path, "err", "Use a password of at least 10 characters.")
+
+        if verify_password(new, user.password_hash):
+            return back(path, "err", "That is already your password.")
+
+        store.set_user_password(user.id, hash_password(new))
+        # The password itself is never recorded, only that it changed.
+        store.record(user.email, "changed their password")
+
+        return back(path, "ok", "Password changed.")
+
     # ---- settings --------------------------------------------------------
 
     @router.get("/console/settings/sites", response_class=HTMLResponse)
@@ -472,6 +526,37 @@ def create_console(
         store.record(user.email, "added a user", None, email)
 
         return back(path, "ok", f"{email} can now sign in.")
+
+    @router.post("/console/settings/users/{user_id}/password")
+    async def reset_password(request: Request, user_id: int):
+        """An administrator setting someone else's password.
+
+        The other half of the same gap: without this, a forgotten password
+        needed a hand-generated hash and an environment variable.
+        """
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        if not user.is_admin:
+            return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
+
+        form = await request.form()
+        path = "/console/settings/users"
+        new = str(form.get("password") or "")
+        target = next((row for row in store.users() if row.id == user_id), None)
+
+        if target is None:
+            return back(path, "err", "No such user.")
+
+        if len(new) < 10:
+            return back(path, "err", "Use a password of at least 10 characters.")
+
+        store.set_user_password(user_id, hash_password(new))
+        store.record(user.email, "reset a password", None, target.email)
+
+        return back(path, "ok", f"{target.email} has a new password.")
 
     @router.post("/console/settings/users/{user_id}/disabled")
     async def set_user_disabled(request: Request, user_id: int):

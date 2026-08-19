@@ -113,6 +113,13 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
 .err { color:var(--bad); font-size:.82rem; margin-top:.2rem; }
 .actions { display:flex; gap:.5rem; align-items:center; margin-top:.4rem; }
 
+.filters { display:flex; gap:.35rem; flex-wrap:wrap; }
+.chip { font-size:.76rem; font-weight:600; padding:.2rem .55rem; border-radius:999px;
+  border:1px solid var(--line); color:var(--muted); background:#fff; white-space:nowrap; }
+.chip:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
+.chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.chip b { font-weight:700; }
+
 .login-wrap { display:flex; height:100%; overflow-y:auto; align-items:center; justify-content:center; padding:1.5rem; }
 .login { width:100%; max-width:23rem; }
 .login .brand { text-align:center; margin-bottom:1.1rem; }
@@ -170,7 +177,7 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
         {% else %}<b>{{ title }}</b>{% endif %}
       </span>
       <span class="spacer"></span>
-      <span class="who">{{ user.name }}{% if user.is_admin %} · admin{% endif %}</span>
+      <a class="who" href="/console/account">{{ user.name }}{% if user.is_admin %} · admin{% endif %}</a>
       <form method="post" action="/console/logout" style="margin:0">
         <button class="ghost" type="submit">Sign out</button>
       </form>
