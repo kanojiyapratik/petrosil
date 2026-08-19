@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import Store, StoredSite, StoredUser
 from .auth import SESSION_COOKIE, authenticate, hash_password, new_session, read_session, sign_session
 from .config import ConsoleConfigError, normalise_site_input
+from .crawl_now import crawl_site_now, describe
 from .site_client import SiteClient, SiteError
 
 # The site's own statuses, mirrored so the screen tells the truth about what
@@ -318,6 +319,38 @@ def create_console(
             f"Staged batch #{result.get('batch_id')} with {result.get('rows')} row(s). "
             "Nothing is committed yet.",
         )
+
+    @router.post("/console/sites/{slug}/crawler/check")
+    def check_now(request: Request, slug: str):
+        """The button that saves waiting a quarter of an hour after adding a
+        URL. Runs one pass, synchronously -- it takes seconds when the pages
+        have not changed, and an admin who pressed a button should see the
+        answer rather than be told to come back."""
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        site = store.site_by_slug(slug)
+
+        if site is None:
+            return RedirectResponse("/console", status_code=303)
+
+        path = f"/console/sites/{site.slug}/crawler"
+
+        try:
+            outcomes = crawl_site_now(site)
+        except Exception as error:  # noqa: BLE001 - report it, never 500 the screen
+            return back(path, "err", str(error))
+
+        store.record(
+            user.email,
+            "ran a crawl by hand",
+            site.slug,
+            f"{len(outcomes)} URL(s), {len([o for o in outcomes if o.used_ai])} read with AI",
+        )
+
+        return back(path, "ok", describe(outcomes))
 
     # ---- settings --------------------------------------------------------
 

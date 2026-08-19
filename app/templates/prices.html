@@ -80,7 +80,7 @@
             <td>{{ batch.source }}</td>
             <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
             <td><span class="badge {{ batch.tone }}">{{ batch.status }}</span></td>
-            <td class="small muted">{{ (batch.created_at or "—")[:16] | replace("T", " ") }}</td>
+            <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ batch.created_at[:16] | replace("T", " ") }} UTC</time>{% else %}—{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>

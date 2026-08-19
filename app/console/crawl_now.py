@@ -1,0 +1,108 @@
+"""Running a crawl pass on demand, from the console.
+
+The crawler normally runs on its own fifteen-minute loop. This is the "check
+now" button: after adding a URL, nobody wants to wait a quarter of an hour to
+find out whether it works.
+
+It exists at all because the module is one language now. The console can
+import the crawler's own runner and call it against a site, rather than
+shelling out or duplicating the logic -- the consolidation paying for itself.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+
+from scraper.ai import GeminiExtractor
+from scraper.config import DEFAULT_USER_AGENT
+from scraper.fetcher import Fetcher
+from scraper.runner import run_once
+from scraper.site import CrawlerSiteClient
+
+from ..db.store import StoredSite
+from .site_client import SiteClient
+
+logger = logging.getLogger("console.crawl")
+
+
+@dataclass(frozen=True)
+class PassConfig:
+    """The handful of settings run_once() reads. Deliberately not the
+    crawler's full Config: this pass gets its site from the console, not from
+    the environment."""
+
+    max_urls_per_run: int
+    max_region_chars: int
+
+
+def crawl_site_now(site: StoredSite) -> list:
+    """One pass over one site's watched URLs. Returns the outcomes.
+
+    Raises whatever the site client raises, so the screen can report why it
+    could not be done rather than claiming it was.
+    """
+    api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+
+    if api_key == "":
+        raise RuntimeError(
+            "No Gemini key is configured, so pages cannot be read. Set "
+            "GOOGLE_GENERATIVE_AI_API_KEY."
+        )
+
+    client = CrawlerSiteClient(
+        SiteClient(base_url=site.api_url, token=site.token, name=site.name)
+    )
+    fetcher = Fetcher(
+        user_agent=os.environ.get("CRAWL_USER_AGENT", DEFAULT_USER_AGENT),
+        timeout_seconds=int(os.environ.get("CRAWL_TIMEOUT_SECONDS", "30")),
+    )
+    extractor = GeminiExtractor(
+        api_key=api_key, model=os.environ.get("AI_MODEL", "gemini-2.5-flash")
+    )
+    config = PassConfig(
+        max_urls_per_run=int(os.environ.get("CRAWL_MAX_URLS", "50")),
+        max_region_chars=int(os.environ.get("CRAWL_MAX_REGION_CHARS", "8000")),
+    )
+
+    outcomes = run_once(client, fetcher, extractor, config)
+
+    for outcome in outcomes:
+        logger.info(
+            "%s -> %s (rows=%s ai=%s)", outcome.url, outcome.status, outcome.row_count,
+            "yes" if outcome.used_ai else "no",
+        )
+
+    return outcomes
+
+
+def describe(outcomes: list) -> str:
+    """A sentence an admin can act on, rather than a status vocabulary.
+
+    An unchanged pass is the normal, healthy outcome most of the time, so it
+    must not read like a failure.
+    """
+    if not outcomes:
+        return "No URLs are being watched, so there was nothing to check."
+
+    read = [o for o in outcomes if o.status == "read"]
+    unchanged = [o for o in outcomes if o.status == "unchanged"]
+    trouble = [o for o in outcomes if o.status in ("blocked", "disallowed", "failed")]
+    nothing = [o for o in outcomes if o.status == "no_rows"]
+
+    parts = [f"Checked {len(outcomes)} URL(s)."]
+
+    if read:
+        parts.append(f"{len(read)} had changed and were read.")
+
+    if unchanged:
+        parts.append(f"{len(unchanged)} had not changed.")
+
+    if nothing:
+        parts.append(f"{len(nothing)} had no prices to read.")
+
+    if trouble:
+        parts.append(f"{len(trouble)} could not be read — see the list below.")
+
+    return " ".join(parts)

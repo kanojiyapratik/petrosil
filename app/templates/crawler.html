@@ -10,6 +10,9 @@
   <div class="head">
     <h2>Watched URLs</h2><span class="spacer"></span>
     <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/check" style="margin:0">
+      <button class="ghost" type="submit">Check now</button>
+    </form>
   </div>
   <div class="body">
     <form method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
@@ -32,7 +35,7 @@
               {% if entry.last_notes %}<div class="quote">“{{ entry.last_notes }}”</div>{% endif %}
               {% if entry.last_error %}<div class="err">{{ entry.last_error }}</div>{% endif %}
             </td>
-            <td class="small muted">{{ (entry.last_checked_at or "—")[:16] | replace("T", " ") }}</td>
+            <td class="small muted">{% if entry.last_checked_at %}<time datetime="{{ entry.last_checked_at }}">{{ entry.last_checked_at[:16] | replace("T", " ") }} UTC</time>{% else %}not checked yet{% endif %}</td>
             <td><span class="badge {{ entry.tone }}">{{ entry.last_status_text }}</span></td>
           </tr>
         {% endfor %}
@@ -69,7 +72,7 @@
                 {% else %}<span class="badge {{ 'ok' if row.change_pct >= 0 else 'bad' }}">{{ '+' if row.change_pct >= 0 else '' }}{{ row.change_pct }}%</span>
                 {% endif %}
               </td>
-              <td class="small muted">{{ (row.detected_at or "—")[:16] | replace("T", " ") }}</td>
+              <td class="small muted">{% if row.detected_at %}<time datetime="{{ row.detected_at }}">{{ row.detected_at[:16] | replace("T", " ") }} UTC</time>{% else %}—{% endif %}</td>
             </tr>
           {% endfor %}
         </tbody>
