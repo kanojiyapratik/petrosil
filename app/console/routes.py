@@ -64,6 +64,7 @@ def tone_for(status: str | None) -> str:
 def create_console(
     *,
     store: Store,
+    providers=None,
     secret: str,
     templates: Jinja2Templates,
     secure_cookies: bool = True,
@@ -355,7 +356,7 @@ def create_console(
         without_ai = form.get("without_ai") in ("on", "1")
 
         try:
-            outcomes = crawl_site_now(site, use_rules=without_ai or None)
+            outcomes = crawl_site_now(site, use_rules=without_ai or None, providers=providers)
         except Exception as error:  # noqa: BLE001 - report it, never 500 the screen
             return back(path, "err", str(error))
 

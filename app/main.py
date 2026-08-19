@@ -16,13 +16,15 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .ai.gemini import GeminiDriver
+from .ai.providers import create_driver
 from .api import create_api
 from .console.config import ConsoleConfigError, parse_seed_sites, parse_seed_users
 from .console.routes import create_console
+from .console.routes_ai import create_ai_routes
 from .console.routes_prices import create_price_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
-from .db.store import Store, seed
+from .db.store import ProviderStore, Store, seed
 
 logger = logging.getLogger("module")
 
@@ -50,11 +52,26 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Petrosil price module", docs_url=None, redoc_url=None)
 
+    def configured_driver():
+        """The provider an admin chose, if the console is running."""
+        providers = getattr(app.state, "providers", None)
+
+        if providers is None:
+            return None
+
+        chosen = providers.default()
+
+        if chosen is None:
+            return None
+
+        return create_driver(chosen.provider, chosen.api_key, chosen.model)
+
     app.include_router(
         create_api(
             api_token=api_token,
             driver=GeminiDriver(api_key=api_key),
             default_model=os.environ.get("AI_DEFAULT_MODEL", "gemini-2.5-flash"),
+            driver_for=configured_driver,
         )
     )
 
@@ -152,7 +169,11 @@ def _mount_console(app: FastAPI) -> None:
 
         secure_cookies = os.environ.get("CONSOLE_INSECURE_COOKIES", "") != "1"
         console = create_console(
-            store=store, secret=secret, templates=TEMPLATES, secure_cookies=secure_cookies
+            store=store,
+            providers=ProviderStore(pool),
+            secret=secret,
+            templates=TEMPLATES,
+            secure_cookies=secure_cookies,
         )
 
         # The price screens need the same "who is asking" the console already
@@ -168,10 +189,26 @@ def _mount_console(app: FastAPI) -> None:
 
             return next((u for u in store.active_users() if u.email == session.email), None)
 
+        provider_store = ProviderStore(pool)
+
         app.include_router(console)
         app.include_router(
             create_price_routes(store=store, templates=TEMPLATES, current_user=current_user)
         )
+        app.include_router(
+            create_ai_routes(
+                store=store,
+                providers=provider_store,
+                templates=TEMPLATES,
+                current_user=current_user,
+            )
+        )
+
+        # The price-review API picks its model the same way the crawler does:
+        # from the database when the console is configured, from the
+        # environment otherwise. Setting it after the router is built means an
+        # admin changing the default takes effect without a redeploy.
+        app.state.providers = provider_store
 
         logger.info(
             "console enabled: %d user(s), %d site(s)", len(users), len(store.sites())

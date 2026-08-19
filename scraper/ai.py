@@ -138,6 +138,48 @@ def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
     return "\n".join(lines)
 
 
+class DriverExtractor:
+    """Extraction on top of whichever driver it is handed.
+
+    The provider is chosen on a screen now, so this must not know or care
+    which one it is talking to. Everything provider-shaped -- keys, retries,
+    redaction, the shape of the answer -- belongs to the driver.
+    """
+
+    def __init__(self, driver) -> None:
+        self._driver = driver
+
+    def extract(self, url: str, text: str, locations: list[str], today: str) -> Extraction:
+        prompt = build_prompt(url, text, locations, today)
+
+        try:
+            completion = self._driver.generate(prompt)
+        except Exception:
+            # Quota and provider errors both belong to the caller: the pass
+            # decides whether to stop asking.
+            raise
+
+        if completion.status != "complete" or not completion.text:
+            return Extraction(declined=True, error=completion.error or "No usable content.")
+
+        data = _extract_json(completion.text)
+
+        if data is None:
+            return Extraction(declined=True, error="The model did not return JSON.")
+
+        raw_rows = data.get("rows")
+
+        if not isinstance(raw_rows, list):
+            return Extraction(declined=True, error="The model's JSON had no usable rows array.")
+
+        notes = data.get("notes")
+
+        return Extraction(
+            rows=clean_rows(raw_rows, locations, today),
+            notes=notes if isinstance(notes, str) and notes.strip() else None,
+        )
+
+
 class GeminiExtractor:
     def __init__(
         self,

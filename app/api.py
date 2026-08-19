@@ -45,7 +45,10 @@ class PriceReviewRequest(BaseModel):
     model: str | None = None
 
 
-def create_api(*, api_token: str, driver, default_model: str) -> APIRouter:
+def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -> APIRouter:
+    """driver_for() lets the deployment choose a model per request -- the
+    console stores one in its database, and an admin changing it should not
+    need a redeploy. Falls back to the driver built at boot."""
     router = APIRouter()
 
     def authorise(authorization: str | None = Header(default=None)) -> None:
@@ -117,8 +120,21 @@ def create_api(*, api_token: str, driver, default_model: str) -> APIRouter:
         # returns a usable preview rather than nothing.
         status = 201
 
+        chosen = driver_for() if driver_for is not None else None
+        active = chosen or driver
+
+        if chosen is not None and body.model is None:
+            model = getattr(chosen, "model", model)
+
         try:
-            completion = driver.generate(model, render_prompt("price_batch", title, _present_summary(summary)))
+            prompt = render_prompt("price_batch", title, _present_summary(summary))
+            # The boot driver takes the model per call; a configured one
+            # already knows which model it is.
+            completion = (
+                active.generate(prompt)
+                if chosen is not None
+                else active.generate(model, prompt)
+            )
             analysis = {
                 "status": completion.status,
                 "output_markdown": completion.text,

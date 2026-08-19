@@ -76,6 +76,33 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX console_audit_site_idx ON console_audit (site_slug, created_at DESC);
         """,
     ),
+    Migration(
+        id="0003_ai_providers",
+        sql="""
+        -- Which AI reads pages and narrates batches, chosen from the screens
+        -- rather than baked into a deployment's environment.
+        CREATE TABLE console_ai_providers (
+          id          BIGSERIAL PRIMARY KEY,
+          name        TEXT NOT NULL,
+          provider    TEXT NOT NULL,
+          api_key     TEXT NOT NULL,
+          model       TEXT NOT NULL,
+          enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+          is_default  BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- Exactly one default, enforced by the database rather than by
+        -- remembering to clear the old one.
+        CREATE UNIQUE INDEX console_ai_one_default
+            ON console_ai_providers ((is_default)) WHERE is_default;
+
+        -- Which provider a site uses. NULL means the default.
+        ALTER TABLE console_sites
+            ADD COLUMN ai_provider_id BIGINT REFERENCES console_ai_providers(id);
+        """,
+    ),
 ]
 
 

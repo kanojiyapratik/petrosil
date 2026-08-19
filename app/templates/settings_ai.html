@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>AI</h1>
+<p class="lede">
+  Which model reads pages for the crawler and narrates a price batch. Add a key here rather than
+  in a deployment setting, and pick a different one per site if you want to.
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Add a provider</h2></div>
+  <div class="body">
+    <form method="post" action="/console/settings/ai">
+      <div class="fields">
+        <div class="field">
+          <label for="name">Name it</label>
+          <input id="name" name="name" placeholder="Gemini — paid key" required>
+          <p class="hint">Just for you, so two keys are tellable apart.</p>
+        </div>
+        <div class="field">
+          <label for="provider">Provider</label>
+          <select id="provider" name="provider" required onchange="showModels(this.value)">
+            {% for key, meta in catalogue.items() %}
+              <option value="{{ key }}">{{ meta.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model" name="model" required>
+          {% for key, meta in catalogue.items() %}
+            {% for m in meta.models %}
+              <option value="{{ m }}" data-provider="{{ key }}">{{ m }}</option>
+            {% endfor %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="api_key">API key</label>
+        <input id="api_key" name="api_key" type="password" required autocomplete="off">
+        <p class="hint" id="key-hint">
+          {% for key, meta in catalogue.items() %}<span data-provider="{{ key }}">{{ meta.key_hint }}</span>{% endfor %}
+        </p>
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="make_default" checked> Use this one by default</label>
+      </div>
+      <div class="actions"><button type="submit">Add provider</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Providers</h2></div>
+  {% if providers %}
+    <table>
+      <thead><tr><th>Name</th><th>Provider</th><th>Model</th><th>Key</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for p in providers %}
+          <tr>
+            <td><strong>{{ p.name }}</strong></td>
+            <td class="small">{{ catalogue.get(p.provider, {}).get("label", p.provider) }}</td>
+            <td class="small">
+              <form method="post" action="/console/settings/ai/{{ p.id }}" style="margin:0;display:flex;gap:.3rem">
+                <input type="hidden" name="name" value="{{ p.name }}">
+                <input type="hidden" name="enabled" value="{{ '1' if p.enabled else '0' }}">
+                <select name="model" style="min-width:11rem;padding:.25rem .4rem">
+                  {% for m in catalogue.get(p.provider, {}).get("models", [p.model]) %}
+                    <option value="{{ m }}" {% if m == p.model %}selected{% endif %}>{{ m }}</option>
+                  {% endfor %}
+                </select>
+                <input type="password" name="api_key" placeholder="new key (optional)"
+                  style="width:9rem;padding:.25rem .4rem" autocomplete="off">
+                <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
+              </form>
+            </td>
+            <td class="small muted">{{ p.masked_key }}</td>
+            <td>
+              {% if p.is_default %}<span class="badge ok">default</span>
+              {% elif p.enabled %}<span class="badge mute">enabled</span>
+              {% else %}<span class="badge bad">off</span>{% endif %}
+            </td>
+            <td>
+              <div style="display:flex;gap:.3rem">
+                <form method="post" action="/console/settings/ai/{{ p.id }}/test" style="margin:0">
+                  <button class="ghost" type="submit" style="padding:.25rem .5rem">Test</button>
+                </form>
+                {% if not p.is_default %}
+                  <form method="post" action="/console/settings/ai/{{ p.id }}/default" style="margin:0">
+                    <button class="ghost" type="submit" style="padding:.25rem .5rem">Make default</button>
+                  </form>
+                  <form method="post" action="/console/settings/ai/{{ p.id }}/delete" style="margin:0"
+                    onsubmit="return confirm('Remove this provider? Sites using it fall back to the default.')">
+                    <button class="danger" type="submit" style="padding:.25rem .5rem">Remove</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">
+      None yet. Without one, the crawler and the price review fall back to the key in the
+      deployment's environment — or do nothing if there is none.
+    </div>
+  {% endif %}
+</div>
+
+{% if sites %}
+  <div class="panel">
+    <div class="head"><h2>Which site uses which</h2></div>
+    <table>
+      <thead><tr><th>Site</th><th>Provider</th></tr></thead>
+      <tbody>
+        {% for site_row in sites %}
+          <tr>
+            <td><strong>{{ site_row.name }}</strong></td>
+            <td>
+              <form method="post" action="/console/settings/ai/site/{{ site_row.slug }}"
+                style="margin:0;display:flex;gap:.3rem">
+                <select name="provider_id" style="min-width:14rem;padding:.25rem .4rem">
+                  <option value="">Use the default</option>
+                  {% for p in providers %}
+                    <option value="{{ p.id }}" {% if assignments.get(site_row.slug) == p.id %}selected{% endif %}>
+                      {{ p.name }} ({{ p.model }})
+                    </option>
+                  {% endfor %}
+                </select>
+                <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+<script>
+// The model list and the key hint follow the chosen provider, so nobody picks
+// a Claude model for an OpenAI key.
+function showModels(provider) {
+  document.querySelectorAll('#model option').forEach(function (option) {
+    var mine = option.dataset.provider === provider;
+    option.hidden = !mine;
+    if (mine && document.getElementById('model').selectedOptions[0].hidden) option.selected = true;
+  });
+  document.querySelectorAll('#key-hint span').forEach(function (span) {
+    span.hidden = span.dataset.provider !== provider;
+  });
+}
+showModels(document.getElementById('provider').value);
+</script>
+{% endblock %}

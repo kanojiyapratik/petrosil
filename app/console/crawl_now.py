@@ -15,13 +15,14 @@ import logging
 import os
 from dataclasses import dataclass
 
-from scraper.ai import GeminiExtractor
+from scraper.ai import DriverExtractor
 from scraper.rules import RuleExtractor
 from scraper.config import DEFAULT_USER_AGENT
 from scraper.fetcher import Fetcher
 from scraper.runner import run_once
 from scraper.site import CrawlerSiteClient
 
+from ..ai.providers import create_driver
 from ..db.store import StoredSite
 from .site_client import SiteClient
 
@@ -38,13 +39,16 @@ class PassConfig:
     max_region_chars: int
 
 
-def crawl_site_now(site: StoredSite, use_rules: bool | None = None) -> list:
+def crawl_site_now(site: StoredSite, use_rules: bool | None = None, providers=None) -> list:
     """One pass over one site's watched URLs. Returns the outcomes.
 
     Raises whatever the site client raises, so the screen can report why it
     could not be done rather than claiming it was.
     """
-    api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+    # The provider this site was given on the AI screen, or the default, or
+    # -- for a deployment that has configured neither -- the environment.
+    chosen = providers.for_site(site.slug) if providers is not None else None
+    api_key = chosen.api_key if chosen else os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
 
     # The screen can ask for a run without the model; otherwise the
     # environment decides. Passing it in beats reading the environment here,
@@ -55,9 +59,9 @@ def crawl_site_now(site: StoredSite, use_rules: bool | None = None) -> list:
 
     if api_key == "" and not use_rules:
         raise RuntimeError(
-            "No Gemini key is configured, so pages cannot be read. Set "
-            "GOOGLE_GENERATIVE_AI_API_KEY, or CRAWL_EXTRACTOR=rules to check "
-            "without the model."
+            "No AI provider is configured, so pages cannot be read. Add one "
+            "under Settings > AI, or tick 'without AI' to check the crawler "
+            "on its own."
         )
 
     client = CrawlerSiteClient(
@@ -70,7 +74,13 @@ def crawl_site_now(site: StoredSite, use_rules: bool | None = None) -> list:
     extractor = (
         RuleExtractor()
         if use_rules
-        else GeminiExtractor(api_key=api_key, model=os.environ.get("AI_MODEL", "gemini-2.5-flash"))
+        else DriverExtractor(
+            create_driver(
+                chosen.provider if chosen else "gemini",
+                api_key,
+                chosen.model if chosen else os.environ.get("AI_MODEL", "gemini-2.5-flash"),
+            )
+        )
     )
     config = PassConfig(
         max_urls_per_run=int(os.environ.get("CRAWL_MAX_URLS", "50")),

@@ -248,3 +248,158 @@ def seed(store: Store, users: list[dict], sites: list[dict]) -> dict[str, int]:
         added_sites += 1
 
     return {"users": added_users, "sites": added_sites}
+
+
+@dataclass(frozen=True)
+class StoredProvider:
+    id: int
+    name: str
+    provider: str
+    api_key: str
+    model: str
+    enabled: bool
+    is_default: bool
+
+    @property
+    def masked_key(self) -> str:
+        """What the screen shows. The key is never rendered in full: it is on
+        a page an admin might screen-share, and it can be copied out of a form
+        field far more easily than it can be put back."""
+        if len(self.api_key) <= 8:
+            return "••••"
+
+        return f"{self.api_key[:4]}••••{self.api_key[-4:]}"
+
+
+PROVIDER_COLUMNS = "id, name, provider, api_key, model, enabled, is_default"
+
+
+def _to_provider(row) -> StoredProvider:
+    return StoredProvider(
+        id=int(row[0]),
+        name=row[1],
+        provider=row[2],
+        api_key=row[3],
+        model=row[4],
+        enabled=bool(row[5]),
+        is_default=bool(row[6]),
+    )
+
+
+class ProviderStore:
+    """The AI providers the console knows about.
+
+    Separate from Store only for readability; it shares the same pool.
+    """
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def all(self) -> list[StoredProvider]:
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                f"SELECT {PROVIDER_COLUMNS} FROM console_ai_providers "
+                "ORDER BY is_default DESC, lower(name)"
+            ).fetchall()
+
+        return [_to_provider(row) for row in rows]
+
+    def get(self, provider_id: int) -> StoredProvider | None:
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                f"SELECT {PROVIDER_COLUMNS} FROM console_ai_providers WHERE id = %s",
+                (provider_id,),
+            ).fetchone()
+
+        return _to_provider(row) if row else None
+
+    def default(self) -> StoredProvider | None:
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                f"SELECT {PROVIDER_COLUMNS} FROM console_ai_providers "
+                "WHERE is_default AND enabled"
+            ).fetchone()
+
+        return _to_provider(row) if row else None
+
+    def for_site(self, site_slug: str) -> StoredProvider | None:
+        """The site's own provider, or the default when it has not chosen."""
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                f"SELECT p.id, p.name, p.provider, p.api_key, p.model, p.enabled, p.is_default "
+                "FROM console_sites s "
+                "JOIN console_ai_providers p ON p.id = s.ai_provider_id "
+                "WHERE s.slug = %s AND p.enabled",
+                (site_slug,),
+            ).fetchone()
+
+        return _to_provider(row) if row else self.default()
+
+    def create(
+        self, name: str, provider: str, api_key: str, model: str, make_default: bool
+    ) -> StoredProvider:
+        with self._pool.connection() as connection:
+            if make_default:
+                # One default at a time; the unique index would refuse a
+                # second, so the old one steps down first.
+                connection.execute("UPDATE console_ai_providers SET is_default = FALSE")
+
+            row = connection.execute(
+                f"INSERT INTO console_ai_providers (name, provider, api_key, model, is_default) "
+                f"VALUES (%s, %s, %s, %s, %s) RETURNING {PROVIDER_COLUMNS}",
+                (name, provider, api_key, model, make_default),
+            ).fetchone()
+            connection.commit()
+
+        return _to_provider(row)
+
+    def update(
+        self, provider_id: int, name: str, model: str, api_key: str, enabled: bool
+    ) -> None:
+        # An empty key means "keep the stored one": the screen shows only a
+        # masked version, so an edit that submitted the mask would otherwise
+        # overwrite the real key with dots.
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_ai_providers SET name = %s, model = %s, enabled = %s, "
+                "api_key = CASE WHEN %s = '' THEN api_key ELSE %s END, updated_at = now() "
+                "WHERE id = %s",
+                (name, model, enabled, api_key, api_key, provider_id),
+            )
+            connection.commit()
+
+    def make_default(self, provider_id: int) -> None:
+        with self._pool.connection() as connection:
+            connection.execute("UPDATE console_ai_providers SET is_default = FALSE")
+            connection.execute(
+                "UPDATE console_ai_providers SET is_default = TRUE, enabled = TRUE, "
+                "updated_at = now() WHERE id = %s",
+                (provider_id,),
+            )
+            connection.commit()
+
+    def delete(self, provider_id: int) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_sites SET ai_provider_id = NULL WHERE ai_provider_id = %s",
+                (provider_id,),
+            )
+            connection.execute("DELETE FROM console_ai_providers WHERE id = %s", (provider_id,))
+            connection.commit()
+
+    def assign_to_site(self, site_slug: str, provider_id: int | None) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_sites SET ai_provider_id = %s, updated_at = now() WHERE slug = %s",
+                (provider_id, site_slug),
+            )
+            connection.commit()
+
+    def assignments(self) -> dict[str, int]:
+        """Which provider each site has chosen, for the settings screen."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT slug, ai_provider_id FROM console_sites WHERE ai_provider_id IS NOT NULL"
+            ).fetchall()
+
+        return {row[0]: int(row[1]) for row in rows}
