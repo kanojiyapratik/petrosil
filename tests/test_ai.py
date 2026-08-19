@@ -94,10 +94,10 @@ class TestBuildPrompt:
 
         assert "Gulf Coast, West Coast, Singapore" in prompt
         assert TODAY in prompt
-        assert "copied exactly from the tracked list" in prompt
+        assert "EVERY published price" in prompt
 
-    def test_says_so_when_nothing_restricts_it(self):
-        assert "Not restricted" in build_prompt("u", "t", [], TODAY)
+    def test_says_when_the_site_tracks_nothing(self):
+        assert "the site tracks none" in build_prompt("u", "t", [], TODAY)
 
 
 class TestCleanRows:
@@ -124,10 +124,30 @@ class TestCleanRows:
 
         assert rows[0].location == "Gulf Coast"
 
-    def test_drops_a_location_the_site_does_not_have(self):
-        rows = clean_rows([{"location": "Atlantis", "price": 9.0}], LOCATIONS, TODAY)
+    def test_keeps_a_label_the_site_does_not_have(self):
+        # It used to be dropped, which meant a page quoting "China 445"
+        # reported nothing at all and looked broken. What to do with an
+        # unfamiliar label is the site's decision, not this one's.
+        rows = clean_rows([{"location": "China", "price": 445}], LOCATIONS, TODAY)
 
-        assert rows == []
+        assert len(rows) == 1
+        assert rows[0].location == "China"
+        assert rows[0].price == 445
+
+    def test_snaps_to_site_wording_when_it_matches_and_keeps_page_wording_when_it_does_not(self):
+        rows = clean_rows(
+            [
+                {"location": "gulf coast", "price": 3.69},
+                {"location": "Base Oil UAE CFR", "price": 1937.55},
+            ],
+            LOCATIONS,
+            TODAY,
+        )
+
+        assert [row.location for row in rows] == ["Gulf Coast", "Base Oil UAE CFR"]
+
+    def test_still_drops_a_row_with_no_label_at_all(self):
+        assert clean_rows([{"location": "  ", "price": 9.0}], LOCATIONS, TODAY) == []
 
     def test_drops_a_blank_price_instead_of_publishing_a_zero(self):
         rows = clean_rows(

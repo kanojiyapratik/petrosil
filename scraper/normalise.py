@@ -130,3 +130,42 @@ def normalise_title(name) -> str:
         return ""
 
     return re.sub(r"\s+", " ", name.strip()).lower()
+
+
+def price_regions(
+    text: str, max_chars: int = 8000, max_windows: int = 4
+) -> list[Region]:
+    """Every part of the page that carries prices, not just the densest.
+
+    A single window round the thickest cluster misses prices that sit
+    elsewhere -- measured at 96% coverage on a long chart page, which means a
+    handful of real prices silently never reached the model. Windows are laid
+    down greedily from the first uncovered price until every one is inside a
+    window, or ``max_windows`` is reached.
+
+    The cap is a cost control, not a design: each window is one AI call, and
+    they are only ever spent on a page that has actually changed.
+    """
+    if len(text) <= max_chars:
+        return [Region(text=text, price_tokens=count_price_tokens(text))]
+
+    positions = [match.start() for match in PRICE_TOKEN.finditer(text)]
+
+    if not positions:
+        return [price_region(text, max_chars)]
+
+    windows: list[Region] = []
+    at = 0
+
+    while at < len(positions) and len(windows) < max_windows:
+        # Start a little before the first price this window will cover, so a
+        # table's header and its row labels come with it.
+        start = max(0, positions[at] - 300)
+        end = min(len(text), start + max_chars)
+        slice_ = text[start:end]
+        windows.append(Region(text=slice_, price_tokens=count_price_tokens(slice_)))
+
+        while at < len(positions) and positions[at] < end:
+            at += 1
+
+    return windows

@@ -51,7 +51,7 @@ class Extraction:
 
 def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
     """The extraction prompt. Deliberately narrow about what counts."""
-    wanted = ", ".join(locations) if locations else "Not restricted."
+    known = ", ".join(locations) if locations else "(the site tracks none)"
 
     lines = [
         "You extract published prices from a web page. Read only; do not "
@@ -59,13 +59,20 @@ def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
         "",
         f"Page: {url}",
         f"Today: {today}",
-        f"Locations this site tracks: {wanted}",
+        f"Locations this site already tracks: {known}",
         "",
         "Rules:",
         "- Return JSON only. No markdown, no commentary outside the JSON.",
         '- Shape: {"rows":[{"location":"...","date":"YYYY-MM-DD","price":123.45}],"notes":"..."}',
-        "- location MUST be copied exactly from the tracked list above. If a "
-        "price on the page belongs to no location in that list, leave it out.",
+        "- Return EVERY published price on the page, whichever region, grade "
+        "or product it belongs to. Do not leave one out because it is not in "
+        "the tracked list above.",
+        "- location is the label the page itself gives the price — its region, "
+        "grade or product name, copied as printed (for example 'China', "
+        "'Base Oil UAE CFR', 'SN 500 Europe').",
+        "- If a price clearly belongs to one of the tracked locations, use that "
+        "exact spelling so the site can match it. Otherwise keep the page's own "
+        "wording rather than inventing a mapping.",
         "- price must be a plain number: no currency symbol, no thousands "
         "separator, no units.",
         "- date is the date the page states the price applies to. Resolve "
@@ -234,12 +241,17 @@ def clean_rows(
 
         name = str(raw.get("location", "")).strip()
 
-        # A location the site does not have is dropped rather than stored: it
-        # would only ever land in the batch screen as `unmatched` noise.
-        location = canonical.get(normalise_title(name)) if canonical else name
-
-        if not location:
+        if not name:
             continue
+
+        # Snapped to the site's own spelling when it matches one, so the site
+        # can resolve it; otherwise kept exactly as the page printed it.
+        #
+        # Dropping unfamiliar labels here was the old behaviour, and it threw
+        # away the only record of what the page actually said -- a page
+        # quoting "China 445" reported nothing at all. What to do with a label
+        # the site does not recognise is the site's decision, not this one's.
+        location = canonical.get(normalise_title(name), name)
 
         date = str(raw.get("date") or "").strip()
 

@@ -102,3 +102,46 @@ class TestIntegerPrices:
 
         assert "₹ 205" in region.text
         assert "₹ 225" in region.text
+
+
+class TestPriceRegions:
+    def test_a_short_page_is_one_window(self):
+        from scraper.normalise import price_regions
+
+        regions = price_regions("Singapore 845.00", max_chars=8000)
+
+        assert len(regions) == 1
+        assert regions[0].text == "Singapore 845.00"
+
+    def test_prices_far_apart_get_a_window_each(self):
+        # A single window round the densest cluster silently dropped these.
+        from scraper.normalise import price_regions
+
+        gap = "filler text " * 900
+        text = f"Singapore 845.00 {gap} Rotterdam 712.25 {gap} Mumbai 600.50"
+        regions = price_regions(text, max_chars=2000)
+
+        covered = " ".join(region.text for region in regions)
+        assert "845.00" in covered
+        assert "712.25" in covered
+        assert "600.50" in covered
+
+    def test_every_price_on_the_page_is_covered(self):
+        from scraper.normalise import count_price_tokens, price_regions
+
+        gap = " words" * 700 + " "
+        text = gap.join(f"Item{i} {100 + i}.50" for i in range(5))
+        regions = price_regions(text, max_chars=1500, max_windows=8)
+        seen = sum(region.price_tokens for region in regions)
+
+        assert seen >= count_price_tokens(text)
+
+    def test_the_window_count_is_capped(self):
+        # Each window is an AI call; the cap is what stops a pathological page
+        # spending twenty of them.
+        from scraper.normalise import price_regions
+
+        gap = " words" * 700 + " "
+        text = gap.join(f"Item{i} {100 + i}.50" for i in range(20))
+
+        assert len(price_regions(text, max_chars=1200, max_windows=3)) == 3

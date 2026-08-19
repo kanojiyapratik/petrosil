@@ -17,7 +17,8 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 
-from .normalise import hash_text, html_to_text, price_region
+from .normalise import hash_text, html_to_text, price_regions
+from .ai import Extraction
 from .site import Sources, WatchedUrl
 
 logger = logging.getLogger(__name__)
@@ -123,8 +124,15 @@ def _check(
         )
         return outcome, outcome.to_payload()
 
-    region = price_region(html_to_text(fetched.html), config.max_region_chars)
-    content_hash = hash_text(region.text)
+    # Every part of the page that carries prices, not only the densest. One
+    # window silently missed prices that sat elsewhere; the hash covers all of
+    # them, so a change anywhere in what we read is a change.
+    regions = price_regions(
+        html_to_text(fetched.html),
+        config.max_region_chars,
+        getattr(config, "max_regions", 4),
+    )
+    content_hash = hash_text("\n".join(region.text for region in regions))
 
     if content_hash == watched.content_hash:
         # Served again, but the part carrying prices is byte-identical.
@@ -135,7 +143,35 @@ def _check(
             etag=fetched.etag, last_modified=fetched.last_modified
         )
 
-    extraction = extractor.extract(watched.url, region.text, locations, today)
+    # One extraction per window, merged. A page whose prices span two tables
+    # costs two calls, and only on a check where it actually changed.
+    rows_by_key: dict = {}
+    notes: list[str] = []
+    error = None
+    declined = False
+
+    for region in regions:
+        if region.price_tokens == 0:
+            continue
+
+        extraction = extractor.extract(watched.url, region.text, locations, today)
+
+        if extraction.error:
+            error = extraction.error
+            declined = extraction.declined
+
+        if extraction.notes:
+            notes.append(extraction.notes)
+
+        for row in extraction.rows:
+            rows_by_key.setdefault((row.location, row.date), row)
+
+    extraction = Extraction(
+        rows=list(rows_by_key.values()),
+        notes=" ".join(notes) or None,
+        declined=declined,
+        error=error,
+    )
 
     if extraction.error and not extraction.rows:
         outcome = Outcome(

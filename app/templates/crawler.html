@@ -60,9 +60,19 @@
         <tbody>
           {% for row in activity %}
             <tr>
-              <td><input type="checkbox" name="activity_ids" value="{{ row.id }}"
-                {% if row.differs_from_site %}checked{% endif %}></td>
-              <td>{{ row.location }}{% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}</td>
+              <td>
+                {% if row.location_id %}
+                  <input type="checkbox" name="activity_ids" value="{{ row.id }}"
+                    {% if row.differs_from_site %}checked{% endif %}>
+                {% else %}
+                  <span class="muted" title="This site has no location by that name, so it cannot be staged">–</span>
+                {% endif %}
+              </td>
+              <td>
+                {{ row.location }}
+                {% if not row.location_id %}<span class="badge mute">not a site location</span>{% endif %}
+                {% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}
+              </td>
               <td>{{ row.price_date or "—" }}</td>
               <td class="num"><strong>{{ row.price }}</strong></td>
               <td class="num">{% if row.site_price is none %}<span class="muted">none</span>{% else %}{{ row.site_price }}{% endif %}</td>
@@ -79,8 +89,11 @@
       </table>
       <div class="body">
         <p class="hint" style="margin-top:0">
-          Rows that differ from what the site holds are ticked for you. Nothing is committed until
-          you commit it on the preview screen.
+          Every price the pages published is listed, under the wording the page used. Rows marked
+          <strong>not a site location</strong> are recorded for reading only — this site has no
+          location by that name, so they cannot be staged. Of the rest, those that differ from what
+          the site holds are ticked for you, and nothing is committed until you commit it on the
+          preview screen.
         </p>
         <div class="actions"><button type="submit">Stage selected as a batch</button></div>
       </div>
