@@ -198,16 +198,59 @@ describe('createSiteClient', () => {
 })
 
 describe('the console', () => {
-  const consoleWith = async (overrides: Partial<Parameters<typeof createConsole>[0]> = {}) =>
-    createConsole({
-      sites: [SITE],
-      users: [
-        { email: 'rakesh@tikitech.in', name: 'Rakesh', passwordHash: await hashPassword('good-password') },
-      ],
+  const fakeStore = (users, sites) => {
+    const state = { users: [...users], sites: [...sites], audit: [] }
+
+    return {
+      users: async () => state.users,
+      activeUsers: async () => state.users.filter((u) => !u.disabledAt),
+      createUser: async (u) => {
+        const row = { ...u, id: state.users.length + 1, disabledAt: null }
+        state.users.push(row)
+        return row
+      },
+      setUserPassword: async () => undefined,
+      setUserDisabled: async (id, disabled) => {
+        const row = state.users.find((u) => u.id === id)
+        if (row) row.disabledAt = disabled ? '2026-01-01T00:00:00Z' : null
+      },
+      sites: async () => state.sites,
+      enabledSites: async () => state.sites.filter((s) => s.enabled),
+      siteBySlug: async (slug) => state.sites.find((s) => s.id === slug) ?? null,
+      upsertSite: async (s) => {
+        const row = { dbId: 1, id: s.slug, name: s.name, apiUrl: s.apiUrl, token: s.apiToken, enabled: s.enabled }
+        const at = state.sites.findIndex((e) => e.id === s.slug)
+        if (at === -1) state.sites.push(row); else state.sites[at] = row
+        return row
+      },
+      record: async (e) => { state.audit.push(e) },
+      audit: async () => state.audit,
+      _state: state,
+    }
+  }
+
+  const consoleWith = async (overrides = {}) => {
+    const users = overrides.users ?? [
+      {
+        id: 1,
+        email: 'rakesh@tikitech.in',
+        name: 'Rakesh',
+        passwordHash: await hashPassword('good-password'),
+        isAdmin: true,
+        disabledAt: null,
+      },
+    ]
+    const sites = overrides.sites ?? [{ ...SITE, dbId: 1, enabled: true }]
+    delete overrides.users
+    delete overrides.sites
+
+    return createConsole({
+      store: fakeStore(users, sites),
       secret: SECRET,
       secureCookies: false,
       ...overrides,
     })
+  }
 
   const signIn = async (app: Awaited<ReturnType<typeof consoleWith>>) => {
     const response = await app.request('/login', {

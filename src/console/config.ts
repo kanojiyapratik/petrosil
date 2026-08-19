@@ -130,3 +130,53 @@ function requireString(value: unknown, where: string): string {
 
   return value
 }
+
+export interface SiteInput {
+  slug: string
+  name: string
+  apiUrl: string
+  apiToken: string
+  enabled: boolean
+}
+
+/**
+ * Validates a site as typed into the settings screen.
+ *
+ * Same rules as the env-var form, in one place, because a site added through
+ * the UI has to be exactly as trustworthy as one that came from the
+ * environment -- the console sends a site's token to whatever apiUrl says.
+ */
+export function normaliseSiteInput(input: SiteInput): SiteInput {
+  const slug = input.slug.trim().toLowerCase()
+  const apiUrl = input.apiUrl.trim().replace(/\/+$/, '')
+
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+    throw new ConsoleConfigError(
+      'The short name must be lowercase letters, digits and dashes — it appears in the address bar.',
+    )
+  }
+
+  let parsed: URL
+
+  try {
+    parsed = new URL(apiUrl)
+  } catch {
+    throw new ConsoleConfigError(`That API address is not a URL: ${input.apiUrl}`)
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new ConsoleConfigError('The API address must be http or https.')
+  }
+
+  if (input.name.trim() === '') {
+    throw new ConsoleConfigError('Give the site a name.')
+  }
+
+  return {
+    slug,
+    name: input.name.trim(),
+    apiUrl,
+    apiToken: input.apiToken.trim(),
+    enabled: input.enabled,
+  }
+}

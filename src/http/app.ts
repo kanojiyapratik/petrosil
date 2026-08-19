@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { renderPrompt } from '../ai/prompt.js'
 import type { AiDriver } from '../ai/types.js'
+import type { ConsoleApp } from '../console/routes.js'
 import { diffPrices } from '../price-review/differ.js'
 import { summarise } from '../price-review/summariser.js'
 import type { DiffedRow, PriceSummary } from '../price-review/types.js'
@@ -12,7 +13,7 @@ export interface AppOptions {
   driver: AiDriver
   defaultModel: string
   /** The admin console. Absent when this deployment serves the API only. */
-  console?: Hono | null
+  console?: ConsoleApp | null
 }
 
 /** Snake_case on the wire — the callers are PHP sites. */
