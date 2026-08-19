@@ -282,3 +282,65 @@ class TestGeminiExtractor:
 def test_ai_provider_error_is_a_runtime_error():
     with pytest.raises(RuntimeError):
         raise AiProviderError("x")
+
+
+class TestExplainFailure:
+    """A provider error goes on a screen, so it has to fit on one."""
+
+    class FakeResponse:
+        def __init__(self, status_code, payload=None, text=""):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = text
+
+        def json(self):
+            if self._payload is None:
+                raise ValueError("no json")
+
+            return self._payload
+
+    def test_a_quota_refusal_becomes_one_sentence_with_the_wait(self):
+        # Google sends about a thousand characters of nested JSON for this.
+        from scraper.ai import explain_failure
+
+        message = explain_failure(
+            self.FakeResponse(
+                429,
+                {
+                    "error": {
+                        "message": "You exceeded your current quota...\n* Quota exceeded for metric",
+                        "details": [
+                            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "31s"}
+                        ],
+                    }
+                },
+            )
+        )
+
+        assert message == "Gemini quota exceeded — the API key has hit its limit. Try again in about 31s."
+        assert len(message) < 120
+
+    def test_a_rejected_key_says_so_plainly(self):
+        from scraper.ai import explain_failure
+
+        assert explain_failure(self.FakeResponse(403, {"error": {"message": "bad key"}})) == (
+            "Gemini rejected the API key."
+        )
+
+    def test_any_other_failure_keeps_the_first_line_of_the_detail(self):
+        from scraper.ai import explain_failure
+
+        message = explain_failure(
+            self.FakeResponse(400, {"error": {"message": "Invalid argument\nsecond line"}})
+        )
+
+        assert "Invalid argument" in message
+        assert "second line" not in message
+
+    def test_a_non_json_body_is_still_reported(self):
+        from scraper.ai import explain_failure
+
+        message = explain_failure(self.FakeResponse(502, None, "<html>gateway</html>"))
+
+        assert "502" in message
+        assert len(message) <= 300

@@ -413,6 +413,38 @@ def create_console(
 
         return back(path, "ok", "Password changed.")
 
+    @router.post("/console/sites/{slug}/crawler/clear")
+    def clear_findings(request: Request, slug: str):
+        """Forget what the pages have said so far.
+
+        Findings pile up from diagnostic runs and from sources that turned out
+        to publish something other than prices. Nothing here touches a price --
+        activity is only a record of what a page said -- but the pages are all
+        re-read afterwards, since their history no longer exists to compare
+        against.
+        """
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        site = store.site_by_slug(slug)
+
+        if site is None:
+            return RedirectResponse("/console", status_code=303)
+
+        path = f"/console/sites/{site.slug}/crawler"
+
+        try:
+            result = client_for(site).clear_activity()
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        removed = result.get("removed", 0)
+        store.record(user.email, "cleared crawler findings", site.slug, f"{removed} row(s)")
+
+        return back(path, "ok", f"Cleared {removed} finding(s). The pages will be read afresh.")
+
     # ---- settings --------------------------------------------------------
 
     @router.get("/console/settings/sites", response_class=HTMLResponse)

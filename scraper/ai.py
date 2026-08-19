@@ -49,6 +49,40 @@ class Extraction:
     error: str | None = None
 
 
+def explain_failure(response) -> str:
+    """One sentence, not the provider's entire JSON.
+
+    This message is stored against the URL and shown on the crawler screen. A
+    quota refusal arrives as roughly a thousand characters of nested JSON, and
+    pasting that into a table buries the only two things that matter: what
+    went wrong, and what to do about it.
+    """
+    detail = ""
+    retry = ""
+
+    try:
+        body = response.json()
+        error = body.get("error") or {}
+        detail = str(error.get("message") or "").split("\n")[0].strip()
+
+        for item in error.get("details") or []:
+            if str(item.get("@type", "")).endswith("RetryInfo"):
+                retry = str(item.get("retryDelay") or "")
+    except Exception:  # noqa: BLE001 - a non-JSON error body is still an error
+        detail = (getattr(response, "text", "") or "")[:160].strip()
+
+    if response.status_code == 429:
+        # By far the most common failure, and the one with a clear action.
+        wait = f" Try again in about {retry}." if retry else ""
+
+        return f"Gemini quota exceeded — the API key has hit its limit.{wait}"
+
+    if response.status_code in (401, 403):
+        return "Gemini rejected the API key."
+
+    return f"Gemini answered HTTP {response.status_code}: {detail or 'no detail given'}"[:300]
+
+
 def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
     """The extraction prompt. Deliberately narrow about what counts."""
     known = ", ".join(locations) if locations else "(the site tracks none)"
@@ -196,12 +230,7 @@ class GeminiExtractor:
                     continue
 
             if not response.ok:
-                raise AiProviderError(
-                    self._redact(
-                        f"Gemini request failed with HTTP {response.status_code}: "
-                        f"{response.text}"
-                    )
-                )
+                raise AiProviderError(self._redact(explain_failure(response)))
 
             try:
                 return response.json()

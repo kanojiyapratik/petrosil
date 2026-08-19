@@ -98,6 +98,9 @@ class SiteClient:
     def activity(self, limit: int = 50) -> dict:
         return self._request("GET", f"/price-crawl/activity?limit={limit}")
 
+    def clear_activity(self) -> dict:
+        return self._request("POST", "/price-crawl/activity/clear", json={})
+
     def stage(self, activity_ids: list[int]) -> dict:
         return self._request(
             "POST", "/price-crawl/activity/stage", json={"activity_ids": activity_ids}
