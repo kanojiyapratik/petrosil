@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from .normalise import hash_text, html_to_text, price_regions
+from .pdf import looks_like_pdf, pdf_to_text
 from .ai import Extraction
 from .site import Sources, WatchedUrl
 
@@ -124,11 +125,19 @@ def _check(
         )
         return outcome, outcome.to_payload()
 
+    # A PDF is read as a PDF and then treated exactly like a page: same price
+    # regions, same hash, same model. Some publishers put their assessments in
+    # one, and those sources used to read as nothing at all.
+    if looks_like_pdf(fetched.content_type, fetched.body):
+        text = pdf_to_text(fetched.body)
+    else:
+        text = html_to_text(fetched.html)
+
     # Every part of the page that carries prices, not only the densest. One
     # window silently missed prices that sat elsewhere; the hash covers all of
     # them, so a change anywhere in what we read is a change.
     regions = price_regions(
-        html_to_text(fetched.html),
+        text,
         config.max_region_chars,
         getattr(config, "max_regions", 4),
     )

@@ -35,6 +35,10 @@ class FetchResult:
     etag: str | None = None
     last_modified: str | None = None
     error: str | None = None
+    # Kept alongside the decoded text because a PDF has to be read as bytes,
+    # and what the server called it is worth having for when it lies.
+    body: bytes = b""
+    content_type: str = ""
 
 
 class Fetcher:
@@ -64,7 +68,7 @@ class Fetcher:
 
         headers = {
             "user-agent": self._user_agent,
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept": "text/html,application/xhtml+xml,application/pdf,*/*;q=0.8",
             "accept-language": "en-US,en;q=0.9",
         }
 
@@ -112,6 +116,8 @@ class Fetcher:
             html=response.text,
             etag=response.headers.get("etag"),
             last_modified=response.headers.get("last-modified"),
+            body=response.content,
+            content_type=response.headers.get("content-type", ""),
         )
 
     def is_allowed(self, url: str) -> tuple[bool, str | None]:

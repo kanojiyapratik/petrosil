@@ -7,10 +7,13 @@ ROBOTS_OPEN = "User-agent: *\nDisallow: /admin"
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, text="", headers=None):
+    def __init__(self, status_code=200, text="", headers=None, content=None):
         self.status_code = status_code
         self.text = text
         self.headers = headers or {}
+        # The fetcher keeps the raw bytes as well as the decoded text, so a
+        # PDF can be read as one.
+        self.content = content if content is not None else text.encode("utf-8")
 
     @property
     def ok(self):

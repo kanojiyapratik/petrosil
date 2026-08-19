@@ -57,7 +57,7 @@ class FakeExtractor:
         self.calls = []
 
     def extract(self, url, text, locations, today):
-        self.calls.append({"url": url, "locations": locations, "today": today})
+        self.calls.append({"url": url, "text": text, "locations": locations, "today": today})
 
         return self._results.pop(0)
 
@@ -257,3 +257,46 @@ class TestFailures:
         )
 
         assert len(outcomes) == 2
+
+
+class TestPdfSources:
+    """A PDF source behaves like any other watched URL once it is read."""
+
+    def _pdf_page(self):
+        from tests.test_pdf import build_pdf
+
+        return FetchResult(
+            status="ok",
+            http_status=200,
+            html="",  # requests decodes the bytes as mojibake; nothing usable
+            body=build_pdf(["Europe SN 500 FOB Group I 845.00"]),
+            content_type="application/pdf",
+            etag='W/"pdf"',
+        )
+
+    def test_a_pdf_is_read_and_its_rows_reported(self):
+        client = FakeClient(watched())
+        extractor = FakeExtractor(rows(("Europe SN 500 FOB Group I", 845.0)))
+
+        outcomes = run(client, FakeFetcher(self._pdf_page()), extractor)
+
+        assert outcomes[0].status == STATUS_READ
+        # What reached the model was the PDF's text, not the empty html field.
+        assert "845.00" in extractor.calls[0]["text"]
+        assert client.reported[0]["rows"][0]["price"] == 845.0
+
+    def test_an_unchanged_pdf_costs_no_ai_call(self):
+        from scraper.normalise import hash_text, price_regions
+        from scraper.pdf import pdf_to_text
+
+        page = self._pdf_page()
+        text = pdf_to_text(page.body)
+        digest = hash_text("\n".join(r.text for r in price_regions(text, 8000, 4)))
+
+        client = FakeClient(watched(content_hash=digest))
+        extractor = FakeExtractor()
+
+        outcomes = run(client, FakeFetcher(page), extractor)
+
+        assert outcomes[0].status == STATUS_UNCHANGED
+        assert extractor.calls == []
