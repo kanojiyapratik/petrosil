@@ -11,6 +11,8 @@ export interface AppOptions {
   apiToken: string
   driver: AiDriver
   defaultModel: string
+  /** The admin console. Absent when this deployment serves the API only. */
+  console?: Hono | null
 }
 
 /** Snake_case on the wire — the callers are PHP sites. */
@@ -28,6 +30,13 @@ const requestSchema = z.object({
 
 export function createApp(options: AppOptions) {
   const app = new Hono()
+
+  // Mounted before the bearer-token middleware below, and deliberately so:
+  // the console authenticates people with a session cookie, not the machine
+  // token that guards /api.
+  if (options.console) {
+    app.route('/console', options.console)
+  }
 
   /**
    * Every route sits behind one shared bearer token. Fails closed: an empty

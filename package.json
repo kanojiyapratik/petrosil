@@ -13,7 +13,8 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "console:hash": "tsx src/console/hash-password.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
