@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Batch #{{ envelope.batch.id }}</h1>
+<p class="lede">
+  {{ envelope.batch.source }} · <span class="badge {{ tone_for(envelope.batch.status) }}">{{ envelope.batch.status }}</span>
+  · {{ items | length }} row{{ "" if items | length == 1 else "s" }}
+</p>
+
+<div class="panel">
+  <div class="head">
+    <h2>Summary</h2><span class="spacer"></span>
+    {% if envelope.committable %}
+      <span class="badge ok">ready to commit</span>
+    {% else %}
+      <span class="badge warn">{{ envelope.needs_attention }} row(s) need attention</span>
+    {% endif %}
+  </div>
+  <div class="body">
+    {% if summary_counts %}
+      {% for status, count in summary_counts %}
+        <span style="margin-right:1rem"><span class="badge {{ tone_for(status) }}">{{ status }}</span> {{ count }}</span>
+      {% endfor %}
+    {% else %}
+      <span class="empty">Nothing staged.</span>
+    {% endif %}
+  </div>
+  {% if draft %}
+    <div class="body" style="border-top:1px solid var(--line)">
+      <div class="actions">
+        <form method="post" action="{{ base }}/{{ envelope.batch.id }}/commit" style="margin:0"
+          onsubmit="return confirm('Commit this batch to live prices?')">
+          <button type="submit" {% if not envelope.committable %}disabled{% endif %}>Commit to live prices</button>
+        </form>
+        <form method="post" action="{{ base }}/{{ envelope.batch.id }}/discard" style="margin:0"
+          onsubmit="return confirm('Discard this batch? Nothing will be published.')">
+          <button class="ghost" type="submit">Discard</button>
+        </form>
+      </div>
+      {% if envelope.committable %}
+        <p class="hint">Every included row is clean. Committing writes them to the site's live prices.</p>
+      {% else %}
+        <p class="hint">
+          Rows marked <strong>ambiguous</strong>, <strong>unmatched</strong> or <strong>invalid</strong>
+          block a commit while they are included. Fix them, or untick them to leave them out.
+        </p>
+      {% endif %}
+    </div>
+  {% elif envelope.batch.status == "committed" %}
+    <div class="body" style="border-top:1px solid var(--line)">
+      <form method="post" action="{{ base }}/{{ envelope.batch.id }}/rollback" style="margin:0"
+        onsubmit="return confirm('Roll this batch back? Live prices return to what they were.')">
+        <button class="danger" type="submit">Roll back</button>
+      </form>
+      <p class="hint">Restores every price this batch changed to what it was before.</p>
+    </div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Rows</h2></div>
+  {% if items %}
+    <table>
+      <thead><tr>
+        <th>In</th><th>Location</th><th>Date</th>
+        <th class="num">Now</th><th class="num">New</th><th class="num">Move</th>
+        <th>Status</th>{% if draft %}<th></th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for item in items %}
+          {% set action = base ~ "/" ~ envelope.batch.id ~ "/items/" ~ item.id %}
+          <tr>
+            <td>
+              {% if draft %}
+                <form method="post" action="{{ action }}" style="margin:0">
+                  <input type="hidden" name="is_included" value="{{ '0' if item.is_included else '1' }}">
+                  <button class="link" type="submit"
+                    title="{{ 'Leave this row out' if item.is_included else 'Put this row back in' }}">
+                    {{ "&#9745;" | safe if item.is_included else "&#9744;" | safe }}
+                  </button>
+                </form>
+              {% else %}
+                {{ "&#9745;" | safe if item.is_included else "&#9744;" | safe }}
+              {% endif %}
+            </td>
+            <td>
+              {% if item.location %}{{ item.location }}{% else %}<span class="muted">{{ item.raw_location or "—" }}</span>{% endif %}
+              {% if not item.location and item.raw_location %}<div class="quote">read as &ldquo;{{ item.raw_location }}&rdquo;</div>{% endif %}
+              {% if item.error_message %}<div class="err">{{ item.error_message }}</div>{% endif %}
+            </td>
+            <td class="small">{{ item.pricedate or "—" }}</td>
+            <td class="num">{% if item.old_price is none %}<span class="muted">none</span>{% else %}{{ item.old_price }}{% endif %}</td>
+            <td class="num">
+              {% if draft and item.status in value_editable %}
+                <form method="post" action="{{ action }}" style="margin:0;display:flex;gap:.3rem;justify-content:flex-end">
+                  <input type="number" step="any" name="new_price" value="{{ item.new_price }}" style="width:7rem;padding:.25rem .4rem">
+                  <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
+                </form>
+              {% else %}<strong>{{ item.new_price }}</strong>{% endif %}
+            </td>
+            <td class="num">
+              {% if item.delta_pct is none %}<span class="muted">—</span>
+              {% else %}
+                <span class="badge {{ 'ok' if item.delta_pct >= 0 else 'bad' }}">{{ '+' if item.delta_pct >= 0 else '' }}{{ item.delta_pct }}%</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge {{ tone_for(item.status) }}">{{ item.status }}</span>
+              {% if item.status in needs_attention and item.is_included %}<div class="quote">blocks commit</div>{% endif %}
+            </td>
+            {% if draft %}
+              <td>
+                {% if item.status in ("unmatched", "ambiguous") %}
+                  <form method="post" action="{{ action }}" style="margin:0;display:flex;gap:.3rem">
+                    <select name="location_id" style="min-width:11rem;padding:.25rem .4rem">
+                      <option value="">Pick a location…</option>
+                      {% for location in locations %}<option value="{{ location.id }}">{{ location.title }}</option>{% endfor %}
+                    </select>
+                    <button class="ghost" type="submit" style="padding:.25rem .5rem">Set</button>
+                  </form>
+                {% endif %}
+              </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">No rows.</div>
+  {% endif %}
+</div>
+{% endblock %}

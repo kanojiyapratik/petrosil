@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block shell %}
+<div class="login-wrap">
+  <div class="login">
+    <div class="brand">
+      <strong>Petrosil price console</strong>
+      <span>Prices and crawlers, for every site</span>
+    </div>
+    <div class="panel"><div class="body">
+      {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+      <form method="post" action="/console/login">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" style="width:100%">Sign in</button>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

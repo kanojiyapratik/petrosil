@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Crawler</h1>
+<p class="lede">
+  Each URL is checked every {{ interval_minutes }} minutes and read with AI. Nothing is published:
+  findings appear below and you stage them like any other batch.
+</p>
+
+<div class="panel">
+  <div class="head">
+    <h2>Watched URLs</h2><span class="spacer"></span>
+    <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
+  </div>
+  <div class="body">
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
+      <textarea name="text" spellcheck="false" placeholder="https://example.com/base-oil-prices">
+{%- for entry in urls %}{% if entry.enabled %}{{ entry.url }}
+{% endif %}{% endfor %}</textarea>
+      <p class="hint">One per line. Removing a line stops the watch — its history is kept, not deleted.</p>
+      <div class="actions"><button type="submit">Save URLs</button></div>
+    </form>
+  </div>
+  {% if urls %}
+    <table>
+      <thead><tr><th>URL</th><th>Last check</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for entry in urls %}
+          <tr>
+            <td class="wrap">
+              {{ entry.url }}
+              {% if not entry.enabled %}<span class="badge mute">stopped</span>{% endif %}
+              {% if entry.last_notes %}<div class="quote">“{{ entry.last_notes }}”</div>{% endif %}
+              {% if entry.last_error %}<div class="err">{{ entry.last_error }}</div>{% endif %}
+            </td>
+            <td class="small muted">{{ (entry.last_checked_at or "—")[:16] | replace("T", " ") }}</td>
+            <td><span class="badge {{ entry.tone }}">{{ entry.last_status_text }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="head">
+    <h2>Price changes found</h2><span class="spacer"></span>
+    {% if activity %}<span class="badge ok">{{ activity | length }}</span>{% endif %}
+  </div>
+  {% if activity %}
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/stage">
+      <table>
+        <thead><tr>
+          <th></th><th>Location</th><th>Price date</th>
+          <th class="num">On the page</th><th class="num">Site holds</th>
+          <th class="num">Move</th><th>Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for row in activity %}
+            <tr>
+              <td><input type="checkbox" name="activity_ids" value="{{ row.id }}"
+                {% if row.differs_from_site %}checked{% endif %}></td>
+              <td>{{ row.location }}{% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}</td>
+              <td>{{ row.price_date or "—" }}</td>
+              <td class="num"><strong>{{ row.price }}</strong></td>
+              <td class="num">{% if row.site_price is none %}<span class="muted">none</span>{% else %}{{ row.site_price }}{% endif %}</td>
+              <td class="num">
+                {% if row.change_type == "new" %}<span class="badge mute">first seen</span>
+                {% elif row.change_pct is none %}<span class="badge warn">changed</span>
+                {% else %}<span class="badge {{ 'ok' if row.change_pct >= 0 else 'bad' }}">{{ '+' if row.change_pct >= 0 else '' }}{{ row.change_pct }}%</span>
+                {% endif %}
+              </td>
+              <td class="small muted">{{ (row.detected_at or "—")[:16] | replace("T", " ") }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="body">
+        <p class="hint" style="margin-top:0">
+          Rows that differ from what the site holds are ticked for you. Nothing is committed until
+          you commit it on the preview screen.
+        </p>
+        <div class="actions"><button type="submit">Stage selected as a batch</button></div>
+      </div>
+    </form>
+  {% else %}
+    <div class="body empty">
+      No price changes yet. Only movement is recorded, so this stays empty until a watched page
+      actually moves a price.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

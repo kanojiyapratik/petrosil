@@ -21,7 +21,9 @@ from . import config as config_module
 from .ai import GeminiExtractor
 from .fetcher import Fetcher
 from .runner import run_once
-from .site import SiteClient, SiteError
+from app.console.site_client import SiteClient, SiteError
+
+from .site import CrawlerSiteClient
 
 logger = logging.getLogger("crawler")
 
@@ -56,10 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    client = SiteClient(
-        base_url=config.site_api_url,
-        token=config.site_api_token,
-        timeout_seconds=config.site_timeout_seconds,
+    client = CrawlerSiteClient(
+        SiteClient(
+            base_url=config.site_api_url,
+            token=config.site_api_token,
+            timeout_seconds=config.site_timeout_seconds,
+        )
     )
     fetcher = Fetcher(user_agent=config.user_agent, timeout_seconds=config.timeout_seconds)
     extractor = GeminiExtractor(api_key=config.api_key, model=config.model)

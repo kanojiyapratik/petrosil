@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Sites</h1>
+<p class="lede">
+  Each site is reached over its own API with its own token. Adding one here is all it takes — no redeploy.
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Add or update a site</h2></div>
+  <div class="body">
+    <form method="post" action="/console/settings/sites">
+      <div class="fields">
+        <div class="field">
+          <label for="name">Website name</label>
+          <input id="name" name="name" placeholder="Base Oil Report" required>
+        </div>
+        <div class="field">
+          <label for="slug">Short name</label>
+          <input id="slug" name="slug" placeholder="baseoil" pattern="[a-z0-9][a-z0-9-]*" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="api_url">API address</label>
+        <input id="api_url" name="api_url" placeholder="https://baseoilreport.com/api" required>
+      </div>
+      <div class="field">
+        <label for="api_token">API token</label>
+        <input id="api_token" name="api_token" placeholder="the site's users.api_token">
+        <p class="hint">Leave blank when updating an existing site to keep its current token.</p>
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+      </div>
+      <div class="actions"><button type="submit">Save site</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Configured sites</h2></div>
+  {% if sites %}
+    <table>
+      <thead><tr><th>Name</th><th>Short name</th><th>API address</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for entry in sites %}
+          <tr>
+            <td><strong>{{ entry.name }}</strong></td>
+            <td class="small muted">{{ entry.slug }}</td>
+            <td class="wrap small">{{ entry.api_url }}</td>
+            <td>
+              {% if entry.enabled %}<span class="badge ok">enabled</span>
+              {% else %}<span class="badge mute">off</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">None yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
