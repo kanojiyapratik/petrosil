@@ -54,12 +54,16 @@
 <div class="panel">
   <div class="head">
     <h2>Price changes found</h2><span class="spacer"></span>
-    {% if activity %}<span class="badge ok">{{ activity | length }}</span>
-      <form method="post" action="/console/sites/{{ site.slug }}/crawler/clear" style="margin:0"
-        onsubmit="return confirm('Forget every finding listed here? No price is affected — the pages will simply be read afresh.')">
-        <button class="ghost" type="submit">Clear</button>
-      </form>
-    {% endif %}
+    {% if activity %}<span class="badge ok">{{ activity | length }}</span>{% endif %}
+    {# Shown whether or not there are findings: it also resets each page's
+       stored hash, which is how you force a fresh read of everything. #}
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/clear" style="margin:0"
+      onsubmit="return confirm('Forget every finding below and read all the pages afresh next time? No price is affected.')">
+      <button class="ghost" type="submit"
+        title="Removes the findings listed here and forgets each page's stored hash, so every page is read again on the next check">
+        Clear &amp; re-read
+      </button>
+    </form>
   </div>
   {% if activity %}
     <form method="post" action="/console/sites/{{ site.slug }}/crawler/stage">
