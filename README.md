@@ -38,7 +38,7 @@ tests/              pytest
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest -q                          # 134 tests, no network
-uvicorn app.main:app --reload --port 8094    # API + console
+uvicorn app.main:create_app --factory --reload --port 8094    # API + console
 python -m scraper.main --once                # one crawl pass
 ```
 

@@ -19,4 +19,4 @@ COPY scraper ./scraper
 ENV PYTHONUNBUFFERED=1
 
 # Railway injects PORT; the shell form is what expands it.
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8094}
+CMD uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}

@@ -173,3 +173,47 @@ class TestPriceReviews:
 
         assert driver.calls[0]["model"] == "gemini-2.5-pro"
         assert post(client_for(driver)).json()["analysis"]["model"] == "gemini-2.5-flash"
+
+
+class TestEntryPoints:
+    """The module is opened in a browser as often as it is called by a site.
+
+    These drive the real create_app(), not a stand-in, because the point is
+    what someone gets when they open the deployment's URL.
+    """
+
+    def _client(self, monkeypatch):
+        from app.main import create_app
+
+        monkeypatch.setenv("PRICE_API_TOKEN", TOKEN)
+        monkeypatch.setenv("GOOGLE_GENERATIVE_AI_API_KEY", "k")
+        # No DATABASE_URL: the console stays off, so this needs no database.
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("CONSOLE_SECRET", raising=False)
+
+        return TestClient(create_app())
+
+    def test_the_root_sends_a_browser_to_the_console(self, monkeypatch):
+        # It used to answer {"detail":"Not Found"}, which reads as a broken
+        # deployment rather than "you want /console".
+        response = self._client(monkeypatch).get("/", follow_redirects=False)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == "/console"
+
+    def test_an_unknown_page_is_a_page_not_json(self, monkeypatch):
+        response = self._client(monkeypatch).get("/nonsense")
+
+        assert response.status_code == 404
+        assert "text/html" in response.headers["content-type"]
+        assert "Go to the console" in response.text
+
+    def test_an_unknown_api_path_is_still_json(self, monkeypatch):
+        # The callers there are PHP sites parsing JSON.
+        response = self._client(monkeypatch).get("/api/nonsense")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
+
+    def test_health_answers_without_a_token(self, monkeypatch):
+        assert self._client(monkeypatch).get("/health").json() == {"ok": True}

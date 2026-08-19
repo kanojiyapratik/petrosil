@@ -11,7 +11,8 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .ai.gemini import GeminiDriver
@@ -60,6 +61,30 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         return {"ok": True}
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        """The module's front door is the console.
+
+        Without this, the root answered FastAPI's default {"detail":"Not
+        Found"} -- which reads as a broken deployment to anyone who opens the
+        URL in a browser rather than as "you want /console".
+        """
+        return RedirectResponse("/console", status_code=307)
+
+    @app.exception_handler(404)
+    def not_found(request: Request, _exc):
+        """A machine gets JSON, a person gets a page.
+
+        The API's callers are PHP sites parsing JSON, so /api must keep
+        answering JSON; everything else is opened in a browser.
+        """
+        if request.url.path.startswith("/api"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+        return TEMPLATES.TemplateResponse(
+            request, "notfound.html", {"path": request.url.path}, status_code=404
+        )
 
     _mount_console(app)
 
@@ -156,4 +181,6 @@ def _mount_console(app: FastAPI) -> None:
         sys.exit(1)
 
 
-app = create_app()
+# No module-level app: create_app() checks its environment and exits when the
+# configuration is wrong, so importing this module would kill anything that
+# imported it -- a test runner included. uvicorn is pointed at the factory.
