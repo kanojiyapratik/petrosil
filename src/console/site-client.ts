@@ -58,6 +58,30 @@ export interface CrawlActivity {
   detected_at: string | null
 }
 
+export interface BatchItem {
+  id: number
+  raw_location: string | null
+  location_id: number | null
+  location: string | null
+  pricedate: string | null
+  currency: string | null
+  old_price: number | null
+  new_price: number
+  delta: number | null
+  delta_pct: number | null
+  status: string
+  is_included: boolean
+  error_message: string | null
+}
+
+export interface BatchEnvelope {
+  batch: { id: number; status: string; source: string; created_at: string | null }
+  summary: Record<string, number>
+  needs_attention: number
+  committable: boolean
+  items?: BatchItem[]
+}
+
 export interface BatchSummary {
   id: number
   source: string
@@ -129,6 +153,47 @@ export function createSiteClient(site: ConsoleSite, options: SiteClientOptions =
     }
   }
 
+  /**
+   * Multipart, for the one endpoint that takes a file. Content-Type is left
+   * to fetch on purpose: it has to append the multipart boundary, and setting
+   * the header by hand produces a body the site cannot parse.
+   */
+  async function requestForm<T>(path: string, form: FormData): Promise<T> {
+    let response: Response
+
+    try {
+      response = await fetchImpl(`${site.apiUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${site.token}`,
+          accept: 'application/json',
+          'user-agent': userAgent,
+        },
+        body: form,
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+    } catch (error) {
+      throw new SiteError(
+        `${site.name} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+
+    const payload = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      // The site's own validation message is the useful part here -- "the
+      // file must be xlsx, xls or csv" beats "HTTP 422".
+      const message =
+        payload && typeof payload === 'object' && 'message' in payload
+          ? String((payload as { message: unknown }).message)
+          : `HTTP ${response.status}`
+
+      throw new SiteError(`${site.name} rejected the upload: ${message}`, response.status)
+    }
+
+    return payload as T
+  }
+
   return {
     site,
 
@@ -152,7 +217,43 @@ export function createSiteClient(site: ConsoleSite, options: SiteClientOptions =
         { activity_ids: activityIds },
       ),
 
-    batches: () => request<{ data: BatchSummary[] }>('GET', '/price-batches'),
+    batches: () =>
+      request<{ data: BatchSummary[]; meta?: unknown }>('GET', '/price-batches'),
+
+    batch: (id: number) => request<BatchEnvelope>('GET', `/price-batches/${id}`),
+
+    /**
+     * Forwards the admin's file to the site untouched.
+     *
+     * The console never reads the spreadsheet: parsing it is the site's job,
+     * because the site is what knows its own locations and date formats. This
+     * is a relay, not a parser.
+     */
+    uploadBatch: async (file: File, priceDate: string): Promise<BatchEnvelope> => {
+      const form = new FormData()
+      form.append('file', file, file.name)
+
+      if (priceDate !== '') {
+        form.append('pricedate', priceDate)
+      }
+
+      return requestForm<BatchEnvelope>('/price-batches/upload', form)
+    },
+
+    bulkBatch: (params: Record<string, string | number[]>) =>
+      request<BatchEnvelope>('POST', '/price-batches/bulk', params),
+
+    updateItem: (id: number, patch: Record<string, unknown>) =>
+      request<{ item: BatchItem }>('PUT', `/price-batches/items/${id}`, patch),
+
+    commitBatch: (id: number) =>
+      request<Record<string, unknown>>('POST', `/price-batches/${id}/commit`, {}),
+
+    rollbackBatch: (id: number) =>
+      request<Record<string, unknown>>('POST', `/price-batches/${id}/rollback`, {}),
+
+    discardBatch: (id: number) =>
+      request<Record<string, unknown>>('POST', `/price-batches/${id}/discard`, {}),
 
     locations: () => request<{ data: Array<{ id: number; title: string }> }>('GET', '/locations'),
   }

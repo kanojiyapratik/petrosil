@@ -193,7 +193,7 @@ export function layout(chrome: Chrome, body: Html) {
 </html>`
 }
 
-const flashOf = (flash?: Flash) =>
+export const flashOf = (flash?: Flash) =>
   flash ? html`<div class="flash ${flash.kind === 'ok' ? 'ok' : 'bad'}">${flash.text}</div>` : ''
 
 export const loginPage = (error?: string) => html`<!doctype html>
@@ -296,7 +296,7 @@ const statusBadge = (url: WatchedUrl) => {
   return html`<span class="badge ${kind}">${url.last_status_text}</span>`
 }
 
-const when = (iso: string | null | undefined) =>
+export const when = (iso: string | null | undefined) =>
   iso ? iso.replace('T', ' ').slice(0, 16) : '—'
 
 export interface CrawlerPageData {

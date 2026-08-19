@@ -16,6 +16,7 @@ import {
   settingsPage,
   usersPage,
 } from './views.js'
+import { registerPriceRoutes } from './routes-prices.js'
 
 /** Typed so the signed-in user can ride on the request. */
 type ConsoleEnv = { Variables: { user: StoredUser } }
@@ -243,21 +244,13 @@ export function createConsole(options: ConsoleOptions) {
     }
   })
 
-  app.get('/sites/:id/prices', async (c) => {
-    const site = await siteOr404(c)
-
-    if (site instanceof Response) {
-      return site
-    }
-
-    return c.html(
-      errorPage(
-        'Update prices',
-        'Not built yet. Upload, bulk edit and the preview screen move here next; until then they are still on the site itself.',
-        userOf(c),
-      ),
-      501,
-    )
+  registerPriceRoutes(app, {
+    store,
+    clientOptions: options.clientOptions ?? {},
+    siteOr404,
+    userOf,
+    redirectWith,
+    flashOf,
   })
 
   // ---- settings ----------------------------------------------------------
