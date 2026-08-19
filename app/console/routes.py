@@ -50,6 +50,7 @@ STATUS_TONE = {
     "blocked": "bad",
     "disallowed": "bad",
     "failed": "bad",
+    "gone": "bad",
 }
 
 NEEDS_ATTENTION = ("ambiguous", "unmatched", "invalid")

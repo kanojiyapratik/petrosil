@@ -17,9 +17,10 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 
+from .deadpage import looks_gone
 from .normalise import hash_text, html_to_text, price_regions
 from .pdf import looks_like_pdf, pdf_to_text
-from .ai import Extraction
+from .ai import AiQuotaExhausted, Extraction
 from .site import Sources, WatchedUrl
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,11 @@ STATUS_NO_ROWS = "no_rows"
 STATUS_DISALLOWED = "disallowed"
 STATUS_BLOCKED = "blocked"
 STATUS_FAILED = "failed"
+# A 200 that is really a missing page. Its own status, because "no prices"
+# and "this URL is gone" need very different responses from a person.
+STATUS_GONE = "gone"
+# Not attempted, because the key ran out earlier in this same pass.
+STATUS_NO_QUOTA = "failed"
 
 
 @dataclass(frozen=True)
@@ -82,12 +88,30 @@ def run_once(client, fetcher, extractor, config, today: str | None = None) -> li
 
     outcomes: list[Outcome] = []
     payloads: list[dict] = []
+    out_of_quota = ""
 
     for watched in sources.urls[: config.max_urls_per_run]:
         try:
+            # Once the key is refused, every further call is refused too, so
+            # the model is taken off the table for the rest of the pass. The
+            # page is still fetched: everything before the model is free, and
+            # a dead URL or an unchanged page is worth knowing about even on
+            # a day when nothing can be read.
             outcome, payload = _check(
-                watched, fetcher, extractor, sources.locations, today, config
+                watched,
+                fetcher,
+                extractor,
+                sources.locations,
+                today,
+                config,
+                model_available=not out_of_quota,
+                quota_message=out_of_quota,
             )
+        except AiQuotaExhausted as error:
+            out_of_quota = str(error)
+            logger.warning("quota exhausted — skipping the model for the rest of this pass")
+            outcome = Outcome(watched.id, watched.url, STATUS_FAILED, used_ai=True, error=str(error))
+            payload = outcome.to_payload()
         except Exception as error:  # noqa: BLE001 - one bad URL must not end the pass
             logger.exception("Checking %s failed", watched.url)
             outcome = Outcome(watched.id, watched.url, STATUS_FAILED, error=str(error))
@@ -102,7 +126,14 @@ def run_once(client, fetcher, extractor, config, today: str | None = None) -> li
 
 
 def _check(
-    watched: WatchedUrl, fetcher, extractor, locations: list[str], today: str, config
+    watched: WatchedUrl,
+    fetcher,
+    extractor,
+    locations: list[str],
+    today: str,
+    config,
+    model_available: bool = True,
+    quota_message: str = "",
 ) -> tuple[Outcome, dict]:
     fetched = fetcher.fetch(
         watched.url, etag=watched.etag, last_modified=watched.last_modified
@@ -142,6 +173,20 @@ def _check(
         getattr(config, "max_regions", 4),
     )
     content_hash = hash_text("\n".join(region.text for region in regions))
+    tokens = sum(region.price_tokens for region in regions)
+
+    # A missing page that answers 200 would otherwise be reported as "no
+    # prices found", which is what a living page with no prices reports too.
+    # Checked before the hash so a URL that dies is called out on the very
+    # next check rather than after it has changed again.
+    if looks_gone(text, tokens):
+        outcome = Outcome(
+            watched.id,
+            watched.url,
+            STATUS_GONE,
+            error="The page answered normally but says it does not exist — the URL has probably moved.",
+        )
+        return outcome, outcome.to_payload()
 
     if content_hash == watched.content_hash:
         # Served again, but the part carrying prices is byte-identical.
@@ -151,6 +196,17 @@ def _check(
         return outcome, outcome.to_payload(
             etag=fetched.etag, last_modified=fetched.last_modified
         )
+
+    if not model_available:
+        # The page changed and there is no model left to read it with. No
+        # hash is stored, so it will be read properly once the quota returns.
+        outcome = Outcome(
+            watched.id,
+            watched.url,
+            STATUS_FAILED,
+            error=f"Changed, but not read: {quota_message}",
+        )
+        return outcome, outcome.to_payload()
 
     # One extraction per window, merged. A page whose prices span two tables
     # costs two calls, and only on a check where it actually changed.

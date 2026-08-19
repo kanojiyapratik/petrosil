@@ -300,3 +300,111 @@ class TestPdfSources:
 
         assert outcomes[0].status == STATUS_UNCHANGED
         assert extractor.calls == []
+
+
+class TestDeadPagesAndQuota:
+    def _page(self, html):
+        return FetchResult(status="ok", http_status=200, html=html, etag='W/"x"')
+
+    def test_a_404_served_with_a_200_is_called_out(self):
+        # Seen live: a watched URL started returning "Page Not Found" with a
+        # 200, and the screen said "no prices found" for days.
+        from scraper.runner import STATUS_GONE
+
+        client = FakeClient(watched())
+        extractor = FakeExtractor()
+
+        outcomes = run(client, FakeFetcher(self._page("<h1>Page Not Found</h1>")), extractor)
+
+        assert outcomes[0].status == STATUS_GONE
+        assert "does not exist" in outcomes[0].error
+        # No model call, and no hash: the URL is not "seen", it is wrong.
+        assert extractor.calls == []
+        assert "content_hash" not in client.reported[0]
+
+    def test_a_live_page_with_no_prices_is_not_called_dead(self):
+        from scraper.runner import STATUS_NO_ROWS
+
+        client = FakeClient(watched())
+        page = self._page("<p>Our weekly assessment will be published on Friday.</p>")
+
+        outcomes = run(client, FakeFetcher(page), FakeExtractor())
+
+        assert outcomes[0].status != "gone"
+
+    def test_the_pass_stops_asking_once_the_quota_is_gone(self):
+        # Each further call is refused anyway, and on a free tier of twenty a
+        # day, spending them to find that out again is the whole problem.
+        from scraper.ai import AiQuotaExhausted
+
+        class QuotaExtractor:
+            def __init__(self):
+                self.calls = 0
+
+            def extract(self, url, text, locations, today):
+                self.calls += 1
+                raise AiQuotaExhausted("Gemini quota exceeded — the API key has hit its limit.")
+
+        client = FakeClient(watched(1), watched(2), watched(3))
+        extractor = QuotaExtractor()
+
+        outcomes = run(
+            client,
+            FakeFetcher(ok_page(), ok_page(), ok_page()),
+            extractor,
+        )
+
+        assert extractor.calls == 1
+        assert len(outcomes) == 3
+        # Still fetched — everything before the model is free — but not read.
+        assert "not read" in (outcomes[1].error or "")
+        assert "quota" in (outcomes[2].error or "").lower()
+
+    def test_nothing_is_marked_seen_when_the_quota_ran_out(self):
+        from scraper.ai import AiQuotaExhausted
+
+        class QuotaExtractor:
+            def extract(self, url, text, locations, today):
+                raise AiQuotaExhausted("out of quota")
+
+        client = FakeClient(watched(1), watched(2))
+
+        run(client, FakeFetcher(ok_page(), ok_page()), QuotaExtractor())
+
+        for report in client.reported:
+            assert "content_hash" not in report
+
+
+class TestQuotaStillDoesTheFreeWork:
+    """Running out of quota must not blind the crawler to everything else."""
+
+    def test_a_dead_url_is_still_spotted_with_no_quota_left(self):
+        from scraper.ai import AiQuotaExhausted
+        from scraper.runner import STATUS_GONE
+
+        class QuotaExtractor:
+            def extract(self, url, text, locations, today):
+                raise AiQuotaExhausted("out of quota")
+
+        client = FakeClient(watched(1), watched(2))
+        pages = FakeFetcher(
+            ok_page(),  # first URL burns the quota
+            FetchResult(status="ok", http_status=200, html="<h1>Page Not Found</h1>"),
+        )
+
+        outcomes = run(client, pages, QuotaExtractor())
+
+        assert outcomes[1].status == STATUS_GONE
+
+    def test_an_unchanged_page_is_still_reported_unchanged(self):
+        from scraper.ai import AiQuotaExhausted
+
+        class QuotaExtractor:
+            def extract(self, url, text, locations, today):
+                raise AiQuotaExhausted("out of quota")
+
+        client = FakeClient(watched(1), watched(2, content_hash=hash_of(PRICED_HTML)))
+
+        outcomes = run(client, FakeFetcher(ok_page(), ok_page()), QuotaExtractor())
+
+        assert outcomes[1].status == STATUS_UNCHANGED

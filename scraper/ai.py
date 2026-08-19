@@ -30,6 +30,15 @@ _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _NOT_NUMERIC = re.compile(r"[^0-9eE.+-]")
 
 
+class AiQuotaExhausted(RuntimeError):
+    """The key is out of quota.
+
+    Distinct from a general provider failure because it is not about this
+    page: every further call in the pass will be refused too, so the pass
+    should stop asking rather than burn the retries finding out.
+    """
+
+
 class AiProviderError(RuntimeError):
     """A provider failure. Its message is always redacted — see below."""
 
@@ -161,6 +170,9 @@ class GeminiExtractor:
 
         try:
             payload = self._generate(prompt)
+        except AiQuotaExhausted:
+            # Raised, not swallowed: the pass has to know to stop asking.
+            raise
         except AiProviderError as error:
             return Extraction(error=str(error))
 
@@ -224,13 +236,19 @@ class GeminiExtractor:
                     self._redact(f"Gemini request failed: {error}")
                 ) from error
 
-            if response.status_code == 429 or response.status_code >= 500:
-                if attempt < MAX_ATTEMPTS:
-                    self._sleep(self._backoff * attempt)
-                    continue
+            # A 5xx is worth retrying; a quota refusal is not -- the answer
+            # will be the same, and the daily limit counts the attempts.
+            if response.status_code >= 500 and attempt < MAX_ATTEMPTS:
+                self._sleep(self._backoff * attempt)
+                continue
 
             if not response.ok:
-                raise AiProviderError(self._redact(explain_failure(response)))
+                message = self._redact(explain_failure(response))
+
+                if response.status_code == 429:
+                    raise AiQuotaExhausted(message)
+
+                raise AiProviderError(message)
 
             try:
                 return response.json()
