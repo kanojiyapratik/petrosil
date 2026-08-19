@@ -199,3 +199,14 @@ class TestCrawlerShim:
 
         assert CrawlerSiteClient(client(session)).report([]) == []
         assert session.calls == []
+
+
+def test_an_ngrok_tunnel_does_not_serve_its_interstitial_instead_of_json():
+    """We send a browser user-agent to get past baseoil's .htaccess, and ngrok
+    answers browser-shaped requests with its own HTML warning page carrying a
+    200. The two workarounds cancel out unless the skip header goes too."""
+    session = FakeSession(FakeResponse({"data": []}))
+
+    client(session).locations()
+
+    assert session.calls[0]["headers"]["ngrok-skip-browser-warning"] == "true"

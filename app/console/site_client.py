@@ -155,6 +155,12 @@ class SiteClient:
             "authorization": f"Bearer {self._token}",
             "accept": "application/json",
             "user-agent": self._user_agent,
+            # A site reached through an ngrok tunnel would otherwise answer
+            # ngrok's own interstitial page -- HTML, with a 200 -- because we
+            # send a browser user-agent to get past baseoil's .htaccess
+            # firewall. Two workarounds that cancel each other out. Harmless
+            # anywhere else: an unknown request header is ignored.
+            "ngrok-skip-browser-warning": "true",
         }
 
         try:
