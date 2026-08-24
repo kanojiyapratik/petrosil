@@ -68,6 +68,11 @@ PROVIDERS = {
         "models": ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"],
         "key_hint": "An API key from console.anthropic.com, starting sk-ant-",
     },
+    "groq": {
+        "label": "Groq",
+        "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        "key_hint": "A free API key from console.groq.com, starting gsk_",
+    },
 }
 
 
@@ -315,7 +320,21 @@ class AnthropicDriver(_Driver):
         )
 
 
-DRIVERS = {"gemini": GeminiDriver, "openai": OpenAiDriver, "anthropic": AnthropicDriver}
+class GroqDriver(OpenAiDriver):
+    """Groq speaks OpenAI's chat-completions dialect on its own host. It is
+    offered because its free tier lets the OpenAI-style flow be exercised
+    without a paid key."""
+
+    name = "Groq"
+    base_url = "https://api.groq.com/openai"
+
+
+DRIVERS = {
+    "gemini": GeminiDriver,
+    "openai": OpenAiDriver,
+    "anthropic": AnthropicDriver,
+    "groq": GroqDriver,
+}
 
 
 def create_driver(provider: str, api_key: str, model: str, **kwargs) -> _Driver:

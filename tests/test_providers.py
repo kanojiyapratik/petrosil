@@ -121,6 +121,26 @@ class TestEachApiIsCalledItsOwnWay:
         assert session.calls[0]["json"]["max_tokens"] > 0
 
 
+class TestGroqSpeaksOpenAisDialect:
+    """Groq exists to let the OpenAI-style flow be tested on a free key: same
+    request and answer shape as OpenAI, different host."""
+
+    def test_groq_calls_its_own_host_with_a_bearer_header(self):
+        session = FakeSession(FakeResponse(OPENAI_OK))
+        driver("groq", session).generate("hi")
+
+        assert session.calls[0]["url"] == "https://api.groq.com/openai/v1/chat/completions"
+        assert session.calls[0]["headers"]["authorization"] == "Bearer secret-key"
+
+    def test_groq_answers_the_same_shape_as_the_others(self):
+        result = driver("groq", FakeSession(FakeResponse(OPENAI_OK))).generate("hi")
+
+        assert result.status == "complete"
+        assert result.text == "hello"
+        assert result.prompt_tokens == 10
+        assert result.completion_tokens == 3
+
+
 class TestFailures:
     def test_a_quota_refusal_is_its_own_error_and_is_not_retried(self):
         # Retrying spends the very allowance that ran out.
