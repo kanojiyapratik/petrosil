@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+SHEET_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 
 
 def document_to_text(filename: str, body: bytes) -> str:
@@ -30,6 +31,9 @@ def document_to_text(filename: str, body: bytes) -> str:
     if name.endswith(".docx"):
         return _docx_to_text(body)
 
+    if name.endswith(".xlsx"):
+        return _xlsx_to_text(body)
+
     if name.endswith(".pdf"):
         from scraper.pdf import pdf_to_text
 
@@ -39,6 +43,53 @@ def document_to_text(filename: str, body: bytes) -> str:
         return body.decode("utf-8", errors="replace").strip()
 
     return ""
+
+
+def _xlsx_to_text(body: bytes) -> str:
+    """Cell text, one line per row -- enough for the model to read a price
+    table. Text lives in xl/sharedStrings.xml (how Excel stores it) or inline;
+    numbers sit in the cell itself."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            names = archive.namelist()
+            shared = []
+
+            if "xl/sharedStrings.xml" in names:
+                for item in ET.fromstring(archive.read("xl/sharedStrings.xml")).iter(
+                    f"{SHEET_NS}si"
+                ):
+                    shared.append(
+                        "".join(node.text or "" for node in item.iter(f"{SHEET_NS}t"))
+                    )
+
+            lines = []
+
+            for name in sorted(n for n in names if n.startswith("xl/worksheets/") and n.endswith(".xml")):
+                for row in ET.fromstring(archive.read(name)).iter(f"{SHEET_NS}row"):
+                    cells = []
+
+                    for cell in row.iter(f"{SHEET_NS}c"):
+                        kind = cell.get("t")
+                        value = cell.find(f"{SHEET_NS}v")
+
+                        if kind == "s":
+                            at = int(value.text) if value is not None and (value.text or "").isdigit() else -1
+                            cells.append(shared[at] if 0 <= at < len(shared) else "")
+                        elif kind == "inlineStr":
+                            cells.append(
+                                "".join(node.text or "" for node in cell.iter(f"{SHEET_NS}t"))
+                            )
+                        else:
+                            cells.append(value.text or "" if value is not None else "")
+
+                    line = " | ".join(cell for cell in cells if cell.strip())
+
+                    if line:
+                        lines.append(line)
+
+            return "\n".join(lines)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError, ValueError):
+        return ""
 
 
 def _docx_to_text(body: bytes) -> str:

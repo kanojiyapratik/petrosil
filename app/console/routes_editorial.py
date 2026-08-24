@@ -142,7 +142,7 @@ def create_editorial_routes(
         if not texts:
             return screen(
                 request, user, site,
-                {"error": "No document could be read. Upload .docx, .pdf or .txt files."}, 422,
+                {"error": "No document could be read. Upload .docx, .xlsx, .pdf or .txt files."}, 422,
             )
 
         # The site's current prices, over its API -- the module reads no site

@@ -39,6 +39,40 @@ def build_docx(paragraphs: list[str]) -> bytes:
     return buffer.getvalue()
 
 
+SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def build_xlsx(rows: list[list[str]]) -> bytes:
+    """A minimal, valid xlsx: worksheet cells referencing shared strings."""
+    strings: list[str] = []
+    body = ""
+
+    for row_at, row in enumerate(rows, start=1):
+        cells = ""
+
+        for col_at, value in enumerate(row):
+            strings.append(value)
+            ref = f"{chr(65 + col_at)}{row_at}"
+            cells += f'<c r="{ref}" t="s"><v>{len(strings) - 1}</v></c>'
+
+        body += f'<row r="{row_at}">{cells}</row>'
+
+    shared = "".join(f"<si><t>{s}</t></si>" for s in strings)
+    buffer = io.BytesIO()
+
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            f'<sst xmlns="{SHEET_NS}" count="{len(strings)}">{shared}</sst>',
+        )
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            f'<worksheet xmlns="{SHEET_NS}"><sheetData>{body}</sheetData></worksheet>',
+        )
+
+    return buffer.getvalue()
+
+
 class TestDocumentToText:
     def test_reads_the_paragraphs_out_of_a_docx(self):
         docx = build_docx(["Weekly Asia Base Oil Price Report", "SN150 fell by $60/t"])
@@ -61,9 +95,27 @@ class TestDocumentToText:
 
         assert "845.00" in text
 
+    def test_reads_the_cells_out_of_an_xlsx(self):
+        # Market data often arrives as a spreadsheet -- the owner's own sample
+        # was one. Shared strings are how Excel actually stores text.
+        xlsx = build_xlsx(
+            [
+                ["Location", "Assessment"],
+                ["Singapore SN 150 FOB Group I", "USD 1,540-1,580/MT"],
+            ]
+        )
+
+        text = document_to_text("Sample Market Report.xlsx", xlsx)
+
+        assert "Singapore SN 150 FOB Group I" in text
+        assert "1,540-1,580" in text
+        # Cells of one row stay on one line, rows stay apart.
+        assert text.index("Assessment") < text.index("Singapore")
+
     def test_a_broken_or_unknown_file_returns_nothing_rather_than_raising(self):
         assert document_to_text("report.docx", b"not a zip") == ""
-        assert document_to_text("report.xlsx", b"whatever") == ""
+        assert document_to_text("report.xlsx", b"not a zip") == ""
+        assert document_to_text("report.exe", b"whatever") == ""
         assert document_to_text("report", b"") == ""
 
 

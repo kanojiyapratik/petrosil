@@ -2,7 +2,7 @@
 {% block content %}
 <h1>AI editorial update</h1>
 <p class="lede">
-  Upload market reports (docx, pdf or txt — e.g. the weekly Lube Report). The model drafts a
+  Upload market reports (docx, xlsx, pdf or txt — e.g. the weekly Lube Report). The model drafts a
   suggested price per live location, checked against the latest price {{ site.name }} holds.
   You review the draft here; staged rows become a normal draft batch on the site, committed
   from the batch screen.
@@ -17,7 +17,7 @@
       <div class="fields">
         <div class="field">
           <label for="documents">Reports (up to 5, 10 MB each)</label>
-          <input id="documents" type="file" name="documents" accept=".docx,.pdf,.txt" multiple required>
+          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required>
         </div>
         <div class="field">
           <label for="pricedate">Price date</label>

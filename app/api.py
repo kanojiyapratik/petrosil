@@ -235,7 +235,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
 
         if not texts:
             return invalid(
-                {"documents": ["No document could be read. Upload .docx, .pdf or .txt files."]}
+                {"documents": ["No document could be read. Upload .docx, .xlsx, .pdf or .txt files."]}
             )
 
         locations = [entry.location for entry in body.current_prices]
