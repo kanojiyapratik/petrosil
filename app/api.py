@@ -283,6 +283,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
             parsed = ParsedSuggestions()
 
         rows = build_rows(locations, current, parsed)
+        near_matches = sum(1 for row in rows if row["status"] == "near_match")
 
         return JSONResponse(
             {
@@ -291,10 +292,11 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
                     "price_date": body.price_date,
                     "total_locations": len(locations),
                     "suggested": sum(1 for row in rows if row["status"] == "suggested"),
+                    "near_match": near_matches,
                     "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
                     "invalid": sum(1 for row in rows if row["status"] == "invalid"),
                     "flagged": sum(1 for row in rows if row["flag"] is not None),
-                    "dropped_unknown": parsed.dropped_unknown,
+                    "dropped_unknown": len(parsed.unmatched) - near_matches,
                 },
                 "analysis": analysis,
             },

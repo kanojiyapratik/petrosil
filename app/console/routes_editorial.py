@@ -200,13 +200,15 @@ def create_editorial_routes(
             else ParsedSuggestions()
         )
         rows = build_rows(names, current, parsed)
+        near_matches = sum(1 for row in rows if row["status"] == "near_match")
         summary = {
             "total_locations": len(names),
             "suggested": sum(1 for row in rows if row["status"] == "suggested"),
+            "near_match": near_matches,
             "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
             "invalid": sum(1 for row in rows if row["status"] == "invalid"),
             "flagged": sum(1 for row in rows if row["flag"] is not None),
-            "dropped_unknown": parsed.dropped_unknown,
+            "dropped_unknown": len(parsed.unmatched) - near_matches,
         }
 
         store.record(

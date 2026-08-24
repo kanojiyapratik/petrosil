@@ -137,6 +137,12 @@ class TestEditorialPrompt:
         assert "JSON" in prompt
         assert "exactly" in prompt.lower()
 
+    def test_asks_for_unlisted_evidence_under_the_reports_own_name(self):
+        # This is what feeds the "close to X — is this correct?" rows.
+        prompt = editorial_prompt(LOCATIONS, ["text"])
+
+        assert "as printed" in prompt.lower()
+
 
 def suggestion(location, low=1500, high=1600, confidence="High", **extra):
     row = {
@@ -160,15 +166,15 @@ class TestParseSuggestions:
         parsed = parse_suggestions(text, LOCATIONS)
 
         assert parsed.suggestions[LOCATIONS[0]]["suggested_min"] == 1500
-        assert parsed.dropped_unknown == 0
+        assert parsed.unmatched == []
 
-    def test_drops_a_location_the_model_invented(self):
+    def test_an_unlisted_location_is_kept_for_near_matching_not_lost(self):
         text = json.dumps([suggestion("Atlantis SN 150")])
 
         parsed = parse_suggestions(text, LOCATIONS)
 
         assert parsed.suggestions == {}
-        assert parsed.dropped_unknown == 1
+        assert [row["location"] for row in parsed.unmatched] == ["Atlantis SN 150"]
 
     def test_a_body_that_is_not_json_is_an_empty_result(self):
         parsed = parse_suggestions("The market rose broadly.", LOCATIONS)
@@ -226,6 +232,41 @@ class TestBuildRows:
         rows = self.build([suggestion(LOCATIONS[0], confidence="certain")])
 
         assert next(r for r in rows if r["location"] == LOCATIONS[0])["confidence"] == "low"
+
+    def test_a_close_name_becomes_a_near_match_asking_for_confirmation(self):
+        # The report writes the grade its own way; the editor is asked "close
+        # to this tracked location — is this correct?" rather than losing it.
+        rows = self.build([suggestion("Singapore Group I SN 150", low=1540, high=1580)])
+        row = next(r for r in rows if r["location"] == "Singapore SN 150 FOB Group I")
+
+        assert row["status"] == "near_match"
+        assert row["reported_as"] == "Singapore Group I SN 150"
+        assert row["suggested_price"] == 1560
+        assert row["current_price"] == 1485
+
+    def test_word_order_and_spelling_of_the_report_do_not_matter_much(self):
+        rows = self.build([suggestion("UAE 4cst Group 3", low=2910, high=2950)])
+        row = next(r for r in rows if r["location"] == "UAE 4 CST FOB Group III")
+
+        assert row["status"] == "near_match"
+        assert row["reported_as"] == "UAE 4cst Group 3"
+
+    def test_an_exact_suggestion_beats_a_near_match_for_the_same_location(self):
+        rows = self.build(
+            [
+                suggestion(LOCATIONS[0], low=1500, high=1600),
+                suggestion("Singapore Group I SN 150", low=9000, high=9100),
+            ]
+        )
+        row = next(r for r in rows if r["location"] == LOCATIONS[0])
+
+        assert row["status"] == "suggested"
+        assert row["suggested_price"] == 1550
+
+    def test_something_totally_unrelated_is_still_dropped(self):
+        rows = self.build([suggestion("Brent Crude Futures September")])
+
+        assert all(row["status"] in ("no_evidence",) for row in rows)
 
     def test_a_location_without_a_current_price_still_gets_a_suggestion(self):
         rows = build_rows(
@@ -337,6 +378,7 @@ class TestEditorialReviewsEndpoint:
 
         assert body["summary"]["suggested"] == 1
         assert body["summary"]["no_evidence"] == 1
+        assert body["summary"]["near_match"] == 0
         assert body["summary"]["dropped_unknown"] == 1
         assert body["analysis"]["status"] == "complete"
         assert body["analysis"]["model"] == "gemini-2.5-flash"

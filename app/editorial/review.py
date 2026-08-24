@@ -33,9 +33,18 @@ reports; skip any location the reports say nothing about rather than
 guessing. Never invent a location: every "location" value must be
 copied exactly, character for character, from the list given.
 
+Reports write the same location many ways: word order differs, "Group
+3" means "Group III", "FOB" may be missing. When the region and grade
+clearly refer to a listed location, use the LISTED name -- that is
+still an exact match, not an invention. Only when the evidence is for
+a grade or region that genuinely has no listed counterpart, do not
+discard it: include the row with the name exactly as printed in the
+report, and a human editor will decide where it belongs.
+
 Answer with a JSON array only -- no prose before or after, no markdown
 fences. Each element must be an object with exactly these fields:
-{"location": "<from the list>", "suggested_min": <number>,
+{"location": "<from the list, or the report's own name as printed>",
+ "suggested_min": <number>,
  "suggested_max": <number>, "confidence": "high"|"medium"|"low",
  "basis": "<price basis and assessment date from the report>",
  "source": "<which report or section the evidence came from>",
@@ -56,7 +65,9 @@ def editorial_prompt(locations: list[str], documents: list[str]) -> str:
 @dataclass
 class ParsedSuggestions:
     suggestions: dict[str, dict] = field(default_factory=dict)
-    dropped_unknown: int = 0
+    # Rows naming something not on the list. Not discarded: build_rows tries
+    # to pair each with the closest tracked location for the editor to confirm.
+    unmatched: list[dict] = field(default_factory=list)
 
 
 def parse_suggestions(text: str | None, locations: list[str]) -> ParsedSuggestions:
@@ -85,7 +96,9 @@ def parse_suggestions(text: str | None, locations: list[str]) -> ParsedSuggestio
             location = row.get("location")
 
             if location not in known:
-                parsed.dropped_unknown += 1
+                if isinstance(location, str) and location.strip():
+                    parsed.unmatched.append(row)
+
                 continue
 
             parsed.suggestions.setdefault(location, row)
@@ -106,22 +119,90 @@ def _json_candidates(text: str):
         yield stripped[start : end + 1]
 
 
+# How alike a report's own name and a tracked location must be before the
+# editor is asked "close to this — is this correct?". Token overlap, so word
+# order, punctuation and filler like "FOB" do not matter; below the bar the
+# name really is something the site does not track.
+NEAR_MATCH_THRESHOLD = 0.6
+
+FILLER_TOKENS = {"fob", "cfr", "cif", "fca"}
+
+# "Group 3" and "Group III" are the same thing in different reports.
+ROMAN_DIGITS = {"1": "i", "2": "ii", "3": "iii"}
+
+
 def build_rows(
     locations: list[str],
     current_prices: dict[str, float],
     parsed: ParsedSuggestions,
 ) -> list[dict]:
-    """One row per tracked location, in the site's order."""
-    return [
-        _build_row(location, current_prices.get(location), parsed.suggestions.get(location))
+    """One row per tracked location, in the site's order.
+
+    Exact suggestions land first; each unmatched row is then paired with the
+    closest tracked location and shown as a `near_match` for the editor to
+    confirm -- an exact suggestion always beats a near one.
+    """
+    rows = {
+        location: _build_row(
+            location, current_prices.get(location), parsed.suggestions.get(location)
+        )
         for location in locations
-    ]
+    }
+    taken = set(parsed.suggestions)
+    location_tokens = {location: _tokens(location) for location in locations}
+
+    for candidate in parsed.unmatched:
+        reported = str(candidate.get("location") or "").strip()
+        best, score = None, 0.0
+
+        for location, tokens in location_tokens.items():
+            overlap = _overlap(_tokens(reported), tokens)
+
+            if overlap > score:
+                best, score = location, overlap
+
+        if best is None or score < NEAR_MATCH_THRESHOLD or best in taken:
+            continue
+
+        row = _build_row(best, current_prices.get(best), candidate)
+
+        if row["status"] != "suggested":
+            continue
+
+        row["status"] = "near_match"
+        row["reported_as"] = reported
+        rows[best] = row
+        taken.add(best)
+
+    return [rows[location] for location in locations]
+
+
+def _tokens(name: str) -> frozenset[str]:
+    text = re.sub(r"[^a-z0-9]+", " ", (name or "").lower())
+    # "4cst" and "4 cst" are the same grade.
+    text = re.sub(r"(\d)(cst)", r"\1 \2", text)
+    tokens = set()
+
+    for token in text.split():
+        if token in FILLER_TOKENS:
+            continue
+
+        tokens.add(ROMAN_DIGITS.get(token, token))
+
+    return frozenset(tokens)
+
+
+def _overlap(a: frozenset[str], b: frozenset[str]) -> float:
+    union = a | b
+
+    return len(a & b) / len(union) if union else 0.0
 
 
 def _build_row(location: str, current: float | None, suggested: dict | None) -> dict:
     row = {
         "location": location,
         "status": "no_evidence",
+        "reported_as": None,
         "current_price": js_number(current),
         "suggested_min": None,
         "suggested_max": None,
