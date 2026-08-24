@@ -18,5 +18,8 @@ COPY scraper ./scraper
 # buffer fills.
 ENV PYTHONUNBUFFERED=1
 
-# Railway injects PORT; the shell form is what expands it.
-CMD uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}
+# Railway injects PORT; the shell form is what expands it. MODULE_PROCESS is
+# how the crawler service runs from this same image: Railway offers no
+# per-service start command from the CLI, so the env var is the switch.
+# (Local compose passes an explicit `command:` instead and ignores this.)
+CMD if [ "$MODULE_PROCESS" = "crawler" ]; then exec python -m scraper.main; else exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}; fi
