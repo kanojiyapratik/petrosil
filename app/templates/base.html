@@ -157,8 +157,11 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
     <a class="nav {% if not site %}on{% endif %}" href="/console">All sites</a>
     {% if site %}
       <div class="group">This site</div>
-      <a class="nav {% if section == 'prices' %}on{% endif %}" href="/console/sites/{{ site.slug }}/prices">Update prices</a>
-      <a class="nav {% if section == 'editorial' %}on{% endif %}" href="/console/sites/{{ site.slug }}/editorial">Editorial update</a>
+      {# "Update prices" (exact file upload + bulk edit) is deliberately not
+         in the menu: two price tabs confused editors, and the owner ruled the
+         editorial flow is the one screen. Its routes stay alive — the batch
+         pages under /prices/{id} are where staged rows get committed. #}
+      <a class="nav {% if section in ('editorial', 'prices') %}on{% endif %}" href="/console/sites/{{ site.slug }}/editorial">Update prices (AI editorial)</a>
       <a class="nav {% if section == 'crawler' %}on{% endif %}" href="/console/sites/{{ site.slug }}/crawler">Crawler</a>
     {% endif %}
     {% if user.is_admin %}

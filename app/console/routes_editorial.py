@@ -89,6 +89,7 @@ def create_editorial_routes(
             "analysis": None,
             "pricedate": None,
             "error": None,
+            "batches": None,
         }
         context.update(extra)
 
@@ -101,7 +102,23 @@ def create_editorial_routes(
         if response is not None:
             return response
 
-        return screen(request, user, site, {"error": request.query_params.get("err")})
+        # The batch list lives here since "Update prices" left the menu: a
+        # staged draft must stay findable, or committing needs a bookmark. A
+        # site that cannot answer costs the list, not the screen.
+        try:
+            batches = client_for(site).batches().get("data", [])
+        except SiteError:
+            batches = []
+
+        return screen(
+            request, user, site,
+            {
+                "error": request.query_params.get("err"),
+                "batches": [
+                    {**batch, "tone": tone_for(batch.get("status"))} for batch in batches
+                ],
+            },
+        )
 
     @router.post("/console/sites/{slug}/editorial", response_class=HTMLResponse)
     async def draft(request: Request, slug: str):
