@@ -158,6 +158,7 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
     {% if site %}
       <div class="group">This site</div>
       <a class="nav {% if section == 'prices' %}on{% endif %}" href="/console/sites/{{ site.slug }}/prices">Update prices</a>
+      <a class="nav {% if section == 'editorial' %}on{% endif %}" href="/console/sites/{{ site.slug }}/editorial">Editorial update</a>
       <a class="nav {% if section == 'crawler' %}on{% endif %}" href="/console/sites/{{ site.slug }}/crawler">Crawler</a>
     {% endif %}
     {% if user.is_admin %}

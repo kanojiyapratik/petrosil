@@ -21,6 +21,7 @@ from .api import create_api
 from .console.config import ConsoleConfigError, parse_seed_sites, parse_seed_users
 from .console.routes import create_console
 from .console.routes_ai import create_ai_routes
+from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
@@ -66,11 +67,14 @@ def create_app() -> FastAPI:
 
         return create_driver(chosen.provider, chosen.api_key, chosen.model)
 
+    boot_driver = GeminiDriver(api_key=api_key)
+    default_model = os.environ.get("AI_DEFAULT_MODEL", "gemini-2.5-flash")
+
     app.include_router(
         create_api(
             api_token=api_token,
-            driver=GeminiDriver(api_key=api_key),
-            default_model=os.environ.get("AI_DEFAULT_MODEL", "gemini-2.5-flash"),
+            driver=boot_driver,
+            default_model=default_model,
             driver_for=configured_driver,
         )
     )
@@ -103,12 +107,14 @@ def create_app() -> FastAPI:
             request, "notfound.html", {"path": request.url.path}, status_code=404
         )
 
-    _mount_console(app)
+    _mount_console(
+        app, driver=boot_driver, default_model=default_model, driver_for=configured_driver
+    )
 
     return app
 
 
-def _mount_console(app: FastAPI) -> None:
+def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> None:
     """The console, if this deployment is meant to serve one.
 
     Off unless DATABASE_URL and CONSOLE_SECRET are both set, so an API-only
@@ -194,6 +200,16 @@ def _mount_console(app: FastAPI) -> None:
         app.include_router(console)
         app.include_router(
             create_price_routes(store=store, templates=TEMPLATES, current_user=current_user)
+        )
+        app.include_router(
+            create_editorial_routes(
+                store=store,
+                templates=TEMPLATES,
+                current_user=current_user,
+                driver=driver,
+                default_model=default_model,
+                driver_for=driver_for,
+            )
         )
         app.include_router(
             create_ai_routes(

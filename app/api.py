@@ -8,19 +8,25 @@ change during a port. The tests pin all three.
 from __future__ import annotations
 
 import hmac
+import json
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .ai.gemini import AiProviderError
 from .ai.prompt import render_prompt
+from .editorial.extract import document_to_text
+from .editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from .price_review.differ import CurrentPrice, ProposedRow, diff_prices, js_number
 from .price_review.summariser import Move, PriceSummary, summarise
 
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+MAX_DOCUMENTS = 5
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 
 class Row(BaseModel):
@@ -41,6 +47,21 @@ class PriceReviewRequest(BaseModel):
     rows: list[Row] = Field(min_length=1, max_length=5000)
     current_prices: list[CurrentPriceIn] = []
     valid_locations: list[str] = []
+    title: str | None = None
+    model: str | None = None
+
+
+class EditorialCurrentPrice(BaseModel):
+    location: str
+    # A location can be tracked without a published price yet.
+    price: float | None = None
+
+
+class EditorialReviewRequest(BaseModel):
+    """The JSON half of the multipart /api/editorial-reviews request."""
+
+    price_date: str
+    current_prices: list[EditorialCurrentPrice] = Field(min_length=1, max_length=500)
     title: str | None = None
     model: str | None = None
 
@@ -166,6 +187,115 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
                     for row in rows
                 ],
                 "summary": _present_summary(summary),
+                "analysis": analysis,
+            },
+            status_code=status,
+        )
+
+    @router.post("/api/editorial-reviews", dependencies=[Depends(authorise)])
+    async def editorial_reviews(
+        payload: str = Form(...),
+        documents: list[UploadFile] = File(...),
+    ) -> JSONResponse:
+        """Market reports in, a per-location price draft out.
+
+        Unlike /api/price-reviews there is no useful partial result without
+        the model -- the suggestions ARE the output -- so a provider failure
+        is a plain 502.
+        """
+
+        def invalid(errors) -> JSONResponse:
+            return JSONResponse(
+                {"message": "The request is invalid.", "errors": errors}, status_code=422
+            )
+
+        try:
+            body = EditorialReviewRequest(**json.loads(payload))
+        except Exception as error:  # noqa: BLE001 - shape errors become 422, not 500
+            return invalid(str(error))
+
+        if not ISO_DATE.match(body.price_date):
+            return invalid({"price_date": ["price_date must be YYYY-MM-DD"]})
+
+        if len(documents) > MAX_DOCUMENTS:
+            return invalid({"documents": [f"At most {MAX_DOCUMENTS} documents per review."]})
+
+        texts = []
+
+        for document in documents:
+            raw = await document.read()
+
+            if len(raw) > MAX_DOCUMENT_BYTES:
+                return invalid({"documents": [f"{document.filename} is larger than 10 MB."]})
+
+            text = document_to_text(document.filename or "", raw)
+
+            if text.strip():
+                texts.append(text)
+
+        if not texts:
+            return invalid(
+                {"documents": ["No document could be read. Upload .docx, .pdf or .txt files."]}
+            )
+
+        locations = [entry.location for entry in body.current_prices]
+        current = {
+            entry.location: entry.price
+            for entry in body.current_prices
+            if entry.price is not None
+        }
+
+        model = body.model or default_model
+        chosen = driver_for() if driver_for is not None else None
+        active = chosen or driver
+
+        if chosen is not None and body.model is None:
+            model = getattr(chosen, "model", model)
+
+        prompt = editorial_prompt(locations, texts)
+        status = 201
+
+        try:
+            completion = (
+                active.generate(prompt) if chosen is not None else active.generate(model, prompt)
+            )
+            analysis = {
+                "status": completion.status,
+                "model": model,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "error": completion.error,
+            }
+            parsed = (
+                parse_suggestions(completion.text, locations)
+                if completion.status == "complete"
+                else ParsedSuggestions()
+            )
+        except (AiProviderError, Exception) as error:  # noqa: BLE001
+            status = 502
+            analysis = {
+                "status": "failed",
+                "model": model,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "error": str(error),
+            }
+            parsed = ParsedSuggestions()
+
+        rows = build_rows(locations, current, parsed)
+
+        return JSONResponse(
+            {
+                "rows": rows,
+                "summary": {
+                    "price_date": body.price_date,
+                    "total_locations": len(locations),
+                    "suggested": sum(1 for row in rows if row["status"] == "suggested"),
+                    "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
+                    "invalid": sum(1 for row in rows if row["status"] == "invalid"),
+                    "flagged": sum(1 for row in rows if row["flag"] is not None),
+                    "dropped_unknown": parsed.dropped_unknown,
+                },
                 "analysis": analysis,
             },
             status_code=status,

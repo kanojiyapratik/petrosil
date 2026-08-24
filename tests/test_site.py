@@ -160,6 +160,27 @@ class TestConsoleCalls:
 
         assert session.calls[0]["json"] == {"text": "https://example.com/a"}
 
+    def test_staging_rows_sends_them_with_their_source(self):
+        # The editorial screen stages the rows the editor kept; the source
+        # travels along so the site's batch list says where they came from.
+        session = FakeSession(FakeResponse({"batch": {"id": 12}}))
+
+        result = client(session).stage_rows(
+            [{"location": "Japan SN 150 FOB Group I", "price": 1550}],
+            price_date="2026-08-24",
+            source="editorial",
+        )
+
+        call = session.calls[0]
+        assert call["url"].endswith("/price-batches/rows")
+        assert call["method"] == "POST"
+        assert call["json"] == {
+            "rows": [{"location": "Japan SN 150 FOB Group I", "price": 1550}],
+            "pricedate": "2026-08-24",
+            "source": "editorial",
+        }
+        assert result["batch"]["id"] == 12
+
 
 class TestCrawlerShim:
     def test_shapes_sources_for_the_crawler(self):

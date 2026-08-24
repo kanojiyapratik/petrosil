@@ -132,6 +132,22 @@ class SiteClient:
     def bulk_batch(self, params: dict) -> dict:
         return self._request("POST", "/price-batches/bulk", json=params)
 
+    def stage_rows(
+        self, rows: list[dict], price_date: str | None = None, source: str | None = None
+    ) -> dict:
+        """Stages structured rows as a draft batch on the site -- how the
+        editorial screen hands over the rows the editor kept. The source
+        travels along so the site's batch list says where they came from."""
+        payload: dict = {"rows": rows}
+
+        if price_date:
+            payload["pricedate"] = price_date
+
+        if source:
+            payload["source"] = source
+
+        return self._request("POST", "/price-batches/rows", json=payload)
+
     def update_item(self, item_id: int, patch: dict) -> dict:
         return self._request("PUT", f"/price-batches/items/{item_id}", json=patch)
 
