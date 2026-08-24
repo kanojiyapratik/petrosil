@@ -15,10 +15,30 @@
         </div>
         <div class="field">
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <div style="position:relative">
+            <input id="password" name="password" type="password" autocomplete="current-password"
+                   required style="width:100%; padding-right:2.4rem">
+            <button type="button" id="toggle-password" aria-label="Show password"
+                    style="position:absolute; right:.35rem; top:50%; transform:translateY(-50%);
+                           background:none; border:none; padding:.25rem; cursor:pointer;
+                           font-size:1rem; line-height:1; color:inherit">&#128065;</button>
+          </div>
         </div>
         <button type="submit" style="width:100%">Sign in</button>
       </form>
+      <script>
+        (function () {
+          var input = document.getElementById("password");
+          var toggle = document.getElementById("toggle-password");
+          toggle.addEventListener("click", function () {
+            var showing = input.type === "text";
+            input.type = showing ? "password" : "text";
+            toggle.textContent = showing ? "👁" : "🙈";
+            toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+            input.focus();
+          });
+        })();
+      </script>
     </div></div>
   </div>
 </div>
