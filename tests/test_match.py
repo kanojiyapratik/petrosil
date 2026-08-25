@@ -31,6 +31,15 @@ class TestBuildMatchPrompt:
 
         assert "USD per metric ton" in prompt
 
+    def test_a_unit_difference_is_not_allowed_as_a_reason_to_refuse(self):
+        # The model returned null for rupee-per-litre rows instead of
+        # proposing the product match with a caution; the instruction now
+        # forbids exactly that.
+        prompt = build_match_prompt(FINDINGS, LOCATIONS)
+
+        assert "NOT a reason" in prompt
+        assert "null ONLY" in prompt
+
 
 class TestParseMatchAnswer:
     def test_reads_matches_and_cautions(self):

@@ -18,10 +18,15 @@ tracks. For each finding below, say which tracked location it most
 likely belongs to, or null when none fits (a different product, a
 future, an index).
 
-The site's prices are all in USD per metric ton. When the finding's
-own currency or unit differs (rupees, per litre, per gallon), still
-propose the pairing if the product matches, but say so plainly in the
-caution -- the number cannot be used as-is and the reader must know.
+The site's prices are all in USD per metric ton. A different currency,
+unit, city or delivery basis is NOT a reason to answer null: when the
+product and grade match a tracked location, propose it, and state the
+difference plainly in the caution -- the number cannot be used as-is
+and the reader must know. Answer null ONLY when the product itself is
+different: crude oil, a future, an index, a percentage, a non-base-oil
+product. Example: "Base Oil N500 EX Delhi ₹/KG" matches "India SN 500
+CFR Group I" with the caution "price is in rupees per kilogram, the
+site tracks USD per metric ton".
 
 Answer with a JSON array only, one object per finding:
 {"id": <the finding's id>, "match": "<a tracked location, exactly as
