@@ -19,7 +19,7 @@ from .ai.gemini import GeminiDriver
 from .ai.providers import create_driver
 from .api import create_api
 from .console.config import ConsoleConfigError, parse_seed_sites, parse_seed_users
-from .console.routes import create_console, label_for
+from .console.routes import create_console, datefmt, label_for
 from .console.routes_ai import create_ai_routes
 from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
@@ -36,6 +36,7 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # "unmatched") into words an editor would use. A global beats threading it
 # through every TemplateResponse context.
 TEMPLATES.env.globals["label_for"] = label_for
+TEMPLATES.env.globals["datefmt"] = datefmt
 
 
 def create_app() -> FastAPI:

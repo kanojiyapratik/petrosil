@@ -20,7 +20,7 @@
         <tr>
           <td>{{ entry.action }}{% if entry.detail %} <span class="muted">— {{ entry.detail }}</span>{% endif %}</td>
           <td class="small muted">{{ entry.user_email }}</td>
-          <td class="small muted"><time datetime="{{ entry.created_at }}">{{ entry.created_at[:16] | replace("T", " ") }} UTC</time></td>
+          <td class="small muted"><time datetime="{{ entry.created_at }}">{{ datefmt(entry.created_at) }}</time></td>
         </tr>
       {% endfor %}
     </tbody></table>

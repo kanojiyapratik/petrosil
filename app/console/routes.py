@@ -93,6 +93,22 @@ def label_for(status: str | None) -> str:
     return STATUS_LABELS.get(status or "", status or "—")
 
 
+def datefmt(value) -> str:
+    """DD-MM-YY, the one date format on every screen. Anything that is not an
+    ISO date passes through untouched rather than crashing a page over it."""
+    if value is None:
+        return "—"
+
+    text = str(value)
+
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        year, month, day = text[0:4], text[5:7], text[8:10]
+
+        return f"{day}-{month}-{year[2:]}"
+
+    return text
+
+
 def create_console(
     *,
     store: Store,

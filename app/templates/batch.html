@@ -105,7 +105,7 @@
               {% if not item.location and item.raw_location %}<div class="quote">read as &ldquo;{{ item.raw_location }}&rdquo;</div>{% endif %}
               {% if item.error_message %}<div class="err">{{ item.error_message }}</div>{% endif %}
             </td>
-            <td class="small">{{ item.pricedate or "—" }}</td>
+            <td class="small">{{ datefmt(item.pricedate) }}</td>
             <td class="num">{% if item.old_price is none %}<span class="muted">none</span>{% else %}{{ item.old_price }}{% endif %}</td>
             <td class="num">
               {% if draft and item.status in value_editable %}

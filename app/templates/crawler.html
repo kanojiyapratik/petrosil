@@ -42,7 +42,7 @@
                 <div class="err">{{ entry.last_error[:200] }}{% if entry.last_error | length > 200 %}…{% endif %}</div>
               {% endif %}
             </td>
-            <td class="small muted">{% if entry.last_checked_at %}<time datetime="{{ entry.last_checked_at }}">{{ entry.last_checked_at[:16] | replace("T", " ") }} UTC</time>{% else %}not checked yet{% endif %}</td>
+            <td class="small muted">{% if entry.last_checked_at %}<time datetime="{{ entry.last_checked_at }}">{{ datefmt(entry.last_checked_at) }}</time>{% else %}not checked yet{% endif %}</td>
             <td><span class="badge {{ entry.tone }}">{{ entry.last_status_text }}</span></td>
           </tr>
         {% endfor %}
@@ -112,7 +112,7 @@
                 {% endif %}
                 {% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}
               </td>
-              <td>{{ row.price_date or "—" }}</td>
+              <td>{{ datefmt(row.price_date) }}</td>
               <td class="num"><strong>{{ row.price }}</strong></td>
               <td class="num">
                 {% if row.site_price is not none %}
@@ -130,7 +130,7 @@
                 {% else %}<span class="badge {{ 'ok' if row.change_pct >= 0 else 'bad' }}">{{ '+' if row.change_pct >= 0 else '' }}{{ row.change_pct }}%</span>
                 {% endif %}
               </td>
-              <td class="small muted">{% if row.detected_at %}<time datetime="{{ row.detected_at }}">{{ row.detected_at[:16] | replace("T", " ") }} UTC</time>{% else %}—{% endif %}</td>
+              <td class="small muted">{% if row.detected_at %}<time datetime="{{ row.detected_at }}">{{ datefmt(row.detected_at) }}</time>{% else %}—{% endif %}</td>
             </tr>
           {% endfor %}
         </tbody>
