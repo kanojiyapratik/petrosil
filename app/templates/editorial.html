@@ -2,10 +2,10 @@
 {% block content %}
 <h1>AI editorial update</h1>
 <p class="lede">
-  Upload market reports (docx, xlsx, pdf or txt — e.g. the weekly Lube Report). The model drafts a
-  suggested price per live location, checked against the latest price {{ site.name }} holds.
-  You review the draft here; staged rows become a normal draft batch on the site, committed
-  from the batch screen.
+  Upload market reports (Word, Excel, PDF or plain text — e.g. the weekly Lube Report). The AI
+  drafts a suggested price for every location, checked against the latest price
+  {{ site.name }} holds. You review the draft here, keep the rows you agree with, and publish
+  them from the review page. Nothing reaches the website until you press Publish.
 </p>
 
 {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
@@ -25,8 +25,8 @@
         </div>
       </div>
       <p class="hint">
-        Reading the reports and drafting takes around 20&ndash;60 seconds. Nothing is staged
-        until you review the draft below and choose what to keep.
+        Nothing changes on the website from this step &mdash; you first review the draft below
+        and choose what to keep.
       </p>
       <div class="actions"><button type="submit">Draft prices from these reports</button></div>
     </form>
@@ -35,24 +35,24 @@
 
 {% if batches is not none %}
 <div class="panel">
-  <div class="head"><h2>Recent batches</h2></div>
+  <div class="head"><h2>Recent price updates</h2></div>
   {% if batches %}
     <table>
-      <thead><tr><th>#</th><th>Source</th><th>Rows</th><th>Status</th><th>Created</th></tr></thead>
+      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th></tr></thead>
       <tbody>
         {% for batch in batches %}
           <tr>
             <td><a href="/console/sites/{{ site.slug }}/prices/{{ batch.id }}">#{{ batch.id }}</a></td>
-            <td>{{ batch.source }}</td>
+            <td>{{ label_for(batch.source) }}</td>
             <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
-            <td><span class="badge {{ batch.tone }}">{{ batch.status }}</span></td>
+            <td><span class="badge {{ batch.tone }}">{{ label_for(batch.status) }}</span></td>
             <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ batch.created_at[:16] | replace("T", " ") }} UTC</time>{% else %}—{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <div class="body empty">No batches yet.</div>
+    <div class="body empty">No price updates yet.</div>
   {% endif %}
 </div>
 {% endif %}
@@ -68,15 +68,15 @@
       {{ summary.flagged }} flagged for a manual check.
       {% if analysis and analysis.model %} Model: {{ analysis.model }}.{% endif %}
       {% if analysis and analysis.error %} <strong>{{ analysis.error }}</strong>{% endif %}
-      Every suggested price defaults to the midpoint of the model's range — edit before staging.
+      Every suggested price starts at the middle of the AI's range — you can edit it before saving.
     </p>
     <form method="post" action="/console/sites/{{ site.slug }}/editorial/stage">
       <input type="hidden" name="pricedate" value="{{ pricedate }}">
       <table>
         <thead>
           <tr>
-            <th>Stage</th><th>Location</th><th>Current</th><th>Suggested range</th>
-            <th>Price to stage</th><th>Change</th><th>Confidence</th>
+            <th>Keep</th><th>Location</th><th>Current</th><th>Suggested range</th>
+            <th>Price to publish</th><th>Change</th><th>Confidence</th>
             <th>Basis</th><th>Source</th><th>Rationale</th>
           </tr>
         </thead>
@@ -105,7 +105,7 @@
                 {% if suggested or near %}
                   {{ row.suggested_min }}&ndash;{{ row.suggested_max }}
                   {% if near %}<span class="badge warn">close match?</span>{% endif %}
-                {% else %}<span class="badge warn">{{ row.status }}</span>{% endif %}
+                {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>{% endif %}
               </td>
               <td>
                 {% if suggested or near %}
@@ -128,10 +128,50 @@
         </tbody>
       </table>
       <div class="actions">
-        <button type="submit">Stage ticked rows on {{ site.name }}</button>
+        <button type="submit">Save ticked prices for publishing</button>
       </div>
+      <p class="hint">
+        Saving opens the review page, where you check everything once more and press
+        <strong>Publish to the website</strong>.
+      </p>
     </form>
   </div>
 </div>
 {% endif %}
+
+{{ '' }}
+<div id="editorial-loading" hidden role="status" aria-live="polite"
+     style="position:fixed; inset:0; z-index:2000; display:flex; align-items:center;
+            justify-content:center; background:rgba(15,23,42,.55)">
+  <div style="background:#fff; color:#0f172a; border-radius:12px; padding:1.4rem 1.8rem;
+              max-width:26rem; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,.35)">
+    <div style="width:2rem; height:2rem; margin:0 auto .8rem; border-radius:50%;
+                border:3px solid #cbd5e1; border-top-color:#2563eb;
+                animation:editorial-spin 0.9s linear infinite"></div>
+    <p style="font-weight:600; margin:0 0 .35rem">Drafting your price update&hellip;</p>
+    <p style="font-size:.85rem; color:#475569; margin:0">
+      The AI is reading the reports and comparing them with current prices.
+      Please keep this page open.
+    </p>
+  </div>
+</div>
+<style>
+  @keyframes editorial-spin { to { transform: rotate(360deg); } }
+  #editorial-loading[hidden] { display: none; }
+</style>
+<script>
+  (function () {
+    var overlay = document.getElementById("editorial-loading");
+
+    document.querySelectorAll("form").forEach(function (form) {
+      form.addEventListener("submit", function () {
+        // Only the drafting form is slow; saving and login are quick, but a
+        // disabled button still stops the double-click on every form.
+        var button = form.querySelector("button[type=submit]");
+        if (button) { button.disabled = true; }
+        if (form.action.endsWith("/editorial")) { overlay.hidden = false; }
+      });
+    });
+  })();
+</script>
 {% endblock %}

@@ -110,10 +110,16 @@ def create_editorial_routes(
         except SiteError:
             batches = []
 
+        flash = None
+
+        if request.query_params.get("ok"):
+            flash = {"kind": "ok", "text": request.query_params["ok"]}
+
         return screen(
             request, user, site,
             {
                 "error": request.query_params.get("err"),
+                "flash": flash,
                 "batches": [
                     {**batch, "tone": tone_for(batch.get("status"))} for batch in batches
                 ],
@@ -282,7 +288,7 @@ def create_editorial_routes(
 
         return RedirectResponse(
             f"/console/sites/{site.slug}/prices/{batch_id}"
-            f"?ok={quote(f'Staged batch #{batch_id} with {len(rows)} row(s). Nothing is committed yet.')}",
+            f"?ok={quote(f'Saved price update #{batch_id} with {len(rows)} price(s). Nothing is on the website yet.')}",
             status_code=303,
         )
 

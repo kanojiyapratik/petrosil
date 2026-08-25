@@ -1,64 +1,65 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Batch #{{ envelope.batch.id }}</h1>
+<h1>Price update #{{ envelope.batch.id }}</h1>
 <p class="lede">
-  {{ envelope.batch.source }} · <span class="badge {{ tone_for(envelope.batch.status) }}">{{ envelope.batch.status }}</span>
-  · {{ total_items }} row{{ "" if total_items == 1 else "s" }}
+  {{ label_for(envelope.batch.source) }} · <span class="badge {{ tone_for(envelope.batch.status) }}">{{ label_for(envelope.batch.status) }}</span>
+  · {{ total_items }} price{{ "" if total_items == 1 else "s" }}
 </p>
 
 <div class="panel">
   <div class="head">
     <h2>Summary</h2><span class="spacer"></span>
     {% if envelope.committable %}
-      <span class="badge ok">ready to commit</span>
+      <span class="badge ok">ready to publish</span>
     {% else %}
-      <span class="badge warn">{{ envelope.needs_attention }} row(s) need attention</span>
+      <span class="badge warn">{{ envelope.needs_attention }} price(s) need attention</span>
     {% endif %}
   </div>
   <div class="body">
     {% if summary_counts %}
       {% for status, count in summary_counts %}
-        <span style="margin-right:1rem"><span class="badge {{ tone_for(status) }}">{{ status }}</span> {{ count }}</span>
+        <span style="margin-right:1rem"><span class="badge {{ tone_for(status) }}">{{ label_for(status) }}</span> {{ count }}</span>
       {% endfor %}
     {% else %}
-      <span class="empty">Nothing staged.</span>
+      <span class="empty">Nothing here yet.</span>
     {% endif %}
   </div>
   {% if draft %}
     <div class="body" style="border-top:1px solid var(--line)">
       <div class="actions">
         <form method="post" action="{{ base }}/{{ envelope.batch.id }}/commit" style="margin:0"
-          onsubmit="return confirm('Commit this batch to live prices?')">
-          <button type="submit" {% if not envelope.committable %}disabled{% endif %}>Commit to live prices</button>
+          onsubmit="return confirm('Publish these prices to the live website?')">
+          <button type="submit" {% if not envelope.committable %}disabled{% endif %}>Publish to the website</button>
         </form>
         <form method="post" action="{{ base }}/{{ envelope.batch.id }}/discard" style="margin:0"
-          onsubmit="return confirm('Discard this batch? Nothing will be published.')">
-          <button class="ghost" type="submit">Discard</button>
+          onsubmit="return confirm('Delete this price update? Nothing will be published.')">
+          <button class="ghost" type="submit">Delete</button>
         </form>
       </div>
       {% if envelope.committable %}
-        <p class="hint">Every included row is clean. Committing writes them to the site's live prices.</p>
+        <p class="hint">Every ticked price is fine. Publishing puts them on the live website.</p>
       {% else %}
         <p class="hint">
-          Rows marked <strong>ambiguous</strong>, <strong>unmatched</strong> or <strong>invalid</strong>
-          block a commit while they are included. Fix them, or untick them to leave them out.
+          Prices marked <strong>location not recognised</strong>, <strong>matches several
+          locations</strong> or <strong>cannot be used</strong> stop publishing while they are
+          ticked. Fix them, or untick them to leave them out.
         </p>
       {% endif %}
     </div>
   {% elif envelope.batch.status == "committed" %}
     <div class="body" style="border-top:1px solid var(--line)">
       <form method="post" action="{{ base }}/{{ envelope.batch.id }}/rollback" style="margin:0"
-        onsubmit="return confirm('Roll this batch back? Live prices return to what they were.')">
-        <button class="danger" type="submit">Roll back</button>
+        onsubmit="return confirm('Undo this update? The website prices return to what they were before.')">
+        <button class="danger" type="submit">Undo this update</button>
       </form>
-      <p class="hint">Restores every price this batch changed to what it was before.</p>
+      <p class="hint">Puts every price this update changed back to what it was before.</p>
     </div>
   {% endif %}
 </div>
 
 <div class="panel">
   <div class="head">
-    <h2>Rows</h2>
+    <h2>Prices</h2>
     <span class="spacer"></span>
     <span class="filters">
       {% for f in filters %}
@@ -70,7 +71,7 @@
   {% if chosen %}
     <div class="body" style="padding-bottom:0">
       <p class="hint" style="margin-top:0">
-        Showing {{ items | length }} of {{ total_items }} rows.
+        Showing {{ items | length }} of {{ total_items }} prices.
         <a href="{{ base }}/{{ envelope.batch.id }}">Show all</a>
       </p>
     </div>
@@ -91,7 +92,7 @@
                 <form method="post" action="{{ action }}" style="margin:0">
                   <input type="hidden" name="is_included" value="{{ '0' if item.is_included else '1' }}">
                   <button class="link" type="submit"
-                    title="{{ 'Leave this row out' if item.is_included else 'Put this row back in' }}">
+                    title="{{ 'Leave this price out' if item.is_included else 'Put this price back in' }}">
                     {{ "&#9745;" | safe if item.is_included else "&#9744;" | safe }}
                   </button>
                 </form>
@@ -121,8 +122,8 @@
               {% endif %}
             </td>
             <td>
-              <span class="badge {{ tone_for(item.status) }}">{{ item.status }}</span>
-              {% if item.status in needs_attention and item.is_included %}<div class="quote">blocks commit</div>{% endif %}
+              <span class="badge {{ tone_for(item.status) }}">{{ label_for(item.status) }}</span>
+              {% if item.status in needs_attention and item.is_included %}<div class="quote">stops publishing</div>{% endif %}
             </td>
             {% if draft %}
               <td>
@@ -142,7 +143,7 @@
       </tbody>
     </table>
   {% else %}
-    <div class="body empty">{% if chosen %}No rows with that status. <a href="{{ base }}/{{ envelope.batch.id }}">Show all</a>{% else %}No rows.{% endif %}</div>
+    <div class="body empty">{% if chosen %}Nothing with that status. <a href="{{ base }}/{{ envelope.batch.id }}">Show all</a>{% else %}No prices.{% endif %}</div>
   {% endif %}
 </div>
 {% endblock %}

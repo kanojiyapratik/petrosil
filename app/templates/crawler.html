@@ -3,7 +3,7 @@
 <h1>Crawler</h1>
 <p class="lede">
   Each URL is checked every {{ interval_minutes }} minutes and read with AI. Nothing is published:
-  findings appear below and you stage them like any other batch.
+  findings appear below and you can save them as a price update like any other.
 </p>
 
 <div class="panel">
@@ -81,7 +81,7 @@
                   <input type="checkbox" name="activity_ids" value="{{ row.id }}"
                     {% if row.differs_from_site %}checked{% endif %}>
                 {% else %}
-                  <span class="muted" title="This site has no location by that name, so it cannot be staged">–</span>
+                  <span class="muted" title="This site has no location by that name, so it cannot be saved">–</span>
                 {% endif %}
               </td>
               <td>
@@ -107,11 +107,11 @@
         <p class="hint" style="margin-top:0">
           Every price the pages published is listed, under the wording the page used. Rows marked
           <strong>not a site location</strong> are recorded for reading only — this site has no
-          location by that name, so they cannot be staged. Of the rest, those that differ from what
-          the site holds are ticked for you, and nothing is committed until you commit it on the
-          preview screen.
+          location by that name, so they cannot be saved. Of the rest, those that differ from what
+          the site holds are ticked for you, and nothing reaches the website until you press
+          Publish on the review page.
         </p>
-        <div class="actions"><button type="submit">Stage selected as a batch</button></div>
+        <div class="actions"><button type="submit">Save selected as a price update</button></div>
       </div>
     </form>
   {% else %}

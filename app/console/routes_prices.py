@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
-from .routes import NEEDS_ATTENTION, VALUE_EDITABLE, tone_for
+from .routes import NEEDS_ATTENTION, VALUE_EDITABLE, label_for, tone_for
 from .site_client import SiteClient, SiteError
 
 
@@ -96,7 +96,12 @@ def create_price_routes(
         if response is not None:
             return response
 
-        return RedirectResponse(f"/console/sites/{site.slug}/editorial", status_code=303)
+        query = request.url.query
+
+        return RedirectResponse(
+            f"/console/sites/{site.slug}/editorial" + (f"?{query}" if query else ""),
+            status_code=303,
+        )
 
     @router.get("/console/sites/{slug}/prices-manual", response_class=HTMLResponse)
     def prices_manual(request: Request, slug: str):
@@ -138,7 +143,7 @@ def create_price_routes(
                 "section": "prices",
                 "crumbs": [
                     {"label": site.name, "href": f"/console/sites/{site.slug}"},
-                    {"label": "Update prices"},
+                    {"label": "Manual price tools"},
                 ],
                 "tone_for": tone_for,
                 "title": f"Prices · {site.name}",
@@ -156,7 +161,7 @@ def create_price_routes(
 
         form = await request.form()
         upload_file = form.get("file")
-        path = f"/console/sites/{site.slug}/prices"
+        path = f"/console/sites/{site.slug}/prices-manual"
 
         if upload_file is None or not getattr(upload_file, "filename", ""):
             return back(path, "err", "Choose a file to upload.")
@@ -181,9 +186,9 @@ def create_price_routes(
         )
 
         return back(
-            f"{path}/{batch_id}",
+            f"/console/sites/{site.slug}/prices/{batch_id}",
             "ok",
-            f"Staged batch #{batch_id} from {upload_file.filename}. Nothing is committed yet.",
+            f"Saved price update #{batch_id} from {upload_file.filename}. Nothing is on the website yet.",
         )
 
     @router.post("/console/sites/{slug}/prices/bulk")
@@ -194,7 +199,7 @@ def create_price_routes(
             return response
 
         form = await request.form()
-        path = f"/console/sites/{site.slug}/prices"
+        path = f"/console/sites/{site.slug}/prices-manual"
         location_ids = [int(value) for value in form.getlist("location_ids") if str(value).isdigit()]
 
         if not location_ids:
@@ -233,7 +238,11 @@ def create_price_routes(
             f"{params.get('operation', '?')} on {len(location_ids)} location(s) to batch #{batch_id}",
         )
 
-        return back(f"{path}/{batch_id}", "ok", f"Staged batch #{batch_id}. Nothing is committed yet.")
+        return back(
+            f"/console/sites/{site.slug}/prices/{batch_id}",
+            "ok",
+            f"Saved price update #{batch_id}. Nothing is on the website yet.",
+        )
 
     @router.get("/console/sites/{slug}/prices/{batch_id}", response_class=HTMLResponse)
     def batch(request: Request, slug: str, batch_id: int):
@@ -295,7 +304,7 @@ def create_price_routes(
             filters.append({"key": "blocking", "label": "Blocking", "count": blocking})
 
         filters += [
-            {"key": status, "label": status, "count": count}
+            {"key": status, "label": label_for(status), "count": count}
             for status, count in summary.items()
             if count
         ]
@@ -310,11 +319,11 @@ def create_price_routes(
                 "section": "prices",
                 "crumbs": [
                     {"label": site.name, "href": f"/console/sites/{site.slug}"},
-                    {"label": "Update prices", "href": base},
-                    {"label": f"Batch #{batch_id}"},
+                    {"label": "Price updates", "href": base},
+                    {"label": f"Update #{batch_id}"},
                 ],
                 "tone_for": tone_for,
-                "title": f"Batch #{batch_id} · {site.name}",
+                "title": f"Update #{batch_id} · {site.name}",
                 "envelope": envelope,
                 "items": shown,
                 "filters": filters,
@@ -388,7 +397,7 @@ def create_price_routes(
             f"batch #{batch_id}" + (f" ({committed} rows)" if committed else ""),
         )
 
-        return back(path, "ok", f"Batch #{batch_id} committed to live prices.")
+        return back(path, "ok", f"Update #{batch_id} is now live on the website.")
 
     @router.post("/console/sites/{slug}/prices/{batch_id}/rollback")
     def rollback(request: Request, slug: str, batch_id: int):
@@ -406,7 +415,7 @@ def create_price_routes(
 
         store.record(user.email, "ROLLED BACK a committed batch", site.slug, f"batch #{batch_id}")
 
-        return back(path, "ok", f"Batch #{batch_id} rolled back.")
+        return back(path, "ok", f"Update #{batch_id} undone — the website prices are back to what they were.")
 
     @router.post("/console/sites/{slug}/prices/{batch_id}/discard")
     def discard(request: Request, slug: str, batch_id: int):
@@ -422,6 +431,6 @@ def create_price_routes(
 
         store.record(user.email, "discarded a draft batch", site.slug, f"batch #{batch_id}")
 
-        return back(f"/console/sites/{site.slug}/prices", "ok", f"Batch #{batch_id} discarded.")
+        return back(f"/console/sites/{site.slug}/prices", "ok", f"Update #{batch_id} deleted. Nothing was published.")
 
     return router

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Update prices</h1>
+<h1>Manual price tools</h1>
 <p class="lede">
-  Stage a batch, review every row, then commit. Nothing reaches the site's live prices until you
-  commit, and a committed batch can be rolled back.
+  Upload an exact price sheet or bulk-edit prices, review every row, then publish. Nothing
+  reaches the website until you press Publish, and a published update can be undone.
 </p>
 
 <div class="panel">
@@ -69,24 +69,24 @@
 </div>
 
 <div class="panel">
-  <div class="head"><h2>Recent batches</h2></div>
+  <div class="head"><h2>Recent price updates</h2></div>
   {% if batches %}
     <table>
-      <thead><tr><th>#</th><th>Source</th><th>Rows</th><th>Status</th><th>Created</th></tr></thead>
+      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th></tr></thead>
       <tbody>
         {% for batch in batches %}
           <tr>
             <td><a href="/console/sites/{{ site.slug }}/prices/{{ batch.id }}">#{{ batch.id }}</a></td>
-            <td>{{ batch.source }}</td>
+            <td>{{ label_for(batch.source) }}</td>
             <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
-            <td><span class="badge {{ batch.tone }}">{{ batch.status }}</span></td>
+            <td><span class="badge {{ batch.tone }}">{{ label_for(batch.status) }}</span></td>
             <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ batch.created_at[:16] | replace("T", " ") }} UTC</time>{% else %}—{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <div class="body empty">No batches yet.</div>
+    <div class="body empty">No price updates yet.</div>
   {% endif %}
 </div>
 {% endblock %}

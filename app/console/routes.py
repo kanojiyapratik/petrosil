@@ -61,6 +61,37 @@ def tone_for(status: str | None) -> str:
     return STATUS_TONE.get(status or "", "mute")
 
 
+# What the screens SAY. The wire values stay technical (sites depend on
+# them); the editors reading the screens are not developers, so "commit",
+# "rollback" and "unmatched" become words a person would use. Owner's ask.
+STATUS_LABELS = {
+    "draft": "waiting for approval",
+    "committed": "published",
+    "rolled_back": "undone",
+    "discarded": "deleted",
+    "new": "new price",
+    "changed": "price change",
+    "unchanged": "no change",
+    "locked": "date already published",
+    "unmatched": "location not recognised",
+    "ambiguous": "matches several locations",
+    "invalid": "cannot be used",
+    "conflict": "conflicting rows",
+    "suggested": "suggested",
+    "near_match": "close match",
+    "no_evidence": "not in the reports",
+    "upload": "file upload",
+    "bulk_edit": "bulk edit",
+    "crawl": "watched URL",
+    "editorial": "AI editorial",
+    "api": "API",
+}
+
+
+def label_for(status: str | None) -> str:
+    return STATUS_LABELS.get(status or "", status or "—")
+
+
 def create_console(
     *,
     store: Store,
