@@ -88,7 +88,11 @@
               <td>
                 {{ row.location }}
                 {% if not row.location_id %}
-                  <span class="badge mute">not a site location</span>
+                  {% if row.ai_match %}
+                    <span class="badge warn">confirm match</span>
+                  {% else %}
+                    <span class="badge mute">not a site location</span>
+                  {% endif %}
                   {% if locations %}
                     <div style="margin-top:.3rem">
                       <select name="manual_loc_{{ row.id }}" style="max-width:16rem">
@@ -110,7 +114,16 @@
               </td>
               <td>{{ row.price_date or "—" }}</td>
               <td class="num"><strong>{{ row.price }}</strong></td>
-              <td class="num">{% if row.site_price is none %}<span class="muted">none</span>{% else %}{{ row.site_price }}{% endif %}</td>
+              <td class="num">
+                {% if row.site_price is not none %}
+                  {{ row.site_price }}
+                {% elif row.ai_match and row.ai_site_price is not none %}
+                  {{ row.ai_site_price }}
+                  <div class="quote">held for the AI-suggested location</div>
+                {% else %}
+                  <span class="muted">none</span>
+                {% endif %}
+              </td>
               <td class="num">
                 {% if row.change_type == "new" %}<span class="badge mute">first seen</span>
                 {% elif row.change_pct is none %}<span class="badge warn">changed</span>

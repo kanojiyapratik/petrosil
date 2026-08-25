@@ -286,15 +286,17 @@ def create_console(
         # off (a different currency, per-litre pricing). The person confirms
         # in a picker; a model failure just means no proposals.
         location_titles = []
+        location_prices = {}
         unmatched = [row for row in found if not row.get("location_id") and row.get("id")]
 
         if unmatched:
             try:
-                location_titles = [
-                    str(entry.get("title") or "")
-                    for entry in client.locations().get("data", [])
-                    if entry.get("title")
-                ]
+                for entry in client.locations().get("data", []):
+                    title = str(entry.get("title") or "")
+
+                    if title:
+                        location_titles.append(title)
+                        location_prices[title] = entry.get("latest_price")
             except SiteError:
                 location_titles = []
 
@@ -335,6 +337,13 @@ def create_console(
                     if proposal:
                         row["ai_match"] = proposal["match"]
                         row["ai_caution"] = proposal["caution"] or None
+                        # What the site currently holds for the proposed
+                        # location, so the reader can compare before agreeing.
+                        row["ai_site_price"] = (
+                            location_prices.get(proposal["match"])
+                            if proposal["match"]
+                            else None
+                        )
             except Exception:  # noqa: BLE001 - proposals are a convenience, never a blocker
                 pass
 
