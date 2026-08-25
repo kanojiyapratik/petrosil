@@ -194,12 +194,17 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
             sys.exit(1)
 
         secure_cookies = os.environ.get("CONSOLE_INSECURE_COOKIES", "") != "1"
+        usage = UsageStore(pool)
         console = create_console(
             store=store,
             providers=ProviderStore(pool),
             secret=secret,
             templates=TEMPLATES,
             secure_cookies=secure_cookies,
+            driver=driver,
+            default_model=default_model,
+            driver_for=driver_for,
+            usage=usage,
         )
 
         # The price screens need the same "who is asking" the console already
@@ -216,7 +221,6 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
             return next((u for u in store.active_users() if u.email == session.email), None)
 
         provider_store = ProviderStore(pool)
-        usage = UsageStore(pool)
         rules = RulesStore(pool)
 
         app.include_router(console)

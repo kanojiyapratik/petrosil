@@ -113,11 +113,19 @@ def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
         "- location is the label the page itself gives the price — its region, "
         "grade or product name, copied as printed (for example 'China', "
         "'Base Oil UAE CFR', 'SN 500 Europe').",
+        "- When the page pairs a price with a place, delivery point or "
+        "incoterm — even in a separate column — include it in location "
+        "(for example 'Base Oil SN500 EX Kandla', not just 'Base Oil SN500'). "
+        "A price without its place is unusable to the reader.",
         "- If a price clearly belongs to one of the tracked locations, use that "
         "exact spelling so the site can match it. Otherwise keep the page's own "
         "wording rather than inventing a mapping.",
         "- price must be a plain number: no currency symbol, no thousands "
         "separator, no units.",
+        "- When the price is NOT in US dollars per metric ton, append the "
+        "page's own currency and unit to location as printed (for example "
+        "'Base Oil SN500 EX Kandla ₹/Ltr'). Never convert between currencies "
+        "or units.",
         "- date is the date the page states the price applies to. Resolve "
         'relative wording ("today", "week ending Friday") against Today. If '
         "the page states no date, use Today.",

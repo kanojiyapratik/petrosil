@@ -101,6 +101,10 @@ def create_console(
     templates: Jinja2Templates,
     secure_cookies: bool = True,
     client_factory=None,
+    driver=None,
+    default_model: str = "gemini-2.5-flash",
+    driver_for=None,
+    usage=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -275,7 +279,64 @@ def create_console(
             if row.get("url"):
                 host = urlparse(row["url"]).hostname
 
-            found.append({**row, "host": host})
+            found.append({**row, "host": host, "ai_match": None, "ai_caution": None})
+
+        # Findings the site has no location for: the model proposes which
+        # tracked location each belongs to, with a caution when something is
+        # off (a different currency, per-litre pricing). The person confirms
+        # in a picker; a model failure just means no proposals.
+        location_titles = []
+        unmatched = [row for row in found if not row.get("location_id") and row.get("id")]
+
+        if unmatched:
+            try:
+                location_titles = [
+                    str(entry.get("title") or "")
+                    for entry in client.locations().get("data", [])
+                    if entry.get("title")
+                ]
+            except SiteError:
+                location_titles = []
+
+        if unmatched and location_titles and (driver is not None or driver_for is not None):
+            from ..editorial.match import build_match_prompt, parse_match_answer
+
+            chosen = driver_for() if driver_for is not None else None
+            active = chosen or driver
+            model = getattr(chosen, "model", default_model) if chosen else default_model
+
+            try:
+                prompt = build_match_prompt(
+                    [{"id": r["id"], "location": r.get("location"), "price": r.get("price")} for r in unmatched],
+                    location_titles,
+                )
+                completion = (
+                    active.generate(prompt) if chosen is not None else active.generate(model, prompt)
+                )
+
+                if usage is not None:
+                    usage.record(
+                        kind="crawler_match",
+                        provider=getattr(active, "provider_key", "gemini"),
+                        model=model,
+                        status=completion.status,
+                        prompt_tokens=completion.prompt_tokens,
+                        completion_tokens=completion.completion_tokens,
+                        site_slug=site.slug,
+                    )
+
+                proposals = parse_match_answer(
+                    completion.text, {r["id"] for r in unmatched}, location_titles
+                )
+
+                for row in found:
+                    proposal = proposals.get(row.get("id"))
+
+                    if proposal:
+                        row["ai_match"] = proposal["match"]
+                        row["ai_caution"] = proposal["caution"] or None
+            except Exception:  # noqa: BLE001 - proposals are a convenience, never a blocker
+                pass
 
         return page(
             "crawler.html",
@@ -287,6 +348,7 @@ def create_console(
             crumbs=[{"label": site.name, "href": f"/console/sites/{site.slug}"}, {"label": "Crawler"}],
             urls=rows,
             activity=found,
+            locations=location_titles,
             interval_minutes=urls.get("interval_minutes", 15),
         )
 
@@ -339,28 +401,87 @@ def create_console(
         form = await request.form()
         ids = [int(value) for value in form.getlist("activity_ids") if str(value).isdigit()]
         path = f"/console/sites/{site.slug}/crawler"
+        client = client_for(site)
 
-        if not ids:
+        # Human-matched findings: the page's own label was not a tracked
+        # location, and the person picked which one it belongs to. Staged as
+        # structured rows under the crawl label, price and date from the
+        # finding itself.
+        manual_rows = []
+        manual_count = 0
+        by_id = {}
+
+        for key in form.keys():
+            if key.startswith("manual_") and not key.startswith("manual_loc_"):
+                if not by_id:
+                    try:
+                        by_id = {
+                            entry.get("id"): entry
+                            for entry in client.activity(50).get("data", [])
+                        }
+                    except SiteError as error:
+                        return back(path, "err", str(error))
+
+                try:
+                    finding_id = int(key.split("_", 1)[1])
+                except ValueError:
+                    continue
+
+                chosen_location = str(form.get(f"manual_loc_{finding_id}") or "").strip()
+                finding = by_id.get(finding_id)
+
+                if not chosen_location or finding is None:
+                    continue
+
+                manual_rows.append(
+                    {
+                        "location": chosen_location,
+                        "price": finding.get("price"),
+                        "date": finding.get("price_date"),
+                    }
+                )
+                manual_count += 1
+                store.record(
+                    user.email,
+                    "matched a crawled price to a location",
+                    site.slug,
+                    f"\"{finding.get('location')}\" -> {chosen_location} at {finding.get('price')}",
+                )
+
+        if not ids and not manual_rows:
             return back(path, "err", "Nothing was selected.")
 
+        messages = []
+
         try:
-            result = client_for(site).stage(ids)
+            if ids:
+                result = client.stage(ids)
+                messages.append(
+                    f"Staged update #{result.get('batch_id')} with {result.get('rows')} row(s)."
+                )
+                store.record(
+                    user.email,
+                    "staged a batch from crawled prices",
+                    site.slug,
+                    f"batch #{result.get('batch_id')}, {result.get('rows')} row(s)",
+                )
+
+            if manual_rows:
+                manual = client.stage_rows(manual_rows, source="crawl")
+                manual_id = manual.get("batch", {}).get("id")
+                messages.append(
+                    f"Staged update #{manual_id} with {manual_count} human-matched row(s)."
+                )
+                store.record(
+                    user.email,
+                    "staged human-matched crawled prices",
+                    site.slug,
+                    f"batch #{manual_id}, {manual_count} row(s)",
+                )
         except SiteError as error:
             return back(path, "err", str(error))
 
-        store.record(
-            user.email,
-            "staged a batch from crawled prices",
-            site.slug,
-            f"batch #{result.get('batch_id')}, {result.get('rows')} row(s)",
-        )
-
-        return back(
-            path,
-            "ok",
-            f"Staged batch #{result.get('batch_id')} with {result.get('rows')} row(s). "
-            "Nothing is committed yet.",
-        )
+        return back(path, "ok", " ".join(messages) + " Nothing is on the website yet.")
 
     @router.post("/console/sites/{slug}/crawler/check")
     async def check_now(request: Request, slug: str):

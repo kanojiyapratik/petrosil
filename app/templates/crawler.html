@@ -81,12 +81,31 @@
                   <input type="checkbox" name="activity_ids" value="{{ row.id }}"
                     {% if row.differs_from_site %}checked{% endif %}>
                 {% else %}
-                  <span class="muted" title="This site has no location by that name, so it cannot be saved">–</span>
+                  <input type="checkbox" name="manual_{{ row.id }}" value="1"
+                         title="Tick to save this price under the location you pick">
                 {% endif %}
               </td>
               <td>
                 {{ row.location }}
-                {% if not row.location_id %}<span class="badge mute">not a site location</span>{% endif %}
+                {% if not row.location_id %}
+                  <span class="badge mute">not a site location</span>
+                  {% if locations %}
+                    <div style="margin-top:.3rem">
+                      <select name="manual_loc_{{ row.id }}" style="max-width:16rem">
+                        <option value="">Belongs to which location?</option>
+                        {% for title in locations %}
+                          <option value="{{ title }}" {% if title == row.ai_match %}selected{% endif %}>{{ title }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    {% if row.ai_match %}
+                      <div class="quote">AI suggests: {{ row.ai_match }}</div>
+                    {% endif %}
+                    {% if row.ai_caution %}
+                      <div class="err">{{ row.ai_caution }}</div>
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
                 {% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}
               </td>
               <td>{{ row.price_date or "—" }}</td>
@@ -106,10 +125,11 @@
       <div class="body">
         <p class="hint" style="margin-top:0">
           Every price the pages published is listed, under the wording the page used. Rows marked
-          <strong>not a site location</strong> are recorded for reading only — this site has no
-          location by that name, so they cannot be saved. Of the rest, those that differ from what
-          the site holds are ticked for you, and nothing reaches the website until you press
-          Publish on the review page.
+          <strong>not a site location</strong> carry a picker: the AI suggests which of your
+          locations the price belongs to (with a warning if the currency or unit differs), and
+          you confirm — tick the row and it saves under the location you picked. Of the rest,
+          those that differ from what the site holds are ticked for you, and nothing reaches the
+          website until you press Publish on the review page.
         </p>
         <div class="actions"><button type="submit">Save selected as a price update</button></div>
       </div>
