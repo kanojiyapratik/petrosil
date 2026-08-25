@@ -134,7 +134,36 @@ def create_rules_routes(
             user.email, "set a price rule", site.slug, f"{derived} = {reference} {pct:+g}%"
         )
 
-        return back(site.slug, "ok", f"Rule saved: {derived} = {reference} {pct:+g}%.")
+        # A saved formula is invisible until the next draft, which reads as
+        # "nothing happened". Previewing it against the latest published price
+        # shows immediately what the rule will do.
+        preview = ""
+
+        try:
+            locations = client_for(site).locations().get("data", [])
+            latest = next(
+                (
+                    entry.get("latest_price")
+                    for entry in locations
+                    if entry.get("title") == reference
+                ),
+                None,
+            )
+
+            if latest is not None:
+                would_be = round(float(latest) * (1 + pct / 100.0))
+                preview = (
+                    f" Preview with today's prices: {reference} is {latest:g}, "
+                    f"so {derived} would be {would_be}."
+                )
+        except SiteError:
+            preview = ""
+
+        return back(
+            site.slug,
+            "ok",
+            f"Rule saved: {derived} = {reference} {pct:+g}%. It runs on every new draft.{preview}",
+        )
 
     @router.post("/console/sites/{slug}/rules/{rule_id}/toggle")
     async def toggle_rule(request: Request, slug: str, rule_id: int):
