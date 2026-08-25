@@ -10,7 +10,7 @@
   <div class="head">
     <h2>Summary</h2><span class="spacer"></span>
     {% if envelope.committable %}
-      <span class="badge ok">ready to publish</span>
+      <span class="badge ok">ready to save</span>
     {% else %}
       <span class="badge warn">{{ envelope.needs_attention }} price(s) need attention</span>
     {% endif %}
@@ -28,20 +28,20 @@
     <div class="body" style="border-top:1px solid var(--line)">
       <div class="actions">
         <form method="post" action="{{ base }}/{{ envelope.batch.id }}/commit" style="margin:0"
-          onsubmit="return confirm('Publish these prices to the live website?')">
-          <button type="submit" {% if not envelope.committable %}disabled{% endif %}>Publish to the website</button>
+          onsubmit="return confirm('Save these prices to {{ site.name }}?')">
+          <button type="submit" {% if not envelope.committable %}disabled{% endif %}>Save pricing to {{ site.name }}</button>
         </form>
         <form method="post" action="{{ base }}/{{ envelope.batch.id }}/discard" style="margin:0"
-          onsubmit="return confirm('Delete this price update? Nothing will be published.')">
+          onsubmit="return confirm('Delete this price update? Nothing will be saved.')">
           <button class="ghost" type="submit">Delete</button>
         </form>
       </div>
       {% if envelope.committable %}
-        <p class="hint">Every ticked price is fine. Publishing puts them on the live website.</p>
+        <p class="hint">Every ticked price is fine. Saving puts them on {{ site.name }}.</p>
       {% else %}
         <p class="hint">
           Prices marked <strong>location not recognised</strong>, <strong>matches several
-          locations</strong> or <strong>cannot be used</strong> stop publishing while they are
+          locations</strong> or <strong>cannot be used</strong> stop saving while they are
           ticked. Fix them, or untick them to leave them out.
         </p>
       {% endif %}
@@ -123,7 +123,7 @@
             </td>
             <td>
               <span class="badge {{ tone_for(item.status) }}">{{ label_for(item.status) }}</span>
-              {% if item.status in needs_attention and item.is_included %}<div class="quote">stops publishing</div>{% endif %}
+              {% if item.status in needs_attention and item.is_included %}<div class="quote">stops saving</div>{% endif %}
             </td>
             {% if draft %}
               <td>

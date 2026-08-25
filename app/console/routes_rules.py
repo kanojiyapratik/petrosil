@@ -162,7 +162,7 @@ def create_rules_routes(
         return back(
             site.slug,
             "ok",
-            f"Rule saved: {derived} = {reference} {pct:+g}%. It runs on every new draft.{preview}",
+            f"Rule saved: {derived} = {reference} {pct:+g}%. It runs on every new fetch.{preview}",
         )
 
     @router.post("/console/sites/{slug}/rules/{rule_id}/toggle")

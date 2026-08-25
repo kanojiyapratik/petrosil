@@ -3,9 +3,9 @@
 <h1>AI editorial update</h1>
 <p class="lede">
   Upload market reports (Word, Excel, PDF or plain text — e.g. the weekly Lube Report). The AI
-  drafts a suggested price for every location, checked against the latest price
-  {{ site.name }} holds. You review the draft here, keep the rows you agree with, and publish
-  them from the review page. Nothing reaches the website until you press Publish.
+  fetches a suggested price for every location, checked against the latest price
+  {{ site.name }} holds. You review the fetched prices here, keep the rows you agree with, and save
+  them from the review page. Nothing reaches {{ site.name }} until you press Save.
 </p>
 
 {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
@@ -26,10 +26,10 @@
         </div>
       </div>
       <p class="hint">
-        Nothing changes on the website from this step &mdash; you first review the draft below
+        Nothing changes on the website from this step &mdash; you first review the fetched prices below
         and choose what to keep.
       </p>
-      <div class="actions"><button type="submit">Draft prices from these reports</button></div>
+      <div class="actions"><button type="submit">Fetch prices from these reports</button></div>
     </form>
   </div>
 </div>
@@ -64,7 +64,7 @@
   <div class="body">
     <p class="hint" style="margin-top:0">
       Benchmark figures read from the reports — your price rules calculate site prices from
-      these. They are not site prices themselves and are never published.
+      these. They are not site prices themselves and are never saved to the site.
     </p>
     <table>
       <thead><tr><th>Benchmark</th><th>Range</th><th>Figure</th><th>Basis</th><th>Source</th></tr></thead>
@@ -86,7 +86,7 @@
 
 {% if rows is not none %}
 <div class="panel">
-  <div class="head"><h2>Draft — {{ pricedate }}</h2></div>
+  <div class="head"><h2>Fetched prices — {{ pricedate }}</h2></div>
   <div class="body">
     <p class="hint">
       {{ summary.suggested }} of {{ summary.total_locations }} locations have a suggestion;
@@ -104,7 +104,7 @@
         <thead>
           <tr>
             <th>Keep</th><th>Location</th><th>Current</th><th>Suggested range</th>
-            <th>Price to publish</th><th>Change</th><th>Confidence</th>
+            <th>Price to save</th><th>Change</th><th>Confidence</th>
             <th>Basis</th><th>Source</th><th>Rationale</th>
           </tr>
         </thead>
@@ -162,11 +162,11 @@
         </tbody>
       </table>
       <div class="actions">
-        <button type="submit">Save ticked prices for publishing</button>
+        <button type="submit">Save ticked prices to {{ site.name }}</button>
       </div>
       <p class="hint">
         Saving opens the review page, where you check everything once more and press
-        <strong>Publish to the website</strong>.
+        <strong>Save pricing to {{ site.name }}</strong>.
       </p>
     </form>
   </div>

@@ -431,6 +431,6 @@ def create_price_routes(
 
         store.record(user.email, "discarded a draft batch", site.slug, f"batch #{batch_id}")
 
-        return back(f"/console/sites/{site.slug}/prices", "ok", f"Update #{batch_id} deleted. Nothing was published.")
+        return back(f"/console/sites/{site.slug}/prices", "ok", f"Update #{batch_id} deleted. Nothing was saved.")
 
     return router

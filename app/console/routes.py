@@ -66,7 +66,7 @@ def tone_for(status: str | None) -> str:
 # "rollback" and "unmatched" become words a person would use. Owner's ask.
 STATUS_LABELS = {
     "draft": "waiting for approval",
-    "committed": "published",
+    "committed": "saved to website",
     "rolled_back": "undone",
     "discarded": "deleted",
     "new": "new price",
