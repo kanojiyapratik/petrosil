@@ -36,7 +36,10 @@ copied exactly, character for character, from the list given.
 Reports write the same location many ways: word order differs, "Group
 3" means "Group III", "FOB" may be missing. When the region and grade
 clearly refer to a listed location, use the LISTED name -- that is
-still an exact match, not an invention. Only when the evidence is for
+still an exact match, not an invention. Entries beginning "Report: "
+are the report's own benchmark assessments (e.g. its FOB Asia or
+Northwestern Europe tables): when a figure is printed as such an
+assessment, return it under that entry. Only when the evidence is for
 a grade or region that genuinely has no listed counterpart, do not
 discard it: include the row with the name exactly as printed in the
 report, and a human editor will decide where it belongs.

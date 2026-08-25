@@ -7,7 +7,7 @@ missing or uncertain, and auditable afterwards.
 """
 
 from app.editorial.review import build_rows, parse_suggestions
-from app.editorial.rules import PriceRule, apply_rules
+from app.editorial.rules import PriceRule, apply_rules, benchmark_names
 
 import json
 
@@ -144,3 +144,50 @@ class TestApplyRules:
         rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [stray])
 
         assert all(r["location"] in LOCATIONS for r in rows)
+
+
+BENCHMARK = "Report: FOB Asia SN 150"
+
+
+class TestBenchmarks:
+    """The client's first layer: even the "extracted" prices are a report
+    figure minus a discount. A rule may reference a report benchmark, the
+    model extracts the benchmark, and code applies the discount."""
+
+    def test_benchmark_names_are_the_references_no_site_location_covers(self):
+        rules = [
+            PriceRule(id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
+                      adjustment_pct=-1.0),
+            PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE,
+                      adjustment_pct=-10.0),
+        ]
+
+        assert benchmark_names(rules, LOCATIONS) == [BENCHMARK]
+
+    def test_a_site_price_derives_from_an_extracted_benchmark(self):
+        rule = PriceRule(
+            id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
+            adjustment_pct=-1.0,
+        )
+        names = LOCATIONS + [BENCHMARK]
+        parsed = parse_suggestions(json.dumps([suggestion(BENCHMARK, 1600, 1600)]), names)
+        rows = apply_rules(build_rows(names, {}, parsed), [rule])
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["status"] == "derived"
+        assert row["suggested_price"] == 1584
+        assert row["derived_from"] == BENCHMARK
+
+    def test_a_benchmark_can_feed_a_whole_chain(self):
+        # Report figure -> Singapore -1% -> South Korea -10%.
+        rules = [
+            PriceRule(id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
+                      adjustment_pct=-1.0),
+            PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE,
+                      adjustment_pct=-10.0),
+        ]
+        names = LOCATIONS + [BENCHMARK]
+        parsed = parse_suggestions(json.dumps([suggestion(BENCHMARK, 1600, 1600)]), names)
+        rows = apply_rules(build_rows(names, {}, parsed), rules)
+
+        assert next(r for r in rows if r["location"] == KOREA)["suggested_price"] == 1426

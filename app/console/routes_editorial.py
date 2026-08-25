@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import Store, StoredSite
 from ..editorial.extract import document_to_text
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
-from ..editorial.rules import apply_rules
+from ..editorial.rules import apply_rules, benchmark_names
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
@@ -93,6 +93,7 @@ def create_editorial_routes(
             "pricedate": None,
             "error": None,
             "batches": None,
+            "benchmarks": None,
         }
         context.update(extra)
 
@@ -197,8 +198,15 @@ def create_editorial_routes(
 
         provider_name = getattr(chosen or driver, "provider_key", "gemini")
 
+        # Report benchmarks: figures the rulebook derives from that are not
+        # site locations ("Report: FOB Asia SN 150"). Asked of the model like
+        # any location, shown separately, never staged.
+        site_rules = rules.for_site(site.slug) if rules is not None else []
+        benchmarks = benchmark_names(site_rules, names)
+        asked = names + benchmarks
+
         try:
-            prompt = editorial_prompt(names, texts)
+            prompt = editorial_prompt(asked, texts)
             completion = (
                 active.generate(prompt) if chosen is not None else active.generate(model, prompt)
             )
@@ -223,16 +231,20 @@ def create_editorial_routes(
             )
 
         parsed = (
-            parse_suggestions(completion.text, names)
+            parse_suggestions(completion.text, asked)
             if completion.status == "complete"
             else ParsedSuggestions()
         )
-        rows = build_rows(names, current, parsed)
+        rows = build_rows(asked, current, parsed)
 
         # The rulebook fills what the reports never mention -- code, not the
         # model, does this arithmetic. See app/editorial/rules.py.
-        if rules is not None:
-            rows = apply_rules(rows, rules.for_site(site.slug))
+        rows = apply_rules(rows, site_rules)
+
+        # Benchmarks fed the rules; they are not site prices and never stage.
+        benchmark_set = set(benchmarks)
+        benchmark_rows = [row for row in rows if row["location"] in benchmark_set]
+        rows = [row for row in rows if row["location"] not in benchmark_set]
 
         near_matches = sum(1 for row in rows if row["status"] == "near_match")
         summary = {
@@ -258,6 +270,7 @@ def create_editorial_routes(
             request, user, site,
             {
                 "rows": rows,
+                "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
                 "summary": summary,
                 "pricedate": pricedate,
                 "analysis": {

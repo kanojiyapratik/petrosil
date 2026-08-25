@@ -23,10 +23,11 @@
         </div>
         <div class="field">
           <label for="reference_location">&hellip;is calculated from</label>
-          <select id="reference_location" name="reference_location" required>
-            <option value="">Pick a location…</option>
-            {% for location in locations %}<option value="{{ location.title }}">{{ location.title }}</option>{% endfor %}
-          </select>
+          <input id="reference_location" name="reference_location" list="reference-options"
+                 placeholder="A location, or e.g. Report: FOB Asia SN 150" required>
+          <datalist id="reference-options">
+            {% for location in locations %}<option value="{{ location.title }}">{% endfor %}
+          </datalist>
         </div>
         <div class="field">
           <label for="adjustment_pct">Adjustment (%)</label>
@@ -36,7 +37,10 @@
       </div>
       <p class="hint">
         &minus;10 means 10% less (multiply by 0.90); +3 means 3% more. Saving a rule for a
-        location that already has one replaces it.
+        location that already has one replaces it. The "calculated from" side can also be a
+        report figure that is not a site location — type it starting with
+        <strong>Report:</strong> (e.g. <em>Report: FOB Asia SN 150</em>) and the AI will
+        extract that figure from uploaded reports for the rule to use.
       </p>
       <div class="actions"><button type="submit">Save rule</button></div>
     </form>

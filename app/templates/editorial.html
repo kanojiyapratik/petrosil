@@ -57,6 +57,32 @@
 </div>
 {% endif %}
 
+{% if benchmarks %}
+<div class="panel">
+  <div class="head"><h2>Report figures found</h2></div>
+  <div class="body">
+    <p class="hint" style="margin-top:0">
+      Benchmark figures read from the reports — your price rules calculate site prices from
+      these. They are not site prices themselves and are never published.
+    </p>
+    <table>
+      <thead><tr><th>Benchmark</th><th>Range</th><th>Figure</th><th>Basis</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for row in benchmarks %}
+          <tr>
+            <td>{{ row.location }}</td>
+            <td>{{ row.suggested_min }}&ndash;{{ row.suggested_max }}</td>
+            <td><strong>{{ row.suggested_price }}</strong></td>
+            <td class="small muted">{{ row.basis or "" }}</td>
+            <td class="small muted">{{ row.source or "" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% if rows is not none %}
 <div class="panel">
   <div class="head"><h2>Draft — {{ pricedate }}</h2></div>

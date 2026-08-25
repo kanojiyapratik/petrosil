@@ -27,6 +27,27 @@ class PriceRule:
     enabled: bool = True
 
 
+def benchmark_names(rules: list[PriceRule], site_locations: list[str]) -> list[str]:
+    """References that are report figures rather than site locations.
+
+    The client's first layer: even the "extracted" prices are a report
+    benchmark minus a discount ("Europe Domestic = report NWE - 20%"). Such a
+    reference is asked of the model like any location, derived from like any
+    row, but never staged -- it is not a price the site publishes.
+    """
+    known = set(site_locations)
+    names: list[str] = []
+
+    for rule in rules:
+        if not rule.enabled:
+            continue
+
+        if rule.reference_location not in known and rule.reference_location not in names:
+            names.append(rule.reference_location)
+
+    return names
+
+
 def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
     """Fills rule-covered locations from their reference's suggested price.
 
