@@ -149,9 +149,14 @@
                 border:3px solid #cbd5e1; border-top-color:#2563eb;
                 animation:editorial-spin 0.9s linear infinite"></div>
     <p style="font-weight:600; margin:0 0 .35rem">Drafting your price update&hellip;</p>
-    <p style="font-size:.85rem; color:#475569; margin:0">
+    <p style="font-size:.85rem; color:#475569; margin:0 0 .6rem">
       The AI is reading the reports and comparing them with current prices.
       Please keep this page open.
+    </p>
+    <p style="font-size:.8rem; margin:0">
+      <a href="" onclick="location.reload(); return false" style="color:#2563eb">
+        Taking too long? Reload this page
+      </a>
     </p>
   </div>
 </div>
@@ -170,6 +175,16 @@
         var button = form.querySelector("button[type=submit]");
         if (button) { button.disabled = true; }
         if (form.action.endsWith("/editorial")) { overlay.hidden = false; }
+      });
+    });
+
+    // Coming BACK to this page restores it exactly as it was left -- overlay
+    // up, buttons dead -- because browsers cache the rendered page. Clear it.
+    window.addEventListener("pageshow", function () {
+      overlay.hidden = true;
+
+      document.querySelectorAll("button[type=submit]").forEach(function (button) {
+        button.disabled = false;
       });
     });
   })();
