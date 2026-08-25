@@ -37,46 +37,62 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
     """
     by_location = {row["location"]: row for row in rows}
 
-    for rule in rules:
-        if not rule.enabled:
-            continue
+    # The rulebook chains: the report gives a domestic price, a rule turns it
+    # into FOB, and another rule prices a third region off that FOB. Passes
+    # repeat until nothing new derives; each pass can only add, so the loop
+    # ends. A derived price is deterministic arithmetic on a direct one, so
+    # deriving from it launders nothing -- unlike a near-match, which stays
+    # ineligible.
+    for _pass in range(max(len(rules), 1)):
+        derived_this_pass = False
 
-        target = by_location.get(rule.derived_location)
-        reference = by_location.get(rule.reference_location)
+        for rule in rules:
+            if not rule.enabled:
+                continue
 
-        if target is None or reference is None:
-            continue
+            target = by_location.get(rule.derived_location)
+            reference = by_location.get(rule.reference_location)
 
-        if target["status"] != "no_evidence" or reference["status"] != "suggested":
-            continue
+            if target is None or reference is None:
+                continue
 
-        factor = 1 + (rule.adjustment_pct / 100.0)
-        price = _whole(reference["suggested_price"] * factor)
-        change = (
-            _round2(((price - target["current_price"]) / target["current_price"]) * 100)
-            if target["current_price"]
-            else None
-        )
+            if target["status"] != "no_evidence" or reference["status"] not in (
+                "suggested",
+                "derived",
+            ):
+                continue
 
-        target.update(
-            {
-                "status": "derived",
-                "suggested_min": _whole(reference["suggested_min"] * factor),
-                "suggested_max": _whole(reference["suggested_max"] * factor),
-                "suggested_price": price,
-                "change_pct": js_number(change) if change is not None else None,
-                "flag": "check" if change is not None and abs(change) >= FLAG_PCT else None,
-                "confidence": reference["confidence"],
-                "basis": f"Derived: {rule.reference_location} {rule.adjustment_pct:+g}%",
-                "source": reference["source"],
-                "rationale": (
-                    f"Calculated from {rule.reference_location} "
-                    f"({reference['suggested_price']}) {rule.adjustment_pct:+g}%."
-                ),
-                "derived_from": rule.reference_location,
-                "rule_pct": rule.adjustment_pct,
-            }
-        )
+            derived_this_pass = True
+            factor = 1 + (rule.adjustment_pct / 100.0)
+            price = _whole(reference["suggested_price"] * factor)
+            change = (
+                _round2(((price - target["current_price"]) / target["current_price"]) * 100)
+                if target["current_price"]
+                else None
+            )
+
+            target.update(
+                {
+                    "status": "derived",
+                    "suggested_min": _whole(reference["suggested_min"] * factor),
+                    "suggested_max": _whole(reference["suggested_max"] * factor),
+                    "suggested_price": price,
+                    "change_pct": js_number(change) if change is not None else None,
+                    "flag": "check" if change is not None and abs(change) >= FLAG_PCT else None,
+                    "confidence": reference["confidence"],
+                    "basis": f"Derived: {rule.reference_location} {rule.adjustment_pct:+g}%",
+                    "source": reference["source"],
+                    "rationale": (
+                        f"Calculated from {rule.reference_location} "
+                        f"({reference['suggested_price']}) {rule.adjustment_pct:+g}%."
+                    ),
+                    "derived_from": rule.reference_location,
+                    "rule_pct": rule.adjustment_pct,
+                }
+            )
+
+        if not derived_this_pass:
+            break
 
     return rows
 

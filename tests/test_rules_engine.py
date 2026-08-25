@@ -119,6 +119,23 @@ class TestApplyRules:
 
         assert next(r for r in rows if r["location"] == JAPAN)["suggested_price"] == 1030
 
+    def test_rules_chain_a_derived_price_can_feed_another_rule(self):
+        # The client's rulebook is two levels deep: the report gives Europe
+        # Domestic; Europe FOB is Domestic -8%; Saudi is Europe FOB +3%.
+        chain = [
+            PriceRule(id=1, derived_location=JAPAN, reference_location=KOREA, adjustment_pct=3.0),
+            PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE, adjustment_pct=-10.0),
+        ]
+        rows = apply_rules(draft([suggestion(SINGAPORE, 1000, 1000)]), chain)
+
+        korea = next(r for r in rows if r["location"] == KOREA)
+        japan = next(r for r in rows if r["location"] == JAPAN)
+
+        assert korea["suggested_price"] == 900
+        assert japan["status"] == "derived"
+        assert japan["suggested_price"] == 927  # 900 * 1.03
+        assert japan["derived_from"] == KOREA
+
     def test_a_rule_naming_an_unknown_location_is_ignored(self):
         stray = PriceRule(
             id=3, derived_location="Atlantis SN 150", reference_location=SINGAPORE,
