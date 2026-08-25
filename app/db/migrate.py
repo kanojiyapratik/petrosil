@@ -124,6 +124,30 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX console_ai_usage_created_idx ON console_ai_usage (created_at DESC);
         """,
     ),
+    Migration(
+        id="0005_price_rules",
+        sql="""
+        -- The derived-price rulebook: "South Korea FOB = Singapore FOB - 10%".
+        -- Stored data, not prompt text, so the owner can change a percentage
+        -- without anyone rewriting anything. Applied by code after the AI
+        -- draft; the AI never does this arithmetic.
+        CREATE TABLE console_price_rules (
+          id                 BIGSERIAL PRIMARY KEY,
+          site_slug          TEXT NOT NULL,
+          derived_location   TEXT NOT NULL,
+          reference_location TEXT NOT NULL,
+          adjustment_pct     NUMERIC NOT NULL,
+          enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- One rule per derived location per site: two formulas for the same
+        -- price would silently disagree.
+        CREATE UNIQUE INDEX console_price_rules_target_key
+            ON console_price_rules (site_slug, derived_location);
+        """,
+    ),
 ]
 
 

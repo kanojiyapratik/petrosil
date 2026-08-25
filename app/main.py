@@ -23,9 +23,10 @@ from .console.routes import create_console, label_for
 from .console.routes_ai import create_ai_routes
 from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
+from .console.routes_rules import create_rules_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
-from .db.store import ProviderStore, Store, UsageStore, seed
+from .db.store import ProviderStore, RulesStore, Store, UsageStore, seed
 
 logger = logging.getLogger("module")
 
@@ -216,6 +217,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
 
         provider_store = ProviderStore(pool)
         usage = UsageStore(pool)
+        rules = RulesStore(pool)
 
         app.include_router(console)
         app.include_router(
@@ -230,6 +232,15 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 default_model=default_model,
                 driver_for=driver_for,
                 usage=usage,
+                rules=rules,
+            )
+        )
+        app.include_router(
+            create_rules_routes(
+                store=store,
+                rules=rules,
+                templates=TEMPLATES,
+                current_user=current_user,
             )
         )
         app.include_router(

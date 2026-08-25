@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import Store, StoredSite
 from ..editorial.extract import document_to_text
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
+from ..editorial.rules import apply_rules
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
@@ -37,6 +38,7 @@ def create_editorial_routes(
     driver_for=None,
     client_factory=None,
     usage=None,
+    rules=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -226,11 +228,18 @@ def create_editorial_routes(
             else ParsedSuggestions()
         )
         rows = build_rows(names, current, parsed)
+
+        # The rulebook fills what the reports never mention -- code, not the
+        # model, does this arithmetic. See app/editorial/rules.py.
+        if rules is not None:
+            rows = apply_rules(rows, rules.for_site(site.slug))
+
         near_matches = sum(1 for row in rows if row["status"] == "near_match")
         summary = {
             "total_locations": len(names),
             "suggested": sum(1 for row in rows if row["status"] == "suggested"),
             "near_match": near_matches,
+            "derived": sum(1 for row in rows if row["status"] == "derived"),
             "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
             "invalid": sum(1 for row in rows if row["status"] == "invalid"),
             "flagged": sum(1 for row in rows if row["flag"] is not None),
@@ -241,7 +250,8 @@ def create_editorial_routes(
             user.email,
             "drafted an editorial update",
             site.slug,
-            f"{summary['suggested']} suggestion(s) from {len(uploads)} report(s)",
+            f"{summary['suggested']} suggestion(s) and {summary['derived']} derived "
+            f"by rule from {len(uploads)} report(s)",
         )
 
         return screen(

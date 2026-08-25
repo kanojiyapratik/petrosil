@@ -162,6 +162,7 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
          editorial flow is the one screen. Its routes stay alive — the batch
          pages under /prices/{id} are where staged rows get committed. #}
       <a class="nav {% if section in ('editorial', 'prices') %}on{% endif %}" href="/console/sites/{{ site.slug }}/editorial">Update prices (AI editorial)</a>
+      <a class="nav {% if section == 'rules' %}on{% endif %}" href="/console/sites/{{ site.slug }}/rules">Price rules</a>
       <a class="nav {% if section == 'crawler' %}on{% endif %}" href="/console/sites/{{ site.slug }}/crawler">Crawler</a>
     {% endif %}
     {% if user.is_admin %}

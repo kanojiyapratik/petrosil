@@ -79,6 +79,7 @@ STATUS_LABELS = {
     "conflict": "conflicting rows",
     "suggested": "suggested",
     "near_match": "close match",
+    "derived": "calculated by rule",
     "no_evidence": "not in the reports",
     "upload": "file upload",
     "bulk_edit": "bulk edit",

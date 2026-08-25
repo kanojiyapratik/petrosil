@@ -63,6 +63,7 @@
   <div class="body">
     <p class="hint">
       {{ summary.suggested }} of {{ summary.total_locations }} locations have a suggestion;
+      {% if summary.derived %}{{ summary.derived }} calculated from them by your price rules;{% endif %}
       {% if summary.near_match %}{{ summary.near_match }} close match(es) need your confirmation;{% endif %}
       {{ summary.no_evidence }} had no evidence in the reports;
       {{ summary.flagged }} flagged for a manual check.
@@ -84,12 +85,14 @@
           {% for row in rows %}
             {% set suggested = row.status == "suggested" %}
             {% set near = row.status == "near_match" %}
+            {% set derived = row.status == "derived" %}
+            {% set priced = suggested or near or derived %}
             <tr>
               <td>
                 <input type="hidden" name="loc_{{ loop.index0 }}" value="{{ row.location }}">
                 <input type="checkbox" name="inc_{{ loop.index0 }}" value="1"
-                  {% if suggested and not row.flag %}checked{% endif %}
-                  {% if not suggested and not near %}disabled{% endif %}>
+                  {% if (suggested or derived) and not row.flag %}checked{% endif %}
+                  {% if not priced %}disabled{% endif %}>
               </td>
               <td>
                 {{ row.location }}
@@ -102,13 +105,14 @@
               </td>
               <td>{{ row.current_price if row.current_price is not none else "—" }}</td>
               <td>
-                {% if suggested or near %}
+                {% if priced %}
                   {{ row.suggested_min }}&ndash;{{ row.suggested_max }}
                   {% if near %}<span class="badge warn">close match?</span>{% endif %}
+                  {% if derived %}<span class="badge mute">derived</span>{% endif %}
                 {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>{% endif %}
               </td>
               <td>
-                {% if suggested or near %}
+                {% if priced %}
                   <input type="number" step="any" name="price_{{ loop.index0 }}"
                          value="{{ row.suggested_price }}" style="width:7rem">
                 {% endif %}

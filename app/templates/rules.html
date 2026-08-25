@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Price rules</h1>
+<p class="lede">
+  Many locations never appear in the market reports — their price is always calculated from a
+  benchmark, e.g. <em>South Korea = Singapore − 10%</em>. The rules live here, the calculation is
+  done by the system (never the AI), and calculated prices appear on the draft marked
+  <strong>derived</strong>, for review like any other. Change a percentage here and the next
+  draft uses it.
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Add or update a rule</h2></div>
+  <div class="body">
+    <form method="post" action="/console/sites/{{ site.slug }}/rules">
+      <div class="fields">
+        <div class="field">
+          <label for="derived_location">This price&hellip;</label>
+          <select id="derived_location" name="derived_location" required>
+            <option value="">Pick a location…</option>
+            {% for location in locations %}<option value="{{ location.title }}">{{ location.title }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="reference_location">&hellip;is calculated from</label>
+          <select id="reference_location" name="reference_location" required>
+            <option value="">Pick a location…</option>
+            {% for location in locations %}<option value="{{ location.title }}">{{ location.title }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="adjustment_pct">Adjustment (%)</label>
+          <input id="adjustment_pct" type="number" step="any" name="adjustment_pct"
+                 placeholder="-10 means 10% less" required>
+        </div>
+      </div>
+      <p class="hint">
+        &minus;10 means 10% less (multiply by 0.90); +3 means 3% more. Saving a rule for a
+        location that already has one replaces it.
+      </p>
+      <div class="actions"><button type="submit">Save rule</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Rules for {{ site.name }}</h2></div>
+  {% if rules %}
+    <table>
+      <thead><tr>
+        <th>This price</th><th>Calculated from</th><th class="num">Adjustment</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr {% if not rule.enabled %}class="muted"{% endif %}>
+            <td>{{ rule.derived_location }}</td>
+            <td>{{ rule.reference_location }}</td>
+            <td class="num">{{ "%+g" | format(rule.adjustment_pct) }}%</td>
+            <td>
+              <span class="badge {{ 'ok' if rule.enabled else 'mute' }}">
+                {{ "active" if rule.enabled else "off" }}
+              </span>
+            </td>
+            <td style="white-space:nowrap">
+              <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/toggle"
+                    style="display:inline" data-no-overlay="1">
+                <input type="hidden" name="enabled" value="{{ '0' if rule.enabled else '1' }}">
+                <button class="ghost" type="submit">{{ "Turn off" if rule.enabled else "Turn on" }}</button>
+              </form>
+              <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/delete"
+                    style="display:inline" data-no-overlay="1"
+                    onsubmit="return confirm('Remove this rule?')">
+                <button class="ghost" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">No rules yet. Add the first one above.</div>
+  {% endif %}
+</div>
+{% endblock %}

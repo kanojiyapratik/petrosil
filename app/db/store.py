@@ -475,3 +475,60 @@ class UsageStore:
             )
             for row in rows
         ]
+
+
+class RulesStore:
+    """The derived-price rulebook, per site. See app/editorial/rules.py for
+    how the rules are applied; this class only keeps them."""
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def for_site(self, site_slug: str) -> list:
+        from ..editorial.rules import PriceRule
+
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT id, derived_location, reference_location, adjustment_pct, enabled "
+                "FROM console_price_rules WHERE site_slug = %s ORDER BY derived_location",
+                (site_slug,),
+            ).fetchall()
+
+        return [
+            PriceRule(
+                id=int(row[0]),
+                derived_location=row[1],
+                reference_location=row[2],
+                adjustment_pct=float(row[3]),
+                enabled=bool(row[4]),
+            )
+            for row in rows
+        ]
+
+    def create(
+        self, site_slug: str, derived_location: str, reference_location: str, adjustment_pct: float
+    ) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "INSERT INTO console_price_rules "
+                "(site_slug, derived_location, reference_location, adjustment_pct) "
+                "VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (site_slug, derived_location) DO UPDATE SET "
+                "reference_location = EXCLUDED.reference_location, "
+                "adjustment_pct = EXCLUDED.adjustment_pct, updated_at = now()",
+                (site_slug, derived_location, reference_location, adjustment_pct),
+            )
+            connection.commit()
+
+    def set_enabled(self, rule_id: int, enabled: bool) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_price_rules SET enabled = %s, updated_at = now() WHERE id = %s",
+                (enabled, rule_id),
+            )
+            connection.commit()
+
+    def delete(self, rule_id: int) -> None:
+        with self._pool.connection() as connection:
+            connection.execute("DELETE FROM console_price_rules WHERE id = %s", (rule_id,))
+            connection.commit()
