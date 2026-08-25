@@ -90,6 +90,9 @@
             <tr>
               <td>
                 <input type="hidden" name="loc_{{ loop.index0 }}" value="{{ row.location }}">
+                {% if derived %}
+                  <input type="hidden" name="calc_{{ loop.index0 }}" value="{{ row.rationale }}">
+                {% endif %}
                 <input type="checkbox" name="inc_{{ loop.index0 }}" value="1"
                   {% if (suggested or derived) and not row.flag %}checked{% endif %}
                   {% if not priced %}disabled{% endif %}>

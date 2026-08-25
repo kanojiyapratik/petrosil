@@ -282,10 +282,16 @@ def create_editorial_routes(
         index = 0
 
         # One trio of fields per draft row: loc_N, price_N and the inc_N tick.
+        # Derived rows also carry calc_N -- the formula that produced them --
+        # so the audit trail can say WHERE a saved price came from, which the
+        # owner requires for every derived price.
+        derivations = []
+
         while f"loc_{index}" in form_data:
             location = str(form_data.get(f"loc_{index}") or "").strip()
             price = str(form_data.get(f"price_{index}") or "").strip()
             included = form_data.get(f"inc_{index}") is not None
+            calculation = str(form_data.get(f"calc_{index}") or "").strip()
 
             index += 1
 
@@ -296,6 +302,9 @@ def create_editorial_routes(
                 rows.append({"location": location, "price": float(price)})
             except ValueError:
                 continue
+
+            if calculation:
+                derivations.append(f"{location} = {price}: {calculation}")
 
         if not rows:
             return RedirectResponse(
@@ -313,8 +322,18 @@ def create_editorial_routes(
             user.email,
             "staged an editorial update",
             site.slug,
-            f"{len(rows)} row(s) to batch #{batch_id}",
+            f"{len(rows)} row(s) to batch #{batch_id}"
+            + (f", {len(derivations)} of them derived by rule" if derivations else ""),
         )
+
+        # One audit line per derived price: source, rule and result, kept even
+        # after screens move on. "Both the source price and calculation rule
+        # are recorded in the audit log" -- the owner's requirement, verbatim.
+        for derivation in derivations:
+            store.record(
+                user.email, "saved a derived price", site.slug,
+                f"batch #{batch_id}: {derivation}",
+            )
 
         return RedirectResponse(
             f"/console/sites/{site.slug}/prices/{batch_id}"
