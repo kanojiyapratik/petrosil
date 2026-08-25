@@ -36,6 +36,7 @@ def create_editorial_routes(
     default_model: str,
     driver_for=None,
     client_factory=None,
+    usage=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -192,13 +193,32 @@ def create_editorial_routes(
         active = chosen or driver
         model = getattr(chosen, "model", default_model) if chosen is not None else default_model
 
+        provider_name = getattr(chosen or driver, "provider_key", "gemini")
+
         try:
             prompt = editorial_prompt(names, texts)
             completion = (
                 active.generate(prompt) if chosen is not None else active.generate(model, prompt)
             )
         except Exception as error:  # noqa: BLE001 - a provider failure is a screenful, not a 500
+            if usage is not None:
+                usage.record(
+                    kind="editorial", provider=provider_name, model=model,
+                    status="failed", site_slug=site.slug,
+                )
+
             return screen(request, user, site, {"error": str(error)}, 502)
+
+        if usage is not None:
+            usage.record(
+                kind="editorial",
+                provider=provider_name,
+                model=model,
+                status=completion.status,
+                prompt_tokens=completion.prompt_tokens,
+                completion_tokens=completion.completion_tokens,
+                site_slug=site.slug,
+            )
 
         parsed = (
             parse_suggestions(completion.text, names)

@@ -310,10 +310,15 @@ class StubDriver:
         return self._completion
 
 
-def client_for(driver=None):
+def client_for(driver=None, record_use=None):
     app = FastAPI()
     app.include_router(
-        create_api(api_token=TOKEN, driver=driver or StubDriver(), default_model="gemini-2.5-flash")
+        create_api(
+            api_token=TOKEN,
+            driver=driver or StubDriver(),
+            default_model="gemini-2.5-flash",
+            record_use=record_use,
+        )
     )
 
     return TestClient(app)
@@ -399,6 +404,15 @@ class TestEditorialReviewsEndpoint:
 
         assert body["analysis"]["status"] == "declined"
         assert body["summary"]["suggested"] == 0
+
+    def test_a_draft_records_its_usage(self):
+        used = []
+        post(client_for(record_use=lambda **kw: used.append(kw)))
+
+        assert len(used) == 1
+        assert used[0]["kind"] == "editorial"
+        assert used[0]["status"] == "complete"
+        assert used[0]["prompt_tokens"] == 900
 
     def test_a_provider_failure_is_a_502(self):
         driver = StubDriver(raises=AiProviderError("Gemini could not be reached"))

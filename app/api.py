@@ -66,11 +66,34 @@ class EditorialReviewRequest(BaseModel):
     model: str | None = None
 
 
-def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -> APIRouter:
+def create_api(
+    *, api_token: str, driver, default_model: str, driver_for=None, record_use=None
+) -> APIRouter:
     """driver_for() lets the deployment choose a model per request -- the
     console stores one in its database, and an admin changing it should not
-    need a redeploy. Falls back to the driver built at boot."""
+    need a redeploy. Falls back to the driver built at boot.
+
+    record_use(), when given, is told about every model call -- kind, provider,
+    model, status and token counts -- so the owner can see what was spent. A
+    recorder that fails must never fail the request it was recording.
+    """
     router = APIRouter()
+
+    def record(kind: str, active_driver, model: str, status: str, completion=None) -> None:
+        if record_use is None:
+            return
+
+        try:
+            record_use(
+                kind=kind,
+                provider=getattr(active_driver, "provider_key", "gemini"),
+                model=model,
+                status=status,
+                prompt_tokens=completion.prompt_tokens if completion else None,
+                completion_tokens=completion.completion_tokens if completion else None,
+            )
+        except Exception:  # noqa: BLE001 - the ledger must never break the work
+            pass
 
     def authorise(authorization: str | None = Header(default=None)) -> None:
         """One shared bearer token in front of every /api route.
@@ -156,6 +179,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
                 if chosen is not None
                 else active.generate(model, prompt)
             )
+            record("price_review", active, model, completion.status, completion)
             analysis = {
                 "status": completion.status,
                 "output_markdown": completion.text,
@@ -166,6 +190,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
             }
         except (AiProviderError, Exception) as error:  # noqa: BLE001
             status = 502
+            record("price_review", active, model, "failed")
             analysis = {
                 "status": "failed",
                 "output_markdown": None,
@@ -259,6 +284,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
             completion = (
                 active.generate(prompt) if chosen is not None else active.generate(model, prompt)
             )
+            record("editorial", active, model, completion.status, completion)
             analysis = {
                 "status": completion.status,
                 "model": model,
@@ -273,6 +299,7 @@ def create_api(*, api_token: str, driver, default_model: str, driver_for=None) -
             )
         except (AiProviderError, Exception) as error:  # noqa: BLE001
             status = 502
+            record("editorial", active, model, "failed")
             analysis = {
                 "status": "failed",
                 "model": model,

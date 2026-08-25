@@ -50,10 +50,15 @@ class StubDriver:
         return self._completion
 
 
-def client_for(driver=None):
+def client_for(driver=None, record_use=None):
     app = FastAPI()
     app.include_router(
-        create_api(api_token=TOKEN, driver=driver or StubDriver(), default_model="gemini-2.5-flash")
+        create_api(
+            api_token=TOKEN,
+            driver=driver or StubDriver(),
+            default_model="gemini-2.5-flash",
+            record_use=record_use,
+        )
     )
 
     return TestClient(app)
@@ -91,6 +96,42 @@ class TestAuth:
         client = TestClient(app)
 
         assert client.post("/api/price-reviews", json=VALID_BODY).status_code == 401
+
+
+class TestUsageRecording:
+    """What we spend on the model is recorded per call -- the owner wants to
+    see what was used, when, by what."""
+
+    def test_a_review_records_its_tokens(self):
+        used = []
+        post(client_for(record_use=lambda **kw: used.append(kw)))
+
+        assert len(used) == 1
+        assert used[0]["kind"] == "price_review"
+        assert used[0]["provider"] == "gemini"
+        assert used[0]["model"] == "gemini-2.5-flash"
+        assert used[0]["status"] == "complete"
+        assert used[0]["prompt_tokens"] == 300
+        assert used[0]["completion_tokens"] == 120
+
+    def test_a_provider_failure_is_recorded_too(self):
+        # A failed call still burned the attempt; an invisible failure would
+        # make the usage screen lie.
+        used = []
+        driver = StubDriver(raises=AiProviderError("gemini unreachable"))
+
+        post(client_for(driver=driver, record_use=lambda **kw: used.append(kw)))
+
+        assert used[0]["status"] == "failed"
+        assert used[0]["prompt_tokens"] is None
+
+    def test_a_broken_recorder_does_not_break_the_review(self):
+        def explode(**_kw):
+            raise RuntimeError("usage table missing")
+
+        response = post(client_for(record_use=explode))
+
+        assert response.status_code == 201
 
 
 class TestPriceReviews:

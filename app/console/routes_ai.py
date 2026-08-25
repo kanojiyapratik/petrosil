@@ -25,6 +25,7 @@ def create_ai_routes(
     providers: ProviderStore,
     templates: Jinja2Templates,
     current_user,
+    usage=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -87,6 +88,7 @@ def create_ai_routes(
                 "providers": rows,
                 "sites": store.sites(),
                 "assignments": providers.assignments(),
+                "usage_days": usage.by_day(14) if usage is not None else [],
             },
         )
 
@@ -211,13 +213,29 @@ def create_ai_routes(
         if existing is None:
             return back("err", "No such provider.")
 
+        def note(status, completion=None):
+            if usage is not None:
+                usage.record(
+                    kind="provider_test",
+                    provider=existing.provider,
+                    model=existing.model,
+                    status=status,
+                    prompt_tokens=completion.prompt_tokens if completion else None,
+                    completion_tokens=completion.completion_tokens if completion else None,
+                )
+
         try:
             completion = create_driver(
                 existing.provider, existing.api_key, existing.model
             ).generate("Reply with the single word: ready")
+            note(completion.status, completion)
         except AiQuotaExhausted as error:
+            note("failed")
+
             return back("err", f"{existing.name}: {error}")
         except AiProviderError as error:
+            note("failed")
+
             return back("err", f"{existing.name}: {error}")
 
         if completion.status != "complete":

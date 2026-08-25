@@ -8,6 +8,8 @@ because adding a site should not need a redeploy.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -403,3 +405,73 @@ class ProviderStore:
             ).fetchall()
 
         return {row[0]: int(row[1]) for row in rows}
+
+
+@dataclass(frozen=True)
+class UsageDay:
+    day: str
+    provider: str
+    model: str
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+
+
+class UsageStore:
+    """The ledger of model calls: what was spent, when, by which feature.
+
+    Recording must never break the work being recorded -- a full disk or a
+    missing table costs the ledger entry, not the price draft -- so record()
+    swallows its own failures and logs them instead.
+    """
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def record(
+        self,
+        *,
+        kind: str,
+        provider: str,
+        model: str,
+        status: str,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        site_slug: str | None = None,
+    ) -> None:
+        try:
+            with self._pool.connection() as connection:
+                connection.execute(
+                    "INSERT INTO console_ai_usage "
+                    "(provider, model, kind, site_slug, status, prompt_tokens, completion_tokens) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (provider, model, kind, site_slug, status, prompt_tokens, completion_tokens),
+                )
+                connection.commit()
+        except Exception:  # noqa: BLE001 - the ledger must never break the work
+            logging.getLogger("module").exception("could not record AI usage")
+
+    def by_day(self, days: int = 14) -> list[UsageDay]:
+        """Daily totals per provider and model, newest day first."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day, provider, model, "
+                "       COUNT(*), COALESCE(SUM(prompt_tokens), 0), "
+                "       COALESCE(SUM(completion_tokens), 0) "
+                "FROM console_ai_usage "
+                "WHERE created_at >= now() - make_interval(days => %s) "
+                "GROUP BY 1, 2, 3 ORDER BY 1 DESC, 2, 3",
+                (days,),
+            ).fetchall()
+
+        return [
+            UsageDay(
+                day=row[0],
+                provider=row[1],
+                model=row[2],
+                calls=int(row[3]),
+                prompt_tokens=int(row[4]),
+                completion_tokens=int(row[5]),
+            )
+            for row in rows
+        ]

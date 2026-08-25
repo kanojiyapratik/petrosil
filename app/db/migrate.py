@@ -103,6 +103,27 @@ MIGRATIONS: list[Migration] = [
             ADD COLUMN ai_provider_id BIGINT REFERENCES console_ai_providers(id);
         """,
     ),
+    Migration(
+        id="0004_ai_usage",
+        sql="""
+        -- Every model call, recorded: what was spent, when, by which feature.
+        -- The providers offer no "balance" API, so the module's own ledger is
+        -- the only view of usage there is.
+        CREATE TABLE console_ai_usage (
+          id                BIGSERIAL PRIMARY KEY,
+          provider          TEXT NOT NULL,
+          model             TEXT NOT NULL,
+          kind              TEXT NOT NULL,
+          site_slug         TEXT,
+          status            TEXT NOT NULL,
+          prompt_tokens     INTEGER,
+          completion_tokens INTEGER,
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX console_ai_usage_created_idx ON console_ai_usage (created_at DESC);
+        """,
+    ),
 ]
 
 

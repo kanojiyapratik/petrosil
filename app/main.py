@@ -25,7 +25,7 @@ from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
-from .db.store import ProviderStore, Store, seed
+from .db.store import ProviderStore, Store, UsageStore, seed
 
 logger = logging.getLogger("module")
 
@@ -70,10 +70,23 @@ def create_app() -> FastAPI:
         if chosen is None:
             return None
 
-        return create_driver(chosen.provider, chosen.api_key, chosen.model)
+        driver = create_driver(chosen.provider, chosen.api_key, chosen.model)
+        # The usage ledger records per provider; the driver carries its own
+        # name so the recorder does not have to guess from the class.
+        driver.provider_key = chosen.provider
+
+        return driver
 
     boot_driver = GeminiDriver(api_key=api_key)
     default_model = os.environ.get("AI_DEFAULT_MODEL", "gemini-2.5-flash")
+
+    def record_use(**entry):
+        """The API's usage recorder. Bound late through app.state because the
+        console (and its database) mounts after this router is built."""
+        usage = getattr(app.state, "usage", None)
+
+        if usage is not None:
+            usage.record(**entry)
 
     app.include_router(
         create_api(
@@ -81,6 +94,7 @@ def create_app() -> FastAPI:
             driver=boot_driver,
             default_model=default_model,
             driver_for=configured_driver,
+            record_use=record_use,
         )
     )
 
@@ -201,6 +215,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
             return next((u for u in store.active_users() if u.email == session.email), None)
 
         provider_store = ProviderStore(pool)
+        usage = UsageStore(pool)
 
         app.include_router(console)
         app.include_router(
@@ -214,6 +229,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 driver=driver,
                 default_model=default_model,
                 driver_for=driver_for,
+                usage=usage,
             )
         )
         app.include_router(
@@ -222,6 +238,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 providers=provider_store,
                 templates=TEMPLATES,
                 current_user=current_user,
+                usage=usage,
             )
         )
 
@@ -230,6 +247,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
         # environment otherwise. Setting it after the router is built means an
         # admin changing the default takes effect without a redeploy.
         app.state.providers = provider_store
+        app.state.usage = usage
 
         logger.info(
             "console enabled: %d user(s), %d site(s)", len(users), len(store.sites())

@@ -153,4 +153,37 @@ function showModels(provider) {
 }
 showModels(document.getElementById('provider').value);
 </script>
+
+<div class="panel">
+  <div class="head"><h2>Usage — last 14 days</h2></div>
+  {% if usage_days %}
+    <table>
+      <thead><tr>
+        <th>Day</th><th>Provider</th><th>Model</th>
+        <th class="num">Calls</th><th class="num">Tokens sent</th><th class="num">Tokens received</th>
+      </tr></thead>
+      <tbody>
+        {% for row in usage_days %}
+          <tr>
+            <td class="small">{{ row.day }}</td>
+            <td>{{ row.provider }}</td>
+            <td class="small muted">{{ row.model }}</td>
+            <td class="num">{{ row.calls }}</td>
+            <td class="num">{{ "{:,}".format(row.prompt_tokens) }}</td>
+            <td class="num">{{ "{:,}".format(row.completion_tokens) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="body">
+      <p class="hint" style="margin:0">
+        Every AI call the console and its API make is counted here — price drafts, reviews and
+        key tests — with the exact tokens each one used. The providers offer no "balance" check,
+        so this ledger is the record of what has been spent.
+      </p>
+    </div>
+  {% else %}
+    <div class="body empty">No AI calls recorded yet — usage appears here from now on.</div>
+  {% endif %}
+</div>
 {% endblock %}
