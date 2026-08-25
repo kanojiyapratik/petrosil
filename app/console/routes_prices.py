@@ -87,6 +87,23 @@ def create_price_routes(
 
     @router.get("/console/sites/{slug}/prices", response_class=HTMLResponse)
     def prices(request: Request, slug: str):
+        """Forwards to the editorial screen — the one price screen since the
+        owner's ruling. This URL lives on in histories and bookmarks, and its
+        Excel-only upload form kept catching editors who wanted to upload a
+        report. The batch pages beneath it (/prices/{id}) stay."""
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        return RedirectResponse(f"/console/sites/{site.slug}/editorial", status_code=303)
+
+    @router.get("/console/sites/{slug}/prices-manual", response_class=HTMLResponse)
+    def prices_manual(request: Request, slug: str):
+        """The old screen (exact file upload + bulk edit), kept reachable at a
+        deliberate address for the rare case the editorial flow is wrong for
+        the job -- an exact sheet of decided prices must not pass through a
+        model."""
         user, site, response = guard(request, slug)
 
         if response is not None:
