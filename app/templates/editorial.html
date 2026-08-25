@@ -139,60 +139,6 @@
 </div>
 {% endif %}
 
-{{ '' }}
-<div id="editorial-loading" hidden role="status" aria-live="polite">
-  <div style="background:#fff; color:#0f172a; border-radius:12px; padding:1.4rem 1.8rem;
-              max-width:26rem; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,.35)">
-    <div style="width:2rem; height:2rem; margin:0 auto .8rem; border-radius:50%;
-                border:3px solid #cbd5e1; border-top-color:#2563eb;
-                animation:editorial-spin 0.9s linear infinite"></div>
-    <p style="font-weight:600; margin:0 0 .35rem">Drafting your price update&hellip;</p>
-    <p style="font-size:.85rem; color:#475569; margin:0 0 .6rem">
-      The AI is reading the reports and comparing them with current prices.
-      Please keep this page open.
-    </p>
-    <p style="font-size:.8rem; margin:0">
-      <a href="" onclick="location.reload(); return false" style="color:#2563eb">
-        Taking too long? Reload this page
-      </a>
-    </p>
-  </div>
-</div>
-<style>
-  @keyframes editorial-spin { to { transform: rotate(360deg); } }
-  /* No inline display on the element itself: an inline style would beat the
-     [hidden] rule below, which is exactly the bug that kept this popup
-     permanently on screen. */
-  #editorial-loading {
-    position: fixed; inset: 0; z-index: 2000;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(15, 23, 42, .55);
-  }
-  #editorial-loading[hidden] { display: none; }
-</style>
-<script>
-  (function () {
-    var overlay = document.getElementById("editorial-loading");
-
-    document.querySelectorAll("form").forEach(function (form) {
-      form.addEventListener("submit", function () {
-        // Only the drafting form is slow; saving and login are quick, but a
-        // disabled button still stops the double-click on every form.
-        var button = form.querySelector("button[type=submit]");
-        if (button) { button.disabled = true; }
-        if (form.action.endsWith("/editorial")) { overlay.hidden = false; }
-      });
-    });
-
-    // Coming BACK to this page restores it exactly as it was left -- overlay
-    // up, buttons dead -- because browsers cache the rendered page. Clear it.
-    window.addEventListener("pageshow", function () {
-      overlay.hidden = true;
-
-      document.querySelectorAll("button[type=submit]").forEach(function (button) {
-        button.disabled = false;
-      });
-    });
-  })();
-</script>
+{# The layout's shared "Working…" overlay covers every submit on this page,
+   the drafting form included — a second overlay here double-fired with it. #}
 {% endblock %}
