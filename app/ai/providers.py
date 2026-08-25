@@ -13,6 +13,7 @@ this module's.
 
 from __future__ import annotations
 
+import base64
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -96,12 +97,22 @@ class _Driver:
         self._sleep = sleep
 
     def generate(self, prompt: str) -> AiCompletion:
+        return self._send(self._body(prompt))
+
+    def generate_with_images(
+        self, prompt: str, images: list[tuple[str, bytes]]
+    ) -> AiCompletion:
+        """The prompt plus pictures -- how a posted-price table embedded as a
+        PNG gets read. images is a list of (mime_type, raw bytes)."""
+        return self._send(self._image_body(prompt, images))
+
+    def _send(self, body: dict) -> AiCompletion:
         last_error: Exception | None = None
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = self._session.post(
-                    self._url(), json=self._body(prompt), headers=self._headers(),
+                    self._url(), json=body, headers=self._headers(),
                     timeout=self._timeout,
                 )
             except requests.RequestException as error:
@@ -189,6 +200,12 @@ class _Driver:
     def _body(self, prompt: str) -> dict:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def _image_body(self, prompt: str, images: list[tuple[str, bytes]]) -> dict:
+        raise AiProviderError(
+            f"{self.name} cannot read images with this model. "
+            "Pick a vision-capable provider (Gemini, OpenAI or Claude) on the AI settings screen."
+        )
+
     def _parse(self, payload: dict) -> AiCompletion:  # pragma: no cover - overridden
         raise NotImplementedError
 
@@ -207,6 +224,16 @@ class GeminiDriver(_Driver):
 
     def _body(self, prompt: str) -> dict:
         return {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+
+    def _image_body(self, prompt: str, images: list[tuple[str, bytes]]) -> dict:
+        parts: list[dict] = [{"text": prompt}]
+
+        for mime, data in images:
+            parts.append(
+                {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}
+            )
+
+        return {"contents": [{"role": "user", "parts": parts}]}
 
     def _parse(self, payload: dict) -> AiCompletion:
         candidates = payload.get("candidates") or []
@@ -258,6 +285,19 @@ class OpenAiDriver(_Driver):
     def _body(self, prompt: str) -> dict:
         return {"model": self.model, "messages": [{"role": "user", "content": prompt}]}
 
+    def _image_body(self, prompt: str, images: list[tuple[str, bytes]]) -> dict:
+        content: list[dict] = [{"type": "text", "text": prompt}]
+
+        for mime, data in images:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{base64.b64encode(data).decode()}"},
+                }
+            )
+
+        return {"model": self.model, "messages": [{"role": "user", "content": content}]}
+
     def _parse(self, payload: dict) -> AiCompletion:
         choices = payload.get("choices") or []
         text = ((choices[0] if choices else {}).get("message") or {}).get("content")
@@ -299,6 +339,27 @@ class AnthropicDriver(_Driver):
             "messages": [{"role": "user", "content": prompt}],
         }
 
+    def _image_body(self, prompt: str, images: list[tuple[str, bytes]]) -> dict:
+        content: list[dict] = [{"type": "text", "text": prompt}]
+
+        for mime, data in images:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": base64.b64encode(data).decode(),
+                    },
+                }
+            )
+
+        return {
+            "model": self.model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": content}],
+        }
+
     def _parse(self, payload: dict) -> AiCompletion:
         text = "".join(
             block.get("text", "")
@@ -327,6 +388,11 @@ class GroqDriver(OpenAiDriver):
 
     name = "Groq"
     base_url = "https://api.groq.com/openai"
+
+    def _image_body(self, prompt: str, images: list[tuple[str, bytes]]) -> dict:
+        # The llama models offered here have no vision; inheriting OpenAI's
+        # image body would send pictures the model silently cannot see.
+        return _Driver._image_body(self, prompt, images)
 
 
 DRIVERS = {

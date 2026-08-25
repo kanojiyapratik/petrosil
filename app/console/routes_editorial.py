@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
-from ..editorial.extract import document_to_text
+from ..editorial.extract import document_images, document_to_text
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from ..editorial.rules import apply_rules, benchmark_names
 from .routes import tone_for
@@ -94,6 +94,7 @@ def create_editorial_routes(
             "error": None,
             "batches": None,
             "benchmarks": None,
+            "image_note": None,
         }
         context.update(extra)
 
@@ -151,6 +152,7 @@ def create_editorial_routes(
             )
 
         texts = []
+        images = []
 
         for upload in uploads:
             raw = await upload.read()
@@ -165,6 +167,10 @@ def create_editorial_routes(
 
             if text.strip():
                 texts.append(text)
+
+            # Reports embed whole price tables as pictures (the USA posted
+            # prices are one). They are transcribed by a vision call below.
+            images.extend(document_images(upload.filename or "", raw))
 
         if not texts:
             return screen(
@@ -204,6 +210,50 @@ def create_editorial_routes(
         site_rules = rules.for_site(site.slug) if rules is not None else []
         benchmarks = benchmark_names(site_rules, names)
         asked = names + benchmarks
+
+        # Pictures first: a vision call transcribes any embedded price tables
+        # into text, which then rides through the normal extraction with the
+        # rest of the reports. A provider without vision costs the pictures,
+        # not the draft.
+        image_note = None
+
+        if images:
+            if chosen is not None and hasattr(chosen, "generate_with_images"):
+                try:
+                    seen = chosen.generate_with_images(
+                        "Transcribe every price table and price figure in these images as "
+                        "plain text. Keep all company names, grades, viscosities and numbers "
+                        "exactly as shown, one line per row, with column labels.",
+                        images[:6],
+                    )
+
+                    if usage is not None:
+                        usage.record(
+                            kind="editorial_images", provider=provider_name, model=model,
+                            status=seen.status, prompt_tokens=seen.prompt_tokens,
+                            completion_tokens=seen.completion_tokens, site_slug=site.slug,
+                        )
+
+                    if seen.status == "complete" and (seen.text or "").strip():
+                        texts.append(
+                            "Figures transcribed from images embedded in the reports:\n"
+                            + seen.text
+                        )
+                    else:
+                        image_note = seen.error or "The model declined to read the report images."
+                except Exception as error:  # noqa: BLE001 - pictures are optional
+                    image_note = str(error)
+
+                    if usage is not None:
+                        usage.record(
+                            kind="editorial_images", provider=provider_name, model=model,
+                            status="failed", site_slug=site.slug,
+                        )
+            else:
+                image_note = (
+                    f"{len(images)} image(s) found in the reports could not be read — "
+                    "pick a vision-capable provider on the AI settings screen."
+                )
 
         try:
             prompt = editorial_prompt(asked, texts)
@@ -273,6 +323,7 @@ def create_editorial_routes(
                 "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
                 "summary": summary,
                 "pricedate": pricedate,
+                "image_note": image_note,
                 "analysis": {
                     "status": completion.status,
                     "model": model,

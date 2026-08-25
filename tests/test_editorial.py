@@ -119,6 +119,36 @@ class TestDocumentToText:
         assert document_to_text("report", b"") == ""
 
 
+class TestDocumentImages:
+    """The USA posted prices are a PNG embedded in the report -- the client
+    flagged them as not picked up. The pictures come out here; a vision model
+    transcribes them."""
+
+    def test_the_embedded_pictures_come_out_of_a_docx(self):
+        from app.editorial.extract import document_images
+
+        docx = build_docx(["some text"])
+        # Rebuild with an embedded image alongside the document body.
+        buffer = io.BytesIO()
+
+        with zipfile.ZipFile(io.BytesIO(docx)) as source, zipfile.ZipFile(buffer, "w") as out:
+            for name in source.namelist():
+                out.writestr(name, source.read(name))
+
+            out.writestr("word/media/image1.png", b"\x89PNG fake image bytes")
+
+        images = document_images("report.docx", buffer.getvalue())
+
+        assert images == [("image/png", b"\x89PNG fake image bytes")]
+
+    def test_files_without_pictures_yield_nothing(self):
+        from app.editorial.extract import document_images
+
+        assert document_images("report.docx", build_docx(["text"])) == []
+        assert document_images("report.txt", b"plain text") == []
+        assert document_images("report.docx", b"not a zip") == []
+
+
 LOCATIONS = ["Singapore SN 150 FOB Group I", "UAE 4 CST FOB Group III"]
 
 

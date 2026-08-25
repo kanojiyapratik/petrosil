@@ -141,6 +141,45 @@ class TestGroqSpeaksOpenAisDialect:
         assert result.completion_tokens == 3
 
 
+class TestReadingImages:
+    """The USA posted prices arrive as a picture inside the report. Vision-
+    capable providers transcribe it; one that cannot must say so rather than
+    silently answer from nothing."""
+
+    def test_gemini_sends_images_inline(self):
+        session = FakeSession(FakeResponse(GEMINI_OK))
+        driver("gemini", session).generate_with_images("read this", [("image/png", b"\x89PNG")])
+
+        parts = session.calls[0]["json"]["contents"][0]["parts"]
+        assert parts[0]["text"] == "read this"
+        assert parts[1]["inline_data"]["mime_type"] == "image/png"
+        assert parts[1]["inline_data"]["data"]  # base64 payload present
+
+    def test_openai_sends_images_as_data_urls(self):
+        session = FakeSession(FakeResponse(OPENAI_OK))
+        driver("openai", session).generate_with_images("read this", [("image/png", b"\x89PNG")])
+
+        content = session.calls[0]["json"]["messages"][0]["content"]
+        assert content[0] == {"type": "text", "text": "read this"}
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+    def test_anthropic_sends_images_as_base64_blocks(self):
+        session = FakeSession(FakeResponse(CLAUDE_OK))
+        driver("anthropic", session).generate_with_images("read this", [("image/png", b"\x89PNG")])
+
+        content = session.calls[0]["json"]["messages"][0]["content"]
+        assert content[0] == {"type": "text", "text": "read this"}
+        assert content[1]["type"] == "image"
+        assert content[1]["source"]["media_type"] == "image/png"
+
+    def test_a_provider_without_vision_refuses_by_name(self):
+        with pytest.raises(AiProviderError) as error:
+            driver("groq", FakeSession()).generate_with_images("read", [("image/png", b"x")])
+
+        assert "Groq" in str(error.value)
+
+
 class TestFailures:
     def test_a_quota_refusal_is_its_own_error_and_is_not_retried(self):
         # Retrying spends the very allowance that ran out.

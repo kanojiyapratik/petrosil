@@ -45,6 +45,55 @@ def document_to_text(filename: str, body: bytes) -> str:
     return ""
 
 
+IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+MAX_IMAGES = 6
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+def document_images(filename: str, body: bytes) -> list[tuple[str, bytes]]:
+    """The pictures embedded in a docx, as (mime_type, bytes).
+
+    Reports put whole price tables in as images -- the USA posted prices are
+    one -- which the text extractor cannot see. A vision model transcribes
+    these. Anything unreadable is simply no pictures.
+    """
+    if not (filename or "").lower().endswith(".docx"):
+        return []
+
+    images: list[tuple[str, bytes]] = []
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            for name in sorted(archive.namelist()):
+                if not name.startswith("word/media/"):
+                    continue
+
+                suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+                mime = IMAGE_TYPES.get(suffix)
+
+                if mime is None:
+                    continue
+
+                data = archive.read(name)
+
+                if 0 < len(data) <= MAX_IMAGE_BYTES:
+                    images.append((mime, data))
+
+                if len(images) >= MAX_IMAGES:
+                    break
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return []
+
+    return images
+
+
 def _xlsx_to_text(body: bytes) -> str:
     """Cell text, one line per row -- enough for the model to read a price
     table. Text lives in xl/sharedStrings.xml (how Excel stores it) or inline;
