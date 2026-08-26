@@ -95,6 +95,9 @@ def create_editorial_routes(
             "batches": None,
             "benchmarks": None,
             "image_note": None,
+            # The saved per-site instructions prefill the form; after a draft
+            # the just-typed text wins, so an edit is never silently reverted.
+            "instructions": site.editorial_instructions,
         }
         context.update(extra)
 
@@ -140,6 +143,16 @@ def create_editorial_routes(
 
         form_data = await request.form()
         pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
+        instructions = str(form_data.get("instructions") or "").strip()
+
+        # Remembered per site, so "the USA prices sit in the picture table"
+        # is written once, not retyped every week. Blank clears it.
+        if instructions != (site.editorial_instructions or ""):
+            store.set_editorial_instructions(site.slug, instructions)
+            # Re-read, so every screen this request renders shows the text
+            # that was just typed rather than the stale copy.
+            site = store.site_by_slug(site.slug) or site
+
         uploads = [f for f in form_data.getlist("documents") if getattr(f, "filename", "")]
 
         if not uploads:
@@ -220,12 +233,20 @@ def create_editorial_routes(
         if images:
             if chosen is not None and hasattr(chosen, "generate_with_images"):
                 try:
-                    seen = chosen.generate_with_images(
+                    image_prompt = (
                         "Transcribe every price table and price figure in these images as "
                         "plain text. Keep all company names, grades, viscosities and numbers "
-                        "exactly as shown, one line per row, with column labels.",
-                        images[:6],
+                        "exactly as shown, one line per row, with column labels."
                     )
+
+                    # The editor's note often concerns the pictures themselves
+                    # ("the USA prices are in the image"), so it rides along.
+                    if instructions:
+                        image_prompt += (
+                            "\nEditor's instructions (guidance only): " + instructions
+                        )
+
+                    seen = chosen.generate_with_images(image_prompt, images[:6])
 
                     if usage is not None:
                         usage.record(
@@ -256,7 +277,7 @@ def create_editorial_routes(
                 )
 
         try:
-            prompt = editorial_prompt(asked, texts)
+            prompt = editorial_prompt(asked, texts, instructions or None)
             completion = (
                 active.generate(prompt) if chosen is not None else active.generate(model, prompt)
             )

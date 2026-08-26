@@ -92,8 +92,15 @@ class SiteClient:
     def watched_urls(self) -> dict:
         return self._request("GET", "/price-crawl/urls")
 
-    def replace_watched_urls(self, text: str) -> dict:
-        return self._request("PUT", "/price-crawl/urls", json={"text": text})
+    def replace_watched_urls(self, text: str, instructions: str | None = None) -> dict:
+        payload: dict = {"text": text}
+
+        # Sent only when the screen carries the field, so an older site that
+        # never learned it is not asked to validate it.
+        if instructions is not None:
+            payload["instructions"] = instructions
+
+        return self._request("PUT", "/price-crawl/urls", json=payload)
 
     def activity(self, limit: int = 50) -> dict:
         return self._request("GET", f"/price-crawl/activity?limit={limit}")

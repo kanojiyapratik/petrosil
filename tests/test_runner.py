@@ -26,9 +26,12 @@ class FakeConfig:
 
 
 class FakeClient:
-    def __init__(self, *urls, locations=None):
+    def __init__(self, *urls, locations=None, instructions=None):
         self._sources = Sources(
-            urls=list(urls), locations=locations or LOCATIONS, interval_minutes=15
+            urls=list(urls),
+            locations=locations or LOCATIONS,
+            interval_minutes=15,
+            instructions=instructions,
         )
         self.reported = None
 
@@ -56,8 +59,16 @@ class FakeExtractor:
         self._results = list(results)
         self.calls = []
 
-    def extract(self, url, text, locations, today):
-        self.calls.append({"url": url, "text": text, "locations": locations, "today": today})
+    def extract(self, url, text, locations, today, instructions=None):
+        self.calls.append(
+            {
+                "url": url,
+                "text": text,
+                "locations": locations,
+                "today": today,
+                "instructions": instructions,
+            }
+        )
 
         return self._results.pop(0)
 
@@ -341,7 +352,7 @@ class TestDeadPagesAndQuota:
             def __init__(self):
                 self.calls = 0
 
-            def extract(self, url, text, locations, today):
+            def extract(self, url, text, locations, today, instructions=None):
                 self.calls += 1
                 raise AiQuotaExhausted("Gemini quota exceeded — the API key has hit its limit.")
 
@@ -364,7 +375,7 @@ class TestDeadPagesAndQuota:
         from scraper.ai import AiQuotaExhausted
 
         class QuotaExtractor:
-            def extract(self, url, text, locations, today):
+            def extract(self, url, text, locations, today, instructions=None):
                 raise AiQuotaExhausted("out of quota")
 
         client = FakeClient(watched(1), watched(2))
@@ -383,7 +394,7 @@ class TestQuotaStillDoesTheFreeWork:
         from scraper.runner import STATUS_GONE
 
         class QuotaExtractor:
-            def extract(self, url, text, locations, today):
+            def extract(self, url, text, locations, today, instructions=None):
                 raise AiQuotaExhausted("out of quota")
 
         client = FakeClient(watched(1), watched(2))
@@ -400,7 +411,7 @@ class TestQuotaStillDoesTheFreeWork:
         from scraper.ai import AiQuotaExhausted
 
         class QuotaExtractor:
-            def extract(self, url, text, locations, today):
+            def extract(self, url, text, locations, today, instructions=None):
                 raise AiQuotaExhausted("out of quota")
 
         client = FakeClient(watched(1), watched(2, content_hash=hash_of(PRICED_HTML)))
@@ -408,3 +419,22 @@ class TestQuotaStillDoesTheFreeWork:
         outcomes = run(client, FakeFetcher(ok_page(), ok_page()), QuotaExtractor())
 
         assert outcomes[1].status == STATUS_UNCHANGED
+
+
+class TestSiteInstructions:
+    def test_the_sites_instructions_reach_the_model(self):
+        # The person watching the URLs wrote them on the crawler screen; they
+        # ride from the site's sources call into every extraction.
+        client = FakeClient(watched(), instructions="Read only the top table.")
+        extractor = FakeExtractor(rows(("Europe SN 500 FOB Group I", 845.0)))
+
+        run(client, FakeFetcher(ok_page()), extractor)
+
+        assert extractor.calls[0]["instructions"] == "Read only the top table."
+
+    def test_a_site_without_instructions_sends_none(self):
+        extractor = FakeExtractor(rows(("Europe SN 500 FOB Group I", 845.0)))
+
+        run(FakeClient(watched()), FakeFetcher(ok_page()), extractor)
+
+        assert extractor.calls[0]["instructions"] is None

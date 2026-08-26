@@ -375,6 +375,7 @@ def create_console(
             activity=found,
             locations=location_titles,
             interval_minutes=urls.get("interval_minutes", 15),
+            instructions=urls.get("instructions"),
         )
 
     @router.post("/console/sites/{slug}/crawler/urls")
@@ -393,7 +394,13 @@ def create_console(
         path = f"/console/sites/{site.slug}/crawler"
 
         try:
-            result = client_for(site).replace_watched_urls(str(form.get("text") or ""))
+            # The instructions live on the site with the URL list, so the
+            # crawler's own 15-minute loop sees them too. Sent even when
+            # blank: blank is how they are cleared.
+            result = client_for(site).replace_watched_urls(
+                str(form.get("text") or ""),
+                instructions=str(form.get("instructions") or ""),
+            )
         except SiteError as error:
             return back(path, "err", str(error))
 

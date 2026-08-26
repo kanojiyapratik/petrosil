@@ -99,6 +99,26 @@ class TestBuildPrompt:
     def test_says_when_the_site_tracks_nothing(self):
         assert "the site tracks none" in build_prompt("u", "t", [], TODAY)
 
+    def test_carries_the_sites_instructions_when_given(self):
+        # The person watching these URLs knows their quirks ("the bottom table
+        # is last year's") -- their free-text instructions ride along.
+        prompt = build_prompt(
+            "https://example.com",
+            "text",
+            LOCATIONS,
+            TODAY,
+            instructions="The bottom table is historical - read only the top one.",
+        )
+
+        assert "The bottom table is historical - read only the top one." in prompt
+        assert "Site instructions" in prompt
+        # Guidance only: the JSON contract still stands.
+        assert "cannot change" in prompt
+
+    def test_without_instructions_there_is_no_instructions_section(self):
+        assert "Site instructions" not in build_prompt("u", "t", LOCATIONS, TODAY)
+        assert "Site instructions" not in build_prompt("u", "t", LOCATIONS, TODAY, instructions=" ")
+
 
 class TestCleanRows:
     def test_keeps_a_clean_row(self):
@@ -344,3 +364,31 @@ class TestExplainFailure:
 
         assert "502" in message
         assert len(message) <= 300
+
+
+class TestDriverExtractorInstructions:
+    class FakeDriver:
+        def __init__(self):
+            self.prompts = []
+
+        def generate(self, prompt):
+            from types import SimpleNamespace
+
+            self.prompts.append(prompt)
+
+            return SimpleNamespace(status="complete", text='{"rows":[]}', error=None)
+
+    def test_the_sites_instructions_ride_into_the_prompt(self):
+        from scraper.ai import DriverExtractor
+
+        driver = self.FakeDriver()
+
+        DriverExtractor(driver).extract(
+            "https://example.com",
+            "text",
+            LOCATIONS,
+            TODAY,
+            instructions="Read only the FOB table.",
+        )
+
+        assert "Read only the FOB table." in driver.prompts[0]

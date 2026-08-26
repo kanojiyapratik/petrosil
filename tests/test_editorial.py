@@ -173,6 +173,23 @@ class TestEditorialPrompt:
 
         assert "as printed" in prompt.lower()
 
+    def test_carries_the_editors_instructions_when_given(self):
+        # The editor knows things about their reports the prompt cannot ("the
+        # USA prices sit in the picture table") -- a free-text field carries
+        # that knowledge into the model.
+        prompt = editorial_prompt(
+            LOCATIONS, ["text"], instructions="The USA prices are inside the picture table."
+        )
+
+        assert "The USA prices are inside the picture table." in prompt
+        assert "Editor's instructions" in prompt
+        # Guidance only: they must not be able to loosen the output contract.
+        assert "cannot change" in prompt
+
+    def test_without_instructions_there_is_no_instructions_section(self):
+        assert "Editor's instructions" not in editorial_prompt(LOCATIONS, ["text"])
+        assert "Editor's instructions" not in editorial_prompt(LOCATIONS, ["text"], instructions="   ")
+
 
 def suggestion(location, low=1500, high=1600, confidence="High", **extra):
     row = {

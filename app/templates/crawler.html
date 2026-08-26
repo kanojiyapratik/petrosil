@@ -25,6 +25,14 @@
 {%- for entry in urls %}{% if entry.enabled %}{{ entry.url }}
 {% endif %}{% endfor %}</textarea>
       <p class="hint">One per line. Removing a line stops the watch — its history is kept, not deleted.</p>
+      <div class="field" style="margin-top:.8rem">
+        <label for="crawl-instructions">Extra instructions for the AI (optional)</label>
+        <textarea id="crawl-instructions" name="instructions" rows="3" maxlength="4000"
+          spellcheck="false"
+          placeholder="e.g. The bottom table on the page is last year's — read only the top one.">{{ instructions or "" }}</textarea>
+        <p class="hint">Anything you want the AI to know when it reads these pages. Used on every
+          check, the automatic ones included &mdash; clear the box to remove them.</p>
+      </div>
       <div class="actions"><button type="submit">Save URLs</button></div>
     </form>
   </div>

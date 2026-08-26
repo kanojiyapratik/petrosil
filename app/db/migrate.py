@@ -148,6 +148,15 @@ MIGRATIONS: list[Migration] = [
             ON console_price_rules (site_slug, derived_location);
         """,
     ),
+    Migration(
+        id="0006_editorial_instructions",
+        sql="""
+        -- The editor's free-text instructions to the AI on the editorial
+        -- screen ("the USA prices sit in the picture table"). Remembered per
+        -- site so they are written once, not retyped every week.
+        ALTER TABLE console_sites ADD COLUMN editorial_instructions TEXT;
+        """,
+    ),
 ]
 
 

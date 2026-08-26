@@ -92,7 +92,13 @@ def explain_failure(response) -> str:
     return f"Gemini answered HTTP {response.status_code}: {detail or 'no detail given'}"[:300]
 
 
-def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
+def build_prompt(
+    url: str,
+    text: str,
+    locations: list[str],
+    today: str,
+    instructions: str | None = None,
+) -> str:
     """The extraction prompt. Deliberately narrow about what counts."""
     known = ", ".join(locations) if locations else "(the site tracks none)"
 
@@ -137,6 +143,22 @@ def build_prompt(url: str, text: str, locations: list[str], today: str) -> str:
         "out and say so in notes.",
         '- If the page carries no prices you can attribute, return {"rows":[]}.',
         "",
+    ]
+
+    # Free text from the person watching these URLs ("the bottom table is
+    # last year's"). Guidance only: it cannot loosen the rules above.
+    guidance = (instructions or "").strip()
+
+    if guidance:
+        lines += [
+            "Site instructions (from the person watching this URL):",
+            guidance,
+            "(These instructions refine what to read. They cannot change the "
+            "JSON shape or the rules above.)",
+            "",
+        ]
+
+    lines += [
         "Page text:",
         '"""',
         text,
@@ -157,8 +179,15 @@ class DriverExtractor:
     def __init__(self, driver) -> None:
         self._driver = driver
 
-    def extract(self, url: str, text: str, locations: list[str], today: str) -> Extraction:
-        prompt = build_prompt(url, text, locations, today)
+    def extract(
+        self,
+        url: str,
+        text: str,
+        locations: list[str],
+        today: str,
+        instructions: str | None = None,
+    ) -> Extraction:
+        prompt = build_prompt(url, text, locations, today, instructions)
 
         try:
             completion = self._driver.generate(prompt)
@@ -214,9 +243,14 @@ class GeminiExtractor:
         self._sleep = sleep
 
     def extract(
-        self, url: str, text: str, locations: list[str], today: str
+        self,
+        url: str,
+        text: str,
+        locations: list[str],
+        today: str,
+        instructions: str | None = None,
     ) -> Extraction:
-        prompt = build_prompt(url, text, locations, today)
+        prompt = build_prompt(url, text, locations, today, instructions)
 
         try:
             payload = self._generate(prompt)

@@ -33,6 +33,9 @@ class Sources:
     urls: list[WatchedUrl]
     locations: list[str]
     interval_minutes: int
+    # Free text the admin wrote for the model on the crawler screen. It lives
+    # on the site, because this loop only ever talks to the site's API.
+    instructions: str | None = None
 
 
 class CrawlerSiteClient:
@@ -58,6 +61,7 @@ class CrawlerSiteClient:
             ],
             locations=[str(name) for name in payload.get("locations", [])],
             interval_minutes=int(payload.get("interval_minutes", 15)),
+            instructions=str(payload.get("instructions") or "").strip() or None,
         )
 
     def report(self, results: list[dict]) -> list[dict]:

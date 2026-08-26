@@ -32,6 +32,8 @@ class StoredSite:
     api_url: str
     token: str
     enabled: bool
+    # The editor's saved instructions to the AI on the editorial screen.
+    editorial_instructions: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,11 +71,12 @@ def _to_site(row) -> StoredSite:
         api_url=row[3],
         token=row[4],
         enabled=bool(row[5]),
+        editorial_instructions=row[6],
     )
 
 
 USER_COLUMNS = "id, email, name, password_hash, is_admin, disabled_at"
-SITE_COLUMNS = "id, slug, name, api_url, api_token, enabled"
+SITE_COLUMNS = "id, slug, name, api_url, api_token, enabled, editorial_instructions"
 
 
 class Store:
@@ -181,6 +184,16 @@ class Store:
             connection.commit()
 
         return _to_site(row)
+
+    def set_editorial_instructions(self, slug: str, text: str) -> None:
+        """Saved on every draft, so they are written once and remembered."""
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_sites SET editorial_instructions = %s, updated_at = now() "
+                "WHERE slug = %s",
+                (text.strip() or None, slug),
+            )
+            connection.commit()
 
     # ---- audit -----------------------------------------------------------
 

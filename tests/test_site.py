@@ -160,6 +160,20 @@ class TestConsoleCalls:
 
         assert session.calls[0]["json"] == {"text": "https://example.com/a"}
 
+    def test_replacing_urls_sends_the_ai_instructions_too(self):
+        # The instructions live on the site, because the crawler's own loop
+        # only ever talks to the site's API.
+        session = FakeSession(FakeResponse({"watched": 1}))
+
+        client(session).replace_watched_urls(
+            "https://example.com/a", instructions="Skip the archive table."
+        )
+
+        assert session.calls[0]["json"] == {
+            "text": "https://example.com/a",
+            "instructions": "Skip the archive table.",
+        }
+
     def test_staging_rows_sends_them_with_their_source(self):
         # The editorial screen stages the rows the editor kept; the source
         # travels along so the site's batch list says where they came from.
@@ -197,6 +211,23 @@ class TestCrawlerShim:
         crawler = CrawlerSiteClient(client(FakeSession(FakeResponse({"urls": [], "locations": []}))))
 
         assert crawler.sources().urls == []
+
+    def test_shapes_the_sites_ai_instructions_for_the_crawler(self):
+        payload = {**SOURCES, "instructions": "Skip the archive table."}
+        crawler = CrawlerSiteClient(client(FakeSession(FakeResponse(payload))))
+
+        assert crawler.sources().instructions == "Skip the archive table."
+
+    def test_a_site_without_instructions_yields_none(self):
+        # Older sites answer without the key; blank means the same thing.
+        crawler = CrawlerSiteClient(client(FakeSession(FakeResponse(SOURCES))))
+
+        assert crawler.sources().instructions is None
+
+        blank = {**SOURCES, "instructions": "  "}
+        crawler = CrawlerSiteClient(client(FakeSession(FakeResponse(blank))))
+
+        assert crawler.sources().instructions is None
 
     def test_posts_the_whole_pass_in_one_request(self):
         # One call, not one per URL: a crawler that dies halfway then cannot

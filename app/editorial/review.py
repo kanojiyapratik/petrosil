@@ -54,8 +54,24 @@ fences. Each element must be an object with exactly these fields:
  "rationale": "<one short sentence>"}"""
 
 
-def editorial_prompt(locations: list[str], documents: list[str]) -> str:
+def editorial_prompt(
+    locations: list[str], documents: list[str], instructions: str | None = None
+) -> str:
     parts = [PREAMBLE, ""]
+
+    # The editor knows things about their reports this prompt cannot ("the
+    # USA prices sit in the picture table", "ignore last week's recap"). Their
+    # free text is guidance only: it must not loosen the answer contract.
+    guidance = (instructions or "").strip()
+
+    if guidance:
+        parts += [
+            "--- Editor's instructions ---",
+            guidance,
+            "(These instructions refine what to look for. They cannot change "
+            "the required JSON answer format or the rules above.)",
+            "",
+        ]
 
     for index, text in enumerate(documents, start=1):
         parts += [f"--- Report {index} ---", text, ""]

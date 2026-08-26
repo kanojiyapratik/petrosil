@@ -106,6 +106,7 @@ def run_once(client, fetcher, extractor, config, today: str | None = None) -> li
                 config,
                 model_available=not out_of_quota,
                 quota_message=out_of_quota,
+                instructions=sources.instructions,
             )
         except AiQuotaExhausted as error:
             out_of_quota = str(error)
@@ -134,6 +135,7 @@ def _check(
     config,
     model_available: bool = True,
     quota_message: str = "",
+    instructions: str | None = None,
 ) -> tuple[Outcome, dict]:
     fetched = fetcher.fetch(
         watched.url, etag=watched.etag, last_modified=watched.last_modified
@@ -219,7 +221,9 @@ def _check(
         if region.price_tokens == 0:
             continue
 
-        extraction = extractor.extract(watched.url, region.text, locations, today)
+        extraction = extractor.extract(
+            watched.url, region.text, locations, today, instructions=instructions
+        )
 
         if extraction.error:
             error = extraction.error
