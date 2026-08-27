@@ -81,10 +81,18 @@
           <tr>
             <td>{{ row.location }}</td>
             <td>{{ row.suggested_min }}&ndash;{{ row.suggested_max }}</td>
-            <td><strong>{{ row.suggested_price }}</strong></td>
+            <td>
+              {% if row.status == "needs_rate" %}
+                <strong>{{ row.currency }} {{ row.suggested_price }}</strong>
+                <span class="badge warn">{{ label_for(row.status) }}</span>
+              {% else %}<strong>{{ row.suggested_price }}</strong>{% endif %}
+            </td>
             <td class="small muted">{{ row.basis or "" }}</td>
             <td class="small muted">{{ row.source or "" }}</td>
           </tr>
+          {% if row.conversion or row.status == "needs_rate" %}
+          <tr><td></td><td colspan="4" class="small muted">{{ row.rationale }}</td></tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -99,6 +107,7 @@
     <p class="hint">
       {{ summary.suggested }} of {{ summary.total_locations }} locations have a suggestion;
       {% if summary.derived %}{{ summary.derived }} calculated from them by your price rules;{% endif %}
+      {% if summary.needs_rate %}{{ summary.needs_rate }} figure(s) in another currency could not be converted — no exchange rate for that date — and need manual review;{% endif %}
       {% if summary.near_match %}{{ summary.near_match }} close match(es) need your confirmation;{% endif %}
       {{ summary.no_evidence }} had no evidence in the reports;
       {{ summary.flagged }} flagged for a manual check.

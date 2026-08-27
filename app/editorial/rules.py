@@ -86,6 +86,15 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
             derived_this_pass = True
             factor = 1 + (rule.adjustment_pct / 100.0)
             price = _whole(reference["suggested_price"] * factor)
+            # A reference that was converted from another currency carries
+            # its conversion, and the audit line for the derived price must
+            # show it: the client wants the lira figure, the rate and its
+            # date on the Russian price, not only on the Turkish one.
+            origin = (
+                f"{reference['suggested_price']} = {reference['conversion']}"
+                if reference.get("conversion")
+                else f"{reference['suggested_price']}"
+            )
             change = (
                 _round2(((price - target["current_price"]) / target["current_price"]) * 100)
                 if target["current_price"]
@@ -105,7 +114,7 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
                     "source": reference["source"],
                     "rationale": (
                         f"Calculated from {rule.reference_location} "
-                        f"({reference['suggested_price']}) {rule.adjustment_pct:+g}%."
+                        f"({origin}) {rule.adjustment_pct:+g}%."
                     ),
                     "derived_from": rule.reference_location,
                     "rule_pct": rule.adjustment_pct,

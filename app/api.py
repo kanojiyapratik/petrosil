@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .ai.gemini import AiProviderError
 from .ai.prompt import render_prompt
 from .editorial.extract import document_to_text
+from .editorial.fx import FrankfurterRates, convert_rows
 from .editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from .price_review.differ import CurrentPrice, ProposedRow, diff_prices, js_number
 from .price_review.summariser import Move, PriceSummary, summarise
@@ -67,7 +68,7 @@ class EditorialReviewRequest(BaseModel):
 
 
 def create_api(
-    *, api_token: str, driver, default_model: str, driver_for=None, record_use=None
+    *, api_token: str, driver, default_model: str, driver_for=None, record_use=None, fx=None
 ) -> APIRouter:
     """driver_for() lets the deployment choose a model per request -- the
     console stores one in its database, and an admin changing it should not
@@ -310,6 +311,7 @@ def create_api(
             parsed = ParsedSuggestions()
 
         rows = build_rows(locations, current, parsed)
+        rows = convert_rows(rows, fx if fx is not None else FrankfurterRates(), body.price_date)
         near_matches = sum(1 for row in rows if row["status"] == "near_match")
 
         return JSONResponse(

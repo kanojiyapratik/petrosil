@@ -545,3 +545,37 @@ class RulesStore:
         with self._pool.connection() as connection:
             connection.execute("DELETE FROM console_price_rules WHERE id = %s", (rule_id,))
             connection.commit()
+
+
+class FxStore:
+    """Exchange rates the editorial draft has cited. See app/editorial/fx.py
+    (CachedRates) for why they are kept."""
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def get(self, currency: str, asked_date: str):
+        from ..editorial.fx import FxRate
+
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT rate, rate_date, source FROM console_fx_rates "
+                "WHERE currency = %s AND asked_date = %s",
+                (currency, asked_date),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return FxRate(
+            currency=currency, rate=float(row[0]), rate_date=row[1].isoformat(), source=row[2]
+        )
+
+    def put(self, asked_date: str, rate) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "INSERT INTO console_fx_rates (currency, asked_date, rate_date, rate, source) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (currency, asked_date) DO NOTHING",
+                (rate.currency, asked_date, rate.rate_date, rate.rate, rate.source),
+            )
+            connection.commit()

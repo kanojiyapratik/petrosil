@@ -157,6 +157,26 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE console_sites ADD COLUMN editorial_instructions TEXT;
         """,
     ),
+    Migration(
+        id="0007_fx_rates",
+        sql="""
+        -- Exchange rates the editorial draft used to turn a report figure
+        -- printed in another currency (Turkey's lira prices) into USD. Kept
+        -- so the audit line "TRY 81,212 / 40.92" is reproducible later and a
+        -- redraft does not re-ask the internet for a rate it already cited.
+        CREATE TABLE console_fx_rates (
+          id         BIGSERIAL PRIMARY KEY,
+          currency   TEXT NOT NULL,
+          asked_date DATE NOT NULL,
+          rate_date  DATE NOT NULL,
+          rate       NUMERIC NOT NULL,
+          source     TEXT NOT NULL,
+          fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX console_fx_rates_key ON console_fx_rates (currency, asked_date);
+        """,
+    ),
 ]
 
 

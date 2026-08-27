@@ -12,6 +12,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
+from datetime import date
 
 from ..price_review.differ import js_number
 from ..price_review.summariser import _round2
@@ -44,6 +45,14 @@ a grade or region that genuinely has no listed counterpart, do not
 discard it: include the row with the name exactly as printed in the
 report, and a human editor will decide where it belongs.
 
+Some "Report: " benchmarks are printed in a currency other than USD (for
+example Turkey ex-rack prices in Turkish lira, "Tl 81,212.00/t plus VAT").
+Never convert these yourself: return the figure exactly as printed,
+EXCLUDING any VAT, set "currency" to its ISO code ("TRY") and
+"price_date" to the date the report gives for it (YYYY-MM-DD, or null),
+and mention the VAT amount in "basis" for reference. USD figures need no
+"currency".
+
 Answer with a JSON array only -- no prose before or after, no markdown
 fences. Each element must be an object with exactly these fields:
 {"location": "<from the list, or the report's own name as printed>",
@@ -51,7 +60,9 @@ fences. Each element must be an object with exactly these fields:
  "suggested_max": <number>, "confidence": "high"|"medium"|"low",
  "basis": "<price basis and assessment date from the report>",
  "source": "<which report or section the evidence came from>",
- "rationale": "<one short sentence>"}"""
+ "rationale": "<one short sentence>",
+ "currency": "<ISO code when not USD, else omit>",
+ "price_date": "<YYYY-MM-DD or null>"}"""
 
 
 def editorial_prompt(
@@ -272,7 +283,39 @@ def _build_row(location: str, current: float | None, suggested: dict | None) -> 
         }
     )
 
+    # A figure printed in another currency is not a price yet: it is kept as
+    # printed and marked `foreign` so nothing treats lira as dollars until
+    # fx.convert_rows has divided it by a dated rate.
+    currency = _currency(suggested.get("currency"))
+    row["currency"] = currency
+    row["price_date"] = _iso_date(suggested.get("price_date"))
+
+    if currency is not None:
+        row["status"] = "foreign"
+
     return row
+
+
+def _currency(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    code = value.strip().upper()
+
+    if len(code) != 3 or not code.isalpha() or code == "USD":
+        return None
+
+    return code
+
+
+def _iso_date(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    try:
+        return date.fromisoformat(value.strip()[:10]).isoformat()
+    except ValueError:
+        return None
 
 
 def _positive_number(value) -> float | None:

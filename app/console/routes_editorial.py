@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
 from ..editorial.extract import document_images, document_to_text
+from ..editorial.fx import FrankfurterRates, convert_rows
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from ..editorial.rules import apply_rules, benchmark_names
 from .routes import tone_for
@@ -39,6 +40,7 @@ def create_editorial_routes(
     client_factory=None,
     usage=None,
     rules=None,
+    fx=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -308,6 +310,11 @@ def create_editorial_routes(
         )
         rows = build_rows(asked, current, parsed)
 
+        # A figure printed in lira becomes USD at the rate for its own date
+        # before any rule sees it; no rate, no conversion, and the rule
+        # below it stays silent. See app/editorial/fx.py.
+        rows = convert_rows(rows, fx if fx is not None else FrankfurterRates(), pricedate)
+
         # The rulebook fills what the reports never mention -- code, not the
         # model, does this arithmetic. See app/editorial/rules.py.
         rows = apply_rules(rows, site_rules)
@@ -323,6 +330,7 @@ def create_editorial_routes(
             "suggested": sum(1 for row in rows if row["status"] == "suggested"),
             "near_match": near_matches,
             "derived": sum(1 for row in rows if row["status"] == "derived"),
+            "needs_rate": sum(1 for row in benchmark_rows + rows if row["status"] == "needs_rate"),
             "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
             "invalid": sum(1 for row in rows if row["status"] == "invalid"),
             "flagged": sum(1 for row in rows if row["flag"] is not None),

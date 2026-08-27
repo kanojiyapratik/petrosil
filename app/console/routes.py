@@ -81,6 +81,8 @@ STATUS_LABELS = {
     "near_match": "close match",
     "derived": "calculated by rule",
     "no_evidence": "not in the reports",
+    "foreign": "not in USD",
+    "needs_rate": "needs manual review — no exchange rate",
     "upload": "file upload",
     "bulk_edit": "bulk edit",
     "crawl": "watched URL",

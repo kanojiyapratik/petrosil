@@ -26,7 +26,8 @@ from .console.routes_prices import create_price_routes
 from .console.routes_rules import create_rules_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
-from .db.store import ProviderStore, RulesStore, Store, UsageStore, seed
+from .db.store import FxStore, ProviderStore, RulesStore, Store, UsageStore, seed
+from .editorial.fx import CachedRates, FrankfurterRates
 
 logger = logging.getLogger("module")
 
@@ -90,6 +91,19 @@ def create_app() -> FastAPI:
         if usage is not None:
             usage.record(**entry)
 
+    # Exchange rates for report figures printed in another currency. With
+    # the console running they are cached in its database; without it, the
+    # API still converts, it just asks Frankfurter every time.
+    frankfurter = FrankfurterRates()
+
+    class ConfiguredRates:
+        def get(self, currency, on_date):
+            cached = getattr(app.state, "fx", None)
+
+            return (cached or frankfurter).get(currency, on_date)
+
+    rates = ConfiguredRates()
+
     app.include_router(
         create_api(
             api_token=api_token,
@@ -97,6 +111,7 @@ def create_app() -> FastAPI:
             default_model=default_model,
             driver_for=configured_driver,
             record_use=record_use,
+            fx=rates,
         )
     )
 
@@ -223,6 +238,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
 
         provider_store = ProviderStore(pool)
         rules = RulesStore(pool)
+        app.state.fx = CachedRates(FrankfurterRates(), FxStore(pool))
 
         app.include_router(console)
         app.include_router(
@@ -238,6 +254,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 driver_for=driver_for,
                 usage=usage,
                 rules=rules,
+                fx=app.state.fx,
             )
         )
         app.include_router(
