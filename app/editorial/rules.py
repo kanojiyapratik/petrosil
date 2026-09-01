@@ -48,13 +48,21 @@ def benchmark_names(rules: list[PriceRule], site_locations: list[str]) -> list[s
     return names
 
 
+# Row statuses a rule may fill: nothing found, or an answer with no usable
+# figure. A direct price, a close match and a foreign/unrated figure all stay
+# as they are.
+FILLABLE = ("no_evidence", "invalid")
+
+
 def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
     """Fills rule-covered locations from their reference's suggested price.
 
     Only a row the model suggested directly is a usable reference: a close
     match still awaits a human, and arithmetic on top of a guess would
     launder the uncertainty away. A direct suggestion for the derived
-    location always beats the rule.
+    location always beats the rule -- but a model answer WITHOUT a figure
+    ("all exports from Russia are banned") is no evidence for pricing, so
+    the rule still fills it and the remark is kept for the editor.
     """
     by_location = {row["location"]: row for row in rows}
 
@@ -77,13 +85,14 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
             if target is None or reference is None:
                 continue
 
-            if target["status"] != "no_evidence" or reference["status"] not in (
+            if target["status"] not in FILLABLE or reference["status"] not in (
                 "suggested",
                 "derived",
             ):
                 continue
 
             derived_this_pass = True
+            remark = target.get("rationale") if target["status"] == "invalid" else None
             factor = 1 + (rule.adjustment_pct / 100.0)
             price = _whole(reference["suggested_price"] * factor)
             # A reference that was converted from another currency carries
@@ -115,6 +124,7 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
                     "rationale": (
                         f"Calculated from {rule.reference_location} "
                         f"({origin}) {rule.adjustment_pct:+g}%."
+                        + (f" The reports also said: {remark}" if remark else "")
                     ),
                     "derived_from": rule.reference_location,
                     "rule_pct": rule.adjustment_pct,

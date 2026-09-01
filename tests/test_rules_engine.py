@@ -145,6 +145,31 @@ class TestApplyRules:
 
         assert all(r["location"] in LOCATIONS for r in rows)
 
+    def test_an_unusable_direct_answer_does_not_block_the_rule(self):
+        # The 19.08 report: the model answered "all exports from Russia are
+        # banned" for Russia FOB with no figure. The client's rule (Russia
+        # FOB = Russia Domestic -10%) must still price it; a remark without a
+        # number is no evidence for pricing purposes, and the remark is kept
+        # so the editor still sees it.
+        remark = {
+            "location": KOREA,
+            "suggested_min": None,
+            "suggested_max": None,
+            "confidence": "high",
+            "basis": "Aug 18, 2026",
+            "source": "Lube Report",
+            "rationale": "All exports banned by government decree.",
+        }
+        drafted = draft([suggestion(SINGAPORE, 800, 800), remark])
+        assert next(r for r in drafted if r["location"] == KOREA)["status"] == "invalid"
+
+        rows = apply_rules(drafted, [RULE])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["status"] == "derived"
+        assert row["suggested_price"] == 720
+        assert "exports banned" in row["rationale"]
+
 
 BENCHMARK = "Report: FOB Asia SN 150"
 
