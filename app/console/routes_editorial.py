@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
 from ..editorial.extract import document_images, document_to_text
+from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks, price_digest
 from ..editorial.fx import FrankfurterRates, convert_rows
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from ..editorial.rules import apply_rules, benchmark_names
@@ -308,6 +309,47 @@ def create_editorial_routes(
             if completion.status == "complete"
             else ParsedSuggestions()
         )
+
+        # The benchmarks get a second, focused reading: only the reports'
+        # price lines, only the benchmark names, one answer per name. The
+        # whole-report pass skims them (measured: gpt-4o 8/8, 7/8, 5/8 on
+        # identical runs), and every missed benchmark is a Singapore or
+        # Russia price the site never gets. See app/editorial/benchmarks.py.
+        # A failure here costs the second reading, never the draft.
+        benchmark_note = None
+        digest = price_digest(texts) if benchmarks else ""
+
+        if digest:
+            try:
+                focused_prompt = benchmark_prompt(benchmarks, digest, instructions or None)
+                focused = (
+                    active.generate(focused_prompt)
+                    if chosen is not None
+                    else active.generate(model, focused_prompt)
+                )
+
+                if usage is not None:
+                    usage.record(
+                        kind="editorial_benchmarks", provider=provider_name, model=model,
+                        status=focused.status, prompt_tokens=focused.prompt_tokens,
+                        completion_tokens=focused.completion_tokens, site_slug=site.slug,
+                    )
+
+                if focused.status == "complete":
+                    parsed = merge_benchmarks(
+                        parsed, parse_suggestions(focused.text, benchmarks), benchmarks
+                    )
+                else:
+                    benchmark_note = focused.error
+            except Exception as error:  # noqa: BLE001 - the second reading is a bonus
+                benchmark_note = str(error)
+
+                if usage is not None:
+                    usage.record(
+                        kind="editorial_benchmarks", provider=provider_name, model=model,
+                        status="failed", site_slug=site.slug,
+                    )
+
         rows = build_rows(asked, current, parsed)
 
         # A figure printed in lira becomes USD at the rate for its own date
@@ -353,6 +395,7 @@ def create_editorial_routes(
                 "summary": summary,
                 "pricedate": pricedate,
                 "image_note": image_note,
+                "benchmark_note": benchmark_note,
                 "analysis": {
                     "status": completion.status,
                     "model": model,

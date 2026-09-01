@@ -100,6 +100,11 @@ class ParsedSuggestions:
     unmatched: list[dict] = field(default_factory=list)
 
 
+# How the rulebook names a report's own benchmark assessment, e.g.
+# "Report: FOB Asia SN 150" -- a figure the rules derive from, never a site price.
+BENCHMARK_PREFIX = "Report: "
+
+
 def parse_suggestions(text: str | None, locations: list[str]) -> ParsedSuggestions:
     """The model's answer, reduced to one suggestion per known location.
 
@@ -124,6 +129,17 @@ def parse_suggestions(text: str | None, locations: list[str]) -> ParsedSuggestio
                 continue
 
             location = row.get("location")
+
+            # "Report: " is our label for a benchmark, not the report's own
+            # words; a model that answers "Turkey SN 150" for "Report: Turkey
+            # SN 150" has matched it.
+            if (
+                location not in known
+                and isinstance(location, str)
+                and f"{BENCHMARK_PREFIX}{location.strip()}" in known
+            ):
+                location = f"{BENCHMARK_PREFIX}{location.strip()}"
+                row = {**row, "location": location}
 
             if location not in known:
                 if isinstance(location, str) and location.strip():
