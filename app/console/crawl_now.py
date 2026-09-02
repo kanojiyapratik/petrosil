@@ -60,8 +60,7 @@ def crawl_site_now(site: StoredSite, use_rules: bool | None = None, providers=No
     if api_key == "" and not use_rules:
         raise RuntimeError(
             "No AI provider is configured, so pages cannot be read. Add one "
-            "under Settings > AI, or tick 'without AI' to check the crawler "
-            "on its own."
+            "under Settings > AI."
         )
 
     client = CrawlerSiteClient(

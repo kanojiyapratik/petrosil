@@ -534,27 +534,15 @@ def create_console(
             return RedirectResponse("/console", status_code=303)
 
         path = f"/console/sites/{site.slug}/crawler"
-        form = await request.form()
-
-        # Ticking the box runs the pass with no model at all. It answers a
-        # different question from the normal run: not "what do these pages
-        # say" but "is the crawler reaching them", which is otherwise
-        # indistinguishable from the model being unavailable.
-        without_ai = form.get("without_ai") in ("on", "1")
 
         try:
-            outcomes = crawl_site_now(site, use_rules=without_ai or None, providers=providers)
+            outcomes = crawl_site_now(site, providers=providers)
         except Exception as error:  # noqa: BLE001 - report it, never 500 the screen
             return back(path, "err", str(error))
 
-        store.record(
-            user.email,
-            "ran a crawl by hand",
-            site.slug,
-            f"{len(outcomes)} URL(s)" + (" — without AI" if without_ai else ""),
-        )
+        store.record(user.email, "ran a crawl by hand", site.slug, f"{len(outcomes)} URL(s)")
 
-        return back(path, "ok", describe(outcomes, used_rules=without_ai))
+        return back(path, "ok", describe(outcomes))
 
     # ---- your own account -------------------------------------------------
 

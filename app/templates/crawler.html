@@ -10,21 +10,14 @@
   <div class="head">
     <h2>Watched URLs</h2><span class="spacer"></span>
     <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
-    <form method="post" action="/console/sites/{{ site.slug }}/crawler/check"
-      style="margin:0;display:flex;align-items:center;gap:.6rem">
-      <label class="check" style="font-weight:500;color:var(--muted)"
-        title="Fetches and parses the pages without calling the AI. Use it to tell a crawler problem from a model problem — the labels will be rough.">
-        <input type="checkbox" name="without_ai" value="1"> without AI
-      </label>
-      <button class="ghost" type="submit">Check now</button>
-    </form>
   </div>
   <div class="body">
-    <form method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
+    <form id="watch-form" method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
       <textarea name="text" spellcheck="false" placeholder="https://example.com/base-oil-prices">
 {%- for entry in urls %}{% if entry.enabled %}{{ entry.url }}
 {% endif %}{% endfor %}</textarea>
-      <p class="hint">One per line. Removing a line stops the watch — its history is kept, not deleted.</p>
+      <p class="hint">One per line. Removing a line stops the watch — its history is kept, not deleted.
+        Changes are saved on their own as you type.</p>
       <div class="field" style="margin-top:.8rem">
         <label for="crawl-instructions">Extra instructions for the AI (optional)</label>
         <textarea id="crawl-instructions" name="instructions" rows="3" maxlength="4000"
@@ -33,8 +26,69 @@
         <p class="hint">Anything you want the AI to know when it reads these pages. Used on every
           check, the automatic ones included &mdash; clear the box to remove them.</p>
       </div>
-      <div class="actions"><button type="submit">Save URLs</button></div>
     </form>
+    <form id="crawl-now-form" method="post" action="/console/sites/{{ site.slug }}/crawler/check">
+      <div class="actions" style="align-items:center;gap:.8rem">
+        <button type="submit">Crawl now</button>
+        <span id="watch-saved" class="hint" style="margin:0" aria-live="polite"></span>
+      </div>
+    </form>
+
+<script>
+// The URL list and the AI instructions save themselves: a pause in typing or
+// leaving the box is enough. "Crawl now" saves anything unsaved first, so it
+// always crawls what is on the screen.
+(function () {
+  var form = document.getElementById('watch-form');
+  var note = document.getElementById('watch-saved');
+  var timer = null;
+  var dirty = false;
+  var saving = null;
+
+  function save() {
+    dirty = false;
+    note.textContent = 'Saving…';
+    saving = fetch(form.action, {
+      method: 'POST',
+      body: new URLSearchParams(new FormData(form)),
+      credentials: 'same-origin',
+    }).then(function (response) {
+      if (!response.ok) throw new Error('save failed');
+      if (!dirty) note.textContent = 'Saved.';
+    }).catch(function () {
+      dirty = true;
+      note.textContent = 'Could not save — check the connection and edit again.';
+    }).finally(function () { saving = null; });
+    return saving;
+  }
+
+  function changed() {
+    dirty = true;
+    note.textContent = '';
+    clearTimeout(timer);
+    timer = setTimeout(save, 1200);
+  }
+
+  form.querySelectorAll('textarea').forEach(function (box) {
+    box.addEventListener('input', changed);
+    box.addEventListener('change', function () {
+      if (dirty) { clearTimeout(timer); save(); }
+    });
+  });
+
+  form.addEventListener('submit', function (event) { event.preventDefault(); save(); });
+
+  document.getElementById('crawl-now-form').addEventListener('submit', function (event) {
+    if (!dirty && !saving) return;
+    event.preventDefault();
+    clearTimeout(timer);
+    var pending = saving || save();
+    pending.then(function () {
+      if (!dirty) event.target.submit();
+    });
+  });
+})();
+</script>
   </div>
   {% if urls %}
     <table>
