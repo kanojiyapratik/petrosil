@@ -262,3 +262,26 @@ def test_an_ngrok_tunnel_does_not_serve_its_interstitial_instead_of_json():
     client(session).locations()
 
     assert session.calls[0]["headers"]["ngrok-skip-browser-warning"] == "true"
+
+
+class TestPublishingTheSummary:
+    def test_the_note_goes_up_with_the_batch_it_describes(self):
+        # The site keeps the note and shows the newest one above its price
+        # trends table; it has no AI of its own to write one.
+        session = FakeSession(FakeResponse({"id": 4}))
+
+        result = client(session).post_summary(
+            "Group II grades in Singapore eased while Europe held flat.",
+            source="crawl",
+            batch_id=12,
+        )
+
+        call = session.calls[0]
+        assert call["url"].endswith("/price-summaries")
+        assert call["method"] == "POST"
+        assert call["json"] == {
+            "summary": "Group II grades in Singapore eased while Europe held flat.",
+            "source": "crawl",
+            "price_batch_id": 12,
+        }
+        assert result["id"] == 4

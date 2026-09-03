@@ -161,6 +161,18 @@ class SiteClient:
     def commit_batch(self, batch_id: int) -> dict:
         return self._request("POST", f"/price-batches/{batch_id}/commit", json={})
 
+    def post_summary(self, summary: str, source: str, batch_id: int | None = None) -> dict:
+        """Hand the site the note to show above its price trends table.
+
+        The site has no AI of its own, so the text is written here and only
+        stored there.
+        """
+        return self._request(
+            "POST",
+            "/price-summaries",
+            json={"summary": summary, "source": source, "price_batch_id": batch_id},
+        )
+
     def rollback_batch(self, batch_id: int) -> dict:
         return self._request("POST", f"/price-batches/{batch_id}/rollback", json={})
 

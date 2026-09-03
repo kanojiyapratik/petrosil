@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
 from .routes import NEEDS_ATTENTION, VALUE_EDITABLE, label_for, tone_for
+from ..editorial.summary import write_summary
 from .site_client import SiteClient, SiteError
 
 
@@ -23,8 +24,38 @@ def create_price_routes(
     templates: Jinja2Templates,
     current_user,
     client_factory=None,
+    driver=None,
+    default_model: str | None = None,
+    driver_for=None,
 ) -> APIRouter:
     router = APIRouter()
+
+    def note_the_update(client, batch_id: int) -> None:
+        """Write the note that goes above the site's price trends table.
+
+        Everything in here is best-effort. It runs after the prices are
+        already live, so a model that will not answer, a site that has not
+        got the endpoint yet, or a batch that cannot be read back must all
+        end in silence rather than in an error on a publish that worked.
+        """
+        if driver is None:
+            return
+
+        try:
+            payload = client.batch(batch_id)
+            items = payload.get("items") or []
+            source = (payload.get("batch") or {}).get("source") or "editorial"
+
+            chosen = driver_for() if driver_for is not None else None
+            active = chosen or driver
+            model = None if chosen is not None else default_model
+
+            note = write_summary(active, model, items, source=source)
+
+            if note:
+                client.post_summary(note, source=source, batch_id=batch_id)
+        except Exception:  # noqa: BLE001 - see the docstring
+            return
 
     def client_for(site: StoredSite) -> SiteClient:
         if client_factory is not None:
@@ -381,9 +412,10 @@ def create_price_routes(
             return response
 
         path = f"/console/sites/{site.slug}/prices/{batch_id}"
+        client = client_for(site)
 
         try:
-            result = client_for(site).commit_batch(batch_id)
+            result = client.commit_batch(batch_id)
         except SiteError as error:
             return back(path, "err", str(error))
 
@@ -396,6 +428,10 @@ def create_price_routes(
             site.slug,
             f"batch #{batch_id}" + (f" ({committed} rows)" if committed else ""),
         )
+
+        # The prices are already live. This only writes the note that goes
+        # above the site's price trends table, and swallows its own failures.
+        note_the_update(client, batch_id)
 
         return back(path, "ok", f"Update #{batch_id} is now live on the website.")
 

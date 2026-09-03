@@ -242,7 +242,16 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
 
         app.include_router(console)
         app.include_router(
-            create_price_routes(store=store, templates=TEMPLATES, current_user=current_user)
+            create_price_routes(
+                store=store,
+                templates=TEMPLATES,
+                current_user=current_user,
+                # Only so a committed batch can be summarised for the site's
+                # price trends page; these screens have no other AI.
+                driver=driver,
+                default_model=default_model,
+                driver_for=driver_for,
+            )
         )
         app.include_router(
             create_editorial_routes(
