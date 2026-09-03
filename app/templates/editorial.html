@@ -15,7 +15,9 @@
 <div class="panel">
   <div class="head"><h2>Upload market reports</h2></div>
   <div class="body">
-    <form method="post" action="/console/sites/{{ site.slug }}/editorial" enctype="multipart/form-data">
+    <form method="post" action="/console/sites/{{ site.slug }}/editorial" enctype="multipart/form-data"
+      data-working-title="Reading the reports&hellip;"
+      data-working-hint="The AI is reading the reports and drafting prices for every location — this can take a few minutes. Please keep this page open.">
       <div class="fields">
         <div class="field">
           <label for="documents">Reports (up to 5, 10 MB each)</label>

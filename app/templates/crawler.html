@@ -12,7 +12,7 @@
     <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
   </div>
   <div class="body">
-    <form id="watch-form" method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
+    <form id="watch-form" data-no-overlay="1" method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
       <textarea name="text" spellcheck="false" placeholder="https://example.com/base-oil-prices">
 {%- for entry in urls %}{% if entry.enabled %}{{ entry.url }}
 {% endif %}{% endfor %}</textarea>
@@ -27,7 +27,9 @@
           check, the automatic ones included &mdash; clear the box to remove them.</p>
       </div>
     </form>
-    <form id="crawl-now-form" method="post" action="/console/sites/{{ site.slug }}/crawler/check">
+    <form id="crawl-now-form" method="post" action="/console/sites/{{ site.slug }}/crawler/check"
+      data-working-title="Crawling&hellip;"
+      data-working-hint="Fetching each watched page and reading it with the AI — this can take a minute or two. Please keep this page open.">
       <div class="actions" style="align-items:center;gap:.8rem">
         <button type="submit">Crawl now</button>
         <span id="watch-saved" class="hint" style="margin:0" aria-live="polite"></span>

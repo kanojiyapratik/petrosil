@@ -198,8 +198,8 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
 <div id="working" hidden>
   <div class="working-panel">
     <div class="spinner" aria-hidden="true"></div>
-    <p class="working-title">Working&hellip;</p>
-    <p class="working-hint">Talking to the website — almost done. Please keep this page open.</p>
+    <p class="working-title" id="working-title">Working&hellip;</p>
+    <p class="working-hint" id="working-hint">Talking to the website — almost done. Please keep this page open.</p>
   </div>
 </div>
 <script>
@@ -208,10 +208,18 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
   // 10-20 seconds. Without this a click looks like nothing happened, and the
   // obvious reaction is to click again.
   var overlay = document.getElementById('working');
+  var title = document.getElementById('working-title');
+  var hint = document.getElementById('working-hint');
+  var defaultTitle = title ? title.textContent : '';
+  var defaultHint = hint ? hint.textContent : '';
 
   document.addEventListener('submit', function (event) {
     var form = event.target;
     if (!form || form.dataset.noOverlay === '1') return;
+    // A long-running form says what it is actually doing; everything else
+    // keeps the stock message.
+    if (title) title.textContent = form.dataset.workingTitle || defaultTitle;
+    if (hint) hint.textContent = form.dataset.workingHint || defaultHint;
     // Fires only after the browser's own validation passes, so a missing
     // field still shows its message instead of a stuck overlay.
     setTimeout(function () { if (overlay) overlay.hidden = false; }, 0);
