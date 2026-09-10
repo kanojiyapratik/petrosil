@@ -5,6 +5,12 @@
   Which model reads pages for the crawler and narrates a price batch. Add a key here rather than
   in a deployment setting, and pick a different one per site if you want to.
 </p>
+<p class="lede">
+  The model list for a saved key is the list that key can actually use — it is asked of the
+  provider each time this page opens, so a model added to your account shows up here on its own.
+  A bigger model costs more for every page read and every price update; what has been used so far
+  is at the bottom of this page.
+</p>
 
 <div class="panel">
   <div class="head"><h2>Add a provider</h2></div>
@@ -65,7 +71,8 @@
                 <input type="hidden" name="name" value="{{ p.name }}">
                 <input type="hidden" name="enabled" value="{{ '1' if p.enabled else '0' }}">
                 <select name="model" style="min-width:11rem;padding:.25rem .4rem">
-                  {% for m in catalogue.get(p.provider, {}).get("models", [p.model]) %}
+                  {# What this key can actually run, asked of the provider itself. #}
+                  {% for m in offered.get(p.id, [p.model]) %}
                     <option value="{{ m }}" {% if m == p.model %}selected{% endif %}>{{ m }}</option>
                   {% endfor %}
                 </select>

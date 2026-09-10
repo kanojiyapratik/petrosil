@@ -14,6 +14,7 @@ this module's.
 from __future__ import annotations
 
 import base64
+import re
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -51,8 +52,11 @@ def declined(error: str) -> AiCompletion:
     )
 
 
-# What the console offers, and what each one needs. Kept here so the screen
-# and the drivers cannot disagree about which models exist.
+# Models the console offers when the key itself cannot be asked: a starting
+# point for a provider being added, and the fallback when a listing call
+# fails. Every provider here can be asked -- see available_models -- and the
+# answer is always better than this list, which goes stale the day it is
+# written.
 PROVIDERS = {
     "gemini": {
         "label": "Google Gemini",
@@ -75,6 +79,111 @@ PROVIDERS = {
         "key_hint": "A free API key from console.groq.com, starting gsk_",
     },
 }
+
+
+# Everything an OpenAI-style key lists that is not a text model we could send
+# a prompt to: pictures, sound, embeddings, moderation, search and the rest.
+_NOT_TEXT = (
+    "embedding", "tts", "whisper", "transcribe", "image", "audio", "realtime",
+    "moderation", "sora", "search", "codex", "instruct", "dall-e", "davinci",
+    "babbage", "computer-use", "guard", "robotics", "imagen", "veo", "-live-",
+)
+
+# A dated snapshot of a model already listed under its plain name -- three
+# dozen of them, all duplicates as far as this screen is concerned.
+_SNAPSHOT = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def _is_text_model(model_id: str) -> bool:
+    name = model_id.lower()
+
+    if _SNAPSHOT.search(name) or name.startswith("gpt-3.5"):
+        return False
+
+    if any(word in name for word in _NOT_TEXT):
+        return False
+
+    return name.startswith(
+        ("gpt-", "o1", "o3", "o4", "o5", "chat-", "llama", "claude", "gemini")
+    )
+
+
+def _newest_first(models: list[str]) -> list[str]:
+    """Newest-looking first, so the top of the list is the current model.
+
+    "gpt-5.10" must sort above "gpt-5.4", which is why the digits are compared
+    as numbers rather than as text.
+    """
+    def natural(name: str):
+        return [
+            (0, int(part)) if part.isdigit() else (1, part)
+            for part in re.split(r"(\d+)", name)
+        ]
+
+    ordered = sorted(set(models), key=natural, reverse=True)
+
+    # The o-series sorts above everything alphabetically; it belongs after the
+    # gpt line, not on top of it.
+    return sorted(ordered, key=lambda name: 0 if name.lower().startswith(("gpt", "claude")) else 1)
+
+
+def available_models(provider: str, api_key: str, session=None, timeout_seconds: int = 10) -> list[str]:
+    """What this key can actually use, asked of the provider itself.
+
+    The hardcoded list above was written in August and had the console still
+    offering gpt-4o-mini as the biggest OpenAI model on a key that can reach
+    the whole gpt-5 line. A list that has to be edited to stay true will
+    always be out of date; the key knows.
+
+    Never raises. A settings screen has to render with a wrong key, an expired
+    key or no network at all, and the caller falls back to the list above.
+    """
+    provider = provider.lower()
+    asked = session or requests
+
+    try:
+        if provider == "gemini":
+            # The key rides in the query string for this API, so nothing from
+            # this call may ever reach a message or a log.
+            response = asked.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": api_key, "pageSize": 200},
+                timeout=timeout_seconds,
+            )
+            payload = response.json() if response.ok else {}
+            names = [
+                str(entry.get("name", "")).replace("models/", "")
+                for entry in payload.get("models", [])
+                if "generateContent" in (entry.get("supportedGenerationMethods") or [])
+            ]
+
+            return _newest_first([name for name in names if _is_text_model(name)])
+
+        if provider == "anthropic":
+            response = asked.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                params={"limit": 100},
+                timeout=timeout_seconds,
+            )
+        else:
+            base = "https://api.groq.com/openai" if provider == "groq" else "https://api.openai.com"
+            response = asked.get(
+                f"{base}/v1/models",
+                headers={"authorization": f"Bearer {api_key}"},
+                timeout=timeout_seconds,
+            )
+
+        if not response.ok:
+            return []
+
+        found = [str(entry.get("id", "")) for entry in (response.json().get("data") or [])]
+
+        return _newest_first([name for name in found if _is_text_model(name)])
+    except Exception:
+        # Any failure at all is "we could not ask", never an error on screen.
+        return []
+
 
 
 class _Driver:

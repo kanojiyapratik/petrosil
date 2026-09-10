@@ -14,7 +14,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ..ai.providers import PROVIDERS, AiProviderError, AiQuotaExhausted, create_driver
+from ..ai.providers import (
+    PROVIDERS,
+    AiProviderError,
+    AiQuotaExhausted,
+    available_models,
+    create_driver,
+)
 from ..db.store import ProviderStore, Store
 from .routes import tone_for
 
@@ -72,11 +78,26 @@ def create_ai_routes(
             flash = {"kind": "bad", "text": request.query_params["err"]}
 
         rows = providers.all()
+        # Each saved key is asked what it can actually run, so the list is the
+        # account's own and cannot go stale. The hardcoded catalogue is only
+        # the fallback -- and the starting point for a provider being added,
+        # where there is no key yet to ask.
+        offered = {}
+
+        for row in rows:
+            live = available_models(row.provider, row.api_key)
+            fallback = PROVIDERS.get(row.provider, {}).get("models", [])
+            offered[row.id] = live or fallback
+
+            # Whatever is in use stays selectable even if the listing missed it.
+            if row.model not in offered[row.id]:
+                offered[row.id] = [row.model] + list(offered[row.id])
 
         return templates.TemplateResponse(
             request,
             "settings_ai.html",
             {
+                "offered": offered,
                 "user": user,
                 "flash": flash,
                 "site": None,
@@ -110,8 +131,14 @@ def create_ai_routes(
         if api_key == "":
             return back("err", "A provider needs an API key.")
 
-        if model not in PROVIDERS[provider]["models"]:
-            return back("err", f"{model or 'That model'} is not one of {PROVIDERS[provider]['label']}'s.")
+        # The key being added is the authority on what it can run; the
+        # catalogue is only consulted when the provider cannot be asked.
+        allowed = available_models(provider, api_key) or PROVIDERS[provider]["models"]
+
+        if model not in allowed:
+            return back(
+                "err", f"{model or 'That model'} is not one {PROVIDERS[provider]['label']} offers."
+            )
 
         created = providers.create(
             name=str(form.get("name") or "").strip() or PROVIDERS[provider]["label"],
@@ -140,8 +167,13 @@ def create_ai_routes(
             return back("err", "No such provider.")
 
         model = str(form.get("model") or existing.model)
+        allowed = (
+            available_models(existing.provider, str(form.get("api_key") or "").strip() or existing.api_key)
+            or PROVIDERS.get(existing.provider, {}).get("models", [])
+            or [model]
+        )
 
-        if model not in PROVIDERS.get(existing.provider, {}).get("models", [model]):
+        if model != existing.model and model not in allowed:
             return back("err", "That model is not one this provider offers.")
 
         providers.update(
