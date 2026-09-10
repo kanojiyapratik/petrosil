@@ -18,6 +18,154 @@ from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
 
+def _pct(value: float) -> str:
+    return f"{value:+g}%"
+
+
+def _formula(rule) -> str:
+    return f"{rule.reference_location} {_pct(rule.adjustment_pct)}"
+
+
+def _count(rules) -> str:
+    return "1 rule" if len(rules) == 1 else f"{len(rules)} rules"
+
+
+def _listed(rules, limit: int = 3) -> str:
+    shown = [f"{rule.derived_location} {_pct(rule.adjustment_pct)}" for rule in rules[:limit]]
+    rest = len(rules) - len(shown)
+
+    if rest > 0:
+        shown.append(f"and {rest} more")
+
+    return ", ".join(shown)
+
+
+def _note(tone: str, title: str, detail: str) -> dict:
+    return {"tone": tone, "title": title, "detail": detail}
+
+
+def build_rule_notes(rules, locations) -> dict:
+    """What the rulebook already says about each name, in plain sentences.
+
+    Both fields on this screen are guesswork without it. A location that is
+    already calculated must say so -- saving a second rule silently replaces
+    the first -- and a location other rules are calculated FROM must say that
+    too, because a percentage typed here moves all of them.
+
+    The two halves differ because the same location means different things on
+    each side: on the left it is the price being replaced, on the right it is
+    the benchmark others hang off.
+    """
+    derived_by = {}
+    references: dict = {}
+
+    for rule in rules:
+        derived_by[rule.derived_location] = rule
+        references.setdefault(rule.reference_location, []).append(rule)
+
+    titles = {str(entry.get("title")) for entry in locations if entry.get("title")}
+    names = set(derived_by) | set(references) | titles
+    notes = {}
+
+    for name in sorted(names):
+        rule = derived_by.get(name)
+        used_by = references.get(name, [])
+        count = _count(used_by)
+
+        if rule is not None and used_by:
+            flag = "both"
+            summary = f"calculated from {_formula(rule)} · source for {count}"
+        elif rule is not None:
+            flag = "rule"
+            summary = f"calculated from {_formula(rule)}"
+        elif used_by:
+            flag = "source"
+            summary = f"source for {count}"
+        else:
+            flag = ""
+            summary = ""
+
+        if rule is not None and rule.enabled:
+            derived = _note(
+                "warn",
+                "This location already has a rule",
+                f"{name} is calculated from {_formula(rule)}. Saving replaces that rule.",
+            )
+        elif rule is not None:
+            # create() rewrites the formula and never touches `enabled`, so a
+            # replaced rule that was off stays off -- which reads as "nothing
+            # happened" unless it is said here.
+            summary += " (turned off)"
+            derived = _note(
+                "warn",
+                "This location has a rule that is turned off",
+                f"{name} is calculated from {_formula(rule)}. Saving replaces it, and it "
+                "stays off until you turn it on in the table below.",
+            )
+        elif used_by:
+            # Rules chain to a fixpoint, so a rule here moves everything below it.
+            derived = _note(
+                "info",
+                f"{count} {'is' if len(used_by) == 1 else 'are'} calculated from this location",
+                f"{_listed(used_by)}. A rule here changes what they all start from.",
+            )
+        else:
+            derived = _note(
+                "mute",
+                "No rule yet",
+                f"{name} is priced only from what the reports say. This would be its "
+                "first rule.",
+            )
+
+        # A reference is resolved by exact name. One that is neither a live
+        # location nor a report figure matches nothing, so every rule hanging
+        # off it silently never runs -- found on baseoil, where three Bright
+        # Stock rules name a location that does not exist.
+        orphan = bool(used_by) and name not in titles and not name.lower().startswith("report:")
+
+        if orphan:
+            reference = _note(
+                "warn",
+                "No location and no report figure has this name",
+                f"{count} {'is' if len(used_by) == 1 else 'are'} calculated from it — "
+                f"{_listed(used_by)} — and none of them can run until the name matches a "
+                'location exactly, or is entered as a report figure starting with "Report:".',
+            )
+        elif used_by:
+            detail = f"{_listed(used_by)}."
+
+            if rule is not None:
+                detail += (
+                    f" It is itself calculated from {_formula(rule)}, so this rule would "
+                    "follow on from that one."
+                )
+
+            reference = _note("info", f"Already the source for {count}", detail)
+        elif rule is not None:
+            reference = _note(
+                "info",
+                "This location is itself calculated",
+                f"{name} is calculated from {_formula(rule)}, so this rule would follow "
+                "on from that one.",
+            )
+        else:
+            reference = _note(
+                "mute",
+                "Not used by any rule yet",
+                f"This would be the first price calculated from {name}.",
+            )
+
+        notes[name] = {
+            "flag": flag,
+            "orphan": orphan,
+            "summary": summary,
+            "derived": derived,
+            "reference": reference,
+        }
+
+    return notes
+
+
 def create_rules_routes(
     *,
     store: Store,
@@ -77,6 +225,14 @@ def create_rules_routes(
         except SiteError:
             locations = []
 
+        site_rules = rules.for_site(site.slug)
+        titles = [str(entry.get("title")) for entry in locations if entry.get("title")]
+        # References that are report figures rather than site locations. They
+        # are typed, never picked, so the second field offers back the ones
+        # the rulebook already uses instead of asking for them from memory.
+        benchmarks = sorted(
+            {rule.reference_location for rule in site_rules} - set(titles)
+        )
         flash = None
 
         if request.query_params.get("ok"):
@@ -98,8 +254,10 @@ def create_rules_routes(
                 ],
                 "tone_for": tone_for,
                 "title": f"Price rules · {site.name}",
-                "rules": rules.for_site(site.slug),
-                "locations": locations,
+                "rules": site_rules,
+                "locations": titles,
+                "benchmarks": benchmarks,
+                "rule_notes": build_rule_notes(site_rules, locations),
             },
         )
 

@@ -12,22 +12,45 @@
 <div class="panel">
   <div class="head"><h2>Add or update a rule</h2></div>
   <div class="body">
-    <form method="post" action="/console/sites/{{ site.slug }}/rules">
+    <form method="post" action="/console/sites/{{ site.slug }}/rules" id="rule-form">
       <div class="fields">
         <div class="field">
-          <label for="derived_location">This price&hellip;</label>
-          <select id="derived_location" name="derived_location" required>
-            <option value="">Pick a location…</option>
-            {% for location in locations %}<option value="{{ location.title }}">{{ location.title }}</option>{% endfor %}
-          </select>
+          <label for="derived-button">This price&hellip;</label>
+          {# Both fields are the same control. The right-hand one also takes a
+             typed report figure, which is why this is not a <select>: a select
+             cannot hold a value that is not in its list, and cannot show the
+             rule under each name. #}
+          <div class="combo" data-combo="derived">
+            <input type="hidden" name="derived_location" value="">
+            <button type="button" class="combo-field" id="derived-button"
+                    aria-haspopup="listbox" aria-expanded="false">
+              <span class="combo-value empty">Pick a location…</span>
+              <span class="combo-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="combo-pop" hidden>
+              <input type="text" class="combo-search" placeholder="Type to filter…"
+                     autocomplete="off" spellcheck="false" aria-label="Filter locations">
+              <div class="combo-list" role="listbox"></div>
+            </div>
+          </div>
+          <p class="rulenote" data-note="derived" hidden></p>
         </div>
         <div class="field">
-          <label for="reference_location">&hellip;is calculated from</label>
-          <input id="reference_location" name="reference_location" list="reference-options"
-                 placeholder="A location, or e.g. Report: FOB Asia SN 150" required>
-          <datalist id="reference-options">
-            {% for location in locations %}<option value="{{ location.title }}">{% endfor %}
-          </datalist>
+          <label for="reference-button">&hellip;is calculated from</label>
+          <div class="combo" data-combo="reference">
+            <input type="hidden" name="reference_location" value="">
+            <button type="button" class="combo-field" id="reference-button"
+                    aria-haspopup="listbox" aria-expanded="false">
+              <span class="combo-value empty">Pick a location or report figure…</span>
+              <span class="combo-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="combo-pop" hidden>
+              <input type="text" class="combo-search" placeholder="Type to filter, or type a report figure…"
+                     autocomplete="off" spellcheck="false" aria-label="Filter locations">
+              <div class="combo-list" role="listbox"></div>
+            </div>
+          </div>
+          <p class="rulenote" data-note="reference" hidden></p>
         </div>
         <div class="field">
           <label for="adjustment_pct">Adjustment (%)</label>
@@ -36,11 +59,11 @@
         </div>
       </div>
       <p class="hint">
-        &minus;10 means 10% less (multiply by 0.90); +3 means 3% more. Saving a rule for a
-        location that already has one replaces it. The "calculated from" side can also be a
-        report figure that is not a site location — type it starting with
-        <strong>Report:</strong> (e.g. <em>Report: FOB Asia SN 150</em>) and the AI will
-        extract that figure from uploaded reports for the rule to use.
+        &minus;10 means 10% less (multiply by 0.90); +3 means 3% more. A name marked
+        <span class="mark">ⓘ</span> is already in the rulebook — pick it to see what it does.
+        The "calculated from" side can also be a report figure that is not a site location:
+        type it and choose <strong>Use "Report: &hellip;"</strong>, and the AI will extract that
+        figure from uploaded reports for the rule to use.
       </p>
       <div class="actions"><button type="submit">Save rule</button></div>
     </form>
@@ -86,4 +109,259 @@
     <div class="body empty">No rules yet. Add the first one above.</div>
   {% endif %}
 </div>
+
+<script>
+// One dropdown, built twice. Each row shows the location and, under it, what
+// the rulebook already does with that name -- which is the whole point of the
+// screen and is exactly what a native <select> cannot render. The right-hand
+// field additionally accepts a report figure that is not a site location, so
+// neither field can be a <select> and both must be the same control.
+(function () {
+  var NOTES = {{ rule_notes | tojson }};
+  var LOCATIONS = {{ locations | tojson }};
+  var BENCHMARKS = {{ benchmarks | tojson }};
+  var form = document.getElementById('rule-form');
+
+  function noteFor(name, side) {
+    var found = NOTES[name];
+    if (found) return found[side];
+    // A name typed into the second field that the rulebook has never seen.
+    if (name.slice(0, 7).toLowerCase() === 'report:') {
+      return {
+        tone: 'info', title: 'A figure from the reports',
+        detail: 'Not a site location. The AI will look for “' + name.slice(7).trim() +
+          '” in the reports you upload, and this rule will use whatever it finds.',
+      };
+    }
+    return {
+      tone: 'mute', title: 'Not a site location',
+      detail: 'Nothing on ' + '{{ site.name }}' + ' is called this. If it is a figure from ' +
+        'the market reports, start the name with "Report:".',
+    };
+  }
+
+  function combo(root) {
+    var side = root.dataset.combo;
+    var hidden = root.querySelector('input[type=hidden]');
+    var button = root.querySelector('.combo-field');
+    var value = root.querySelector('.combo-value');
+    var pop = root.querySelector('.combo-pop');
+    var search = root.querySelector('.combo-search');
+    var list = root.querySelector('.combo-list');
+    var note = form.querySelector('[data-note="' + side + '"]');
+    var rows = [];
+    var active = -1;
+
+    function choose(name) {
+      hidden.value = name;
+      value.textContent = name;
+      value.classList.remove('empty');
+      var shown = noteFor(name, side);
+      note.className = 'rulenote ' + shown.tone;
+      note.innerHTML = '';
+      var mark = document.createElement('span');
+      mark.className = 'mark';
+      mark.textContent = 'ⓘ';
+      var body = document.createElement('span');
+      var title = document.createElement('b');
+      title.textContent = shown.title;
+      var detail = document.createElement('span');
+      detail.textContent = shown.detail;
+      body.appendChild(title);
+      body.appendChild(detail);
+      note.appendChild(mark);
+      note.appendChild(body);
+      note.hidden = false;
+      root.classList.remove('missing');
+      close();
+    }
+
+    function row(name, label) {
+      var option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'combo-opt';
+      option.setAttribute('role', 'option');
+      var head = document.createElement('b');
+      head.textContent = label || name;
+      option.appendChild(head);
+      var summary = NOTES[name] && NOTES[name].summary;
+      if (summary) {
+        var under = document.createElement('small');
+        under.innerHTML = '<span class="mark">ⓘ</span> ';
+        under.appendChild(document.createTextNode(summary));
+        option.appendChild(under);
+      }
+      option.addEventListener('click', function () { choose(name); });
+      return option;
+    }
+
+    function group(text) {
+      var head = document.createElement('div');
+      head.className = 'combo-group';
+      head.textContent = text;
+      return head;
+    }
+
+    function matches(name, needle) {
+      return name.toLowerCase().indexOf(needle) !== -1;
+    }
+
+    function render() {
+      var needle = search.value.trim().toLowerCase();
+      var typed = search.value.trim();
+      list.innerHTML = '';
+      rows = [];
+      active = -1;
+
+      function section(title, names) {
+        var hits = names.filter(function (name) { return matches(name, needle); });
+        if (!hits.length) return;
+        list.appendChild(group(title));
+        hits.forEach(function (name) {
+          var option = row(name);
+          list.appendChild(option);
+          rows.push(option);
+        });
+      }
+
+      var marked = LOCATIONS.filter(function (name) { return NOTES[name] && NOTES[name].flag; });
+      var plain = LOCATIONS.filter(function (name) { return !NOTES[name] || !NOTES[name].flag; });
+
+      section('Already in the rulebook', marked);
+      section('No rule yet', plain);
+
+      if (side === 'reference') {
+        // A reference is matched by exact name, so one that is neither a
+        // location nor a "Report:" figure matches nothing and the rules under
+        // it never run. Listing it as a report figure would hide that.
+        section('Report figures', BENCHMARKS.filter(function (name) {
+          return !(NOTES[name] && NOTES[name].orphan);
+        }));
+        section('⚠ Matches nothing — these rules never run', BENCHMARKS.filter(function (name) {
+          return NOTES[name] && NOTES[name].orphan;
+        }));
+      }
+
+      // The second field may name a figure the rulebook has never seen. Offer
+      // it back rather than making the editor guess the wording.
+      if (side === 'reference' && typed) {
+        var known = LOCATIONS.concat(BENCHMARKS).some(function (name) {
+          return name.toLowerCase() === typed.toLowerCase();
+        });
+        if (!known) {
+          list.appendChild(group('Not in the list'));
+          if (typed.slice(0, 7).toLowerCase() !== 'report:') {
+            var asReport = row('Report: ' + typed, 'Use “Report: ' + typed + '”');
+            list.appendChild(asReport);
+            rows.push(asReport);
+          }
+          var asIs = row(typed, 'Use “' + typed + '”');
+          list.appendChild(asIs);
+          rows.push(asIs);
+        }
+      }
+
+      if (!rows.length) {
+        var empty = document.createElement('div');
+        empty.className = 'combo-empty';
+        empty.textContent = 'Nothing matches “' + search.value.trim() + '”.';
+        list.appendChild(empty);
+      }
+    }
+
+    function highlight(next) {
+      if (!rows.length) return;
+      if (active >= 0) rows[active].classList.remove('on');
+      active = (next + rows.length) % rows.length;
+      rows[active].classList.add('on');
+      rows[active].scrollIntoView({block: 'nearest'});
+    }
+
+    // The popup is fixed to the viewport, so it has to be told where the
+    // field is -- and told again whenever anything scrolls under it. It opens
+    // upwards when the field sits too low for the list to fit below.
+    function place() {
+      var box = button.getBoundingClientRect();
+      var below = window.innerHeight - box.bottom - 16;
+      var above = box.top - 16;
+      var up = below < 200 && above > below;
+      var room = Math.max(140, Math.min(340, up ? above : below));
+
+      pop.style.left = box.left + 'px';
+      pop.style.width = box.width + 'px';
+      pop.style.top = up ? '' : (box.bottom + 6) + 'px';
+      pop.style.bottom = up ? (window.innerHeight - box.top + 6) + 'px' : '';
+      list.style.maxHeight = (room - 52) + 'px';
+    }
+
+    function open() {
+      pop.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      search.value = '';
+      render();
+      place();
+      search.focus();
+    }
+
+    function close() {
+      pop.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+    }
+
+    function follow() {
+      if (!pop.hidden) place();
+    }
+
+    // Capture, so scrolling inside the content pane counts too, not only the
+    // window.
+    document.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+
+    button.addEventListener('click', function () {
+      if (pop.hidden) open(); else close();
+    });
+
+    search.addEventListener('input', function () { render(); place(); });
+
+    search.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); highlight(active + 1); }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); highlight(active - 1); }
+      else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (active >= 0) rows[active].click();
+        else if (rows.length === 1) rows[0].click();
+      } else if (event.key === 'Escape') { close(); button.focus(); }
+    });
+
+    document.addEventListener('click', function (event) {
+      if (!root.contains(event.target)) close();
+    });
+
+    return {
+      root: root,
+      value: function () { return hidden.value; },
+      flag: function () { root.classList.add('missing'); button.focus(); },
+    };
+  }
+
+  var combos = {};
+  document.querySelectorAll('[data-combo]').forEach(function (root) {
+    combos[root.dataset.combo] = combo(root);
+  });
+
+  // A hidden input is exempt from the browser's own "please fill this in", so
+  // the check has to be made here -- otherwise the first thing an editor sees
+  // is a round trip that comes back saying "Pick both locations".
+  form.addEventListener('submit', function (event) {
+    var empty = ['derived', 'reference'].filter(function (side) {
+      return !combos[side].value();
+    });
+    if (empty.length) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      combos[empty[0]].flag();
+    }
+  }, true);
+})();
+</script>
 {% endblock %}

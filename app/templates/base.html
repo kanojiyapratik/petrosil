@@ -106,6 +106,48 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
 .flash.bad { background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
 
 .hint { color:var(--muted); font-size:.82rem; margin:.4rem 0 0; }
+/* A dropdown that can say something about each option. Used for both fields
+   on the Price rules screen: a native <select> can hold neither a second line
+   per option nor a value that is not in its list. */
+.combo { position:relative; }
+.combo-field { display:flex; width:100%; align-items:center; gap:.5rem; text-align:left;
+  font:inherit; font-weight:400; color:var(--ink); background:#fff; cursor:pointer;
+  border:1px solid var(--line); border-radius:7px; padding:.5rem .65rem; }
+.combo-field:hover { filter:none; border-color:#cbd5e1; }
+.combo-field[aria-expanded="true"] { border-color:var(--accent); outline:2px solid var(--accent-soft); }
+.combo.missing .combo-field { border-color:var(--bad); background:var(--bad-soft); }
+.combo-value { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.combo-value.empty { color:var(--faint); }
+.combo-caret { flex:none; color:var(--faint); font-size:.65rem; }
+/* Fixed, not absolute, and placed by script: every ancestor here scrolls --
+   the panel (overflow-x for wide tables) and the content pane -- and each one
+   would clip a popup that hangs below its own edge. */
+.combo-pop { position:fixed; z-index:40; background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:0 12px 30px rgba(15,23,42,.16); padding:.45rem; }
+.combo-pop[hidden] { display:none; }
+.combo-search { margin-bottom:.3rem; font-size:.88rem; }
+.combo-list { overflow-y:auto; scrollbar-width:none; }
+.combo-list::-webkit-scrollbar { width:0; display:none; }
+.combo-opt { display:block; width:100%; text-align:left; font:inherit; font-weight:400;
+  background:none; border:0; border-radius:7px; padding:.4rem .5rem; cursor:pointer; color:var(--ink); }
+.combo-opt:hover, .combo-opt.on { filter:none; background:var(--accent-soft); }
+.combo-opt b { display:block; font-weight:600; font-size:.88rem; }
+.combo-opt small { display:block; color:var(--muted); font-size:.77rem; margin-top:.05rem; }
+.combo-group { font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; font-weight:600;
+  color:var(--faint); padding:.55rem .5rem .2rem; }
+.combo-empty { color:var(--muted); font-size:.85rem; padding:.5rem; }
+.mark { color:var(--accent); font-weight:600; }
+
+/* What the rulebook already does with the name chosen in the field above. */
+.rulenote { display:flex; gap:.5rem; align-items:flex-start; margin:.45rem 0 0;
+  border:1px solid transparent; border-radius:8px; padding:.5rem .6rem; font-size:.81rem; }
+.rulenote[hidden] { display:none; }
+.rulenote .mark { flex:none; color:inherit; font-size:.95rem; line-height:1.3; }
+.rulenote b { display:block; margin-bottom:.1rem; }
+.rulenote b + span { display:block; color:var(--muted); font-weight:400; }
+.rulenote.info { background:var(--accent-soft); border-color:#dbeafe; color:var(--accent); }
+.rulenote.warn { background:var(--warn-soft); border-color:#fde68a; color:var(--warn); }
+.rulenote.mute { background:#f8fafc; border-color:var(--line); color:var(--muted); }
 .muted { color:var(--muted); }
 .small { font-size:.83rem; }
 .empty { color:var(--muted); font-size:.9rem; padding:.4rem 0; }
