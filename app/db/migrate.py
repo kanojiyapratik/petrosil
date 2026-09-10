@@ -177,6 +177,18 @@ MIGRATIONS: list[Migration] = [
         CREATE UNIQUE INDEX console_fx_rates_key ON console_fx_rates (currency, asked_date);
         """,
     ),
+    Migration(
+        id="0008_rule_adjustment_kind",
+        sql="""
+        -- A rule may now be a flat US dollar difference as well as a
+        -- percentage, so the column no longer holds only percentages and is
+        -- renamed to say so. Everything already stored is a percentage.
+        ALTER TABLE console_price_rules RENAME COLUMN adjustment_pct TO adjustment_value;
+
+        ALTER TABLE console_price_rules
+            ADD COLUMN adjustment_kind TEXT NOT NULL DEFAULT 'percent';
+        """,
+    ),
 ]
 
 

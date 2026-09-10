@@ -14,16 +14,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import RulesStore, Store, StoredSite
+from ..editorial.rules import PERCENT, USD, PriceRule, _adjusted, adjustment_label
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
 
-def _pct(value: float) -> str:
-    return f"{value:+g}%"
-
-
 def _formula(rule) -> str:
-    return f"{rule.reference_location} {_pct(rule.adjustment_pct)}"
+    return f"{rule.reference_location} {adjustment_label(rule)}"
 
 
 def _count(rules) -> str:
@@ -31,7 +28,7 @@ def _count(rules) -> str:
 
 
 def _listed(rules, limit: int = 3) -> str:
-    shown = [f"{rule.derived_location} {_pct(rule.adjustment_pct)}" for rule in rules[:limit]]
+    shown = [f"{rule.derived_location} {adjustment_label(rule)}" for rule in rules[:limit]]
     rest = len(rules) - len(shown)
 
     if rest > 0:
@@ -88,33 +85,32 @@ def build_rule_notes(rules, locations) -> dict:
         if rule is not None and rule.enabled:
             derived = _note(
                 "warn",
-                "This location already has a rule",
-                f"{name} is calculated from {_formula(rule)}. Saving replaces that rule.",
+                "This price already has a rule",
+                f"Right now it comes from {_formula(rule)}. If you save, that is replaced.",
             )
         elif rule is not None:
             # create() rewrites the formula and never touches `enabled`, so a
             # replaced rule that was off stays off -- which reads as "nothing
             # happened" unless it is said here.
-            summary += " (turned off)"
+            summary += " (switched off)"
             derived = _note(
                 "warn",
-                "This location has a rule that is turned off",
-                f"{name} is calculated from {_formula(rule)}. Saving replaces it, and it "
-                "stays off until you turn it on in the table below.",
+                "This price has a rule, but it is switched off",
+                f"Right now it comes from {_formula(rule)}. If you save, that is replaced — "
+                "and it stays switched off until you turn it on in the list below.",
             )
         elif used_by:
             # Rules chain to a fixpoint, so a rule here moves everything below it.
             derived = _note(
                 "info",
-                f"{count} {'is' if len(used_by) == 1 else 'are'} calculated from this location",
-                f"{_listed(used_by)}. A rule here changes what they all start from.",
+                "Other prices are worked out from this one",
+                f"{_listed(used_by)}. If you set a rule here, those prices change too.",
             )
         else:
             derived = _note(
                 "mute",
                 "No rule yet",
-                f"{name} is priced only from what the reports say. This would be its "
-                "first rule.",
+                "This price comes only from the market reports. This would be its first rule.",
             )
 
         # A reference is resolved by exact name. One that is neither a live
@@ -126,33 +122,37 @@ def build_rule_notes(rules, locations) -> dict:
         if orphan:
             reference = _note(
                 "warn",
-                "No location and no report figure has this name",
-                f"{count} {'is' if len(used_by) == 1 else 'are'} calculated from it — "
-                f"{_listed(used_by)} — and none of them can run until the name matches a "
-                'location exactly, or is entered as a report figure starting with "Report:".',
+                "No price has this name",
+                f"{count} already {'uses' if len(used_by) == 1 else 'use'} it — "
+                f"{_listed(used_by)} — and none of them work, because there is no location "
+                'called this. Correct the name, or write it as a report price starting with '
+                '"Report:".',
             )
         elif used_by:
             detail = f"{_listed(used_by)}."
 
             if rule is not None:
                 detail += (
-                    f" It is itself calculated from {_formula(rule)}, so this rule would "
-                    "follow on from that one."
+                    f" And this price is itself worked out from {_formula(rule)}, so your "
+                    "new rule follows on from that."
                 )
 
-            reference = _note("info", f"Already the source for {count}", detail)
+            reference = _note(
+                "info",
+                f"{count} already {'comes' if len(used_by) == 1 else 'come'} from this price",
+                detail,
+            )
         elif rule is not None:
             reference = _note(
                 "info",
-                "This location is itself calculated",
-                f"{name} is calculated from {_formula(rule)}, so this rule would follow "
-                "on from that one.",
+                "This price is itself worked out from another",
+                f"It comes from {_formula(rule)}. Your new rule follows on from that.",
             )
         else:
             reference = _note(
                 "mute",
-                "Not used by any rule yet",
-                f"This would be the first price calculated from {name}.",
+                "Nothing comes from this price yet",
+                "Yours would be the first rule to use it.",
             )
 
         notes[name] = {
@@ -227,6 +227,15 @@ def create_rules_routes(
 
         site_rules = rules.for_site(site.slug)
         titles = [str(entry.get("title")) for entry in locations if entry.get("title")]
+        # The last published price of each location, so the screen can do the
+        # sum in front of the person setting it up: an explanation of what a
+        # percentage or a dollar difference means is worth far less than
+        # "Singapore is 1560 today, so this would be 1535".
+        prices = {
+            str(entry["title"]): float(entry["latest_price"])
+            for entry in locations
+            if entry.get("title") and entry.get("latest_price") is not None
+        }
         # References that are report figures rather than site locations. They
         # are typed, never picked, so the second field offers back the ones
         # the rulebook already uses instead of asking for them from memory.
@@ -255,8 +264,10 @@ def create_rules_routes(
                 "tone_for": tone_for,
                 "title": f"Price rules · {site.name}",
                 "rules": site_rules,
+                "label": adjustment_label,
                 "locations": titles,
                 "benchmarks": benchmarks,
+                "prices": prices,
                 "rule_notes": build_rule_notes(site_rules, locations),
             },
         )
@@ -271,7 +282,8 @@ def create_rules_routes(
         form = await request.form()
         derived = str(form.get("derived_location") or "").strip()
         reference = str(form.get("reference_location") or "").strip()
-        raw_pct = str(form.get("adjustment_pct") or "").strip()
+        raw_value = str(form.get("adjustment_value") or "").strip()
+        kind = USD if str(form.get("adjustment_kind") or "") == USD else PERCENT
 
         if not derived or not reference:
             return back(site.slug, "err", "Pick both locations.")
@@ -280,16 +292,38 @@ def create_rules_routes(
             return back(site.slug, "err", "A price cannot be calculated from itself.")
 
         try:
-            pct = float(raw_pct)
+            amount = float(raw_value)
         except ValueError:
-            return back(site.slug, "err", "The adjustment must be a number, e.g. -10 for 10% less.")
+            return back(
+                site.slug,
+                "err",
+                "Type a number — for example -10 for 10% less, or -25 for 25 US dollars less.",
+            )
 
-        if not -95 <= pct <= 95:
-            return back(site.slug, "err", "The adjustment must be between -95 and +95 percent.")
+        # A percentage below -100 would price a location under nothing; the
+        # dollar bound is a typo catch -- prices here run to four figures, so
+        # a five-figure difference is a slipped decimal point, not a rule.
+        if kind == PERCENT and not -95 <= amount <= 95:
+            return back(site.slug, "err", "A percentage must be between -95 and +95.")
 
-        rules.create(site.slug, derived, reference, pct)
+        if kind == USD and not -5000 <= amount <= 5000:
+            return back(
+                site.slug, "err", "A US dollar difference must be between -5,000 and +5,000."
+            )
+
+        saved = PriceRule(
+            id=0,
+            derived_location=derived,
+            reference_location=reference,
+            adjustment_value=amount,
+            adjustment_kind=kind,
+        )
+        rules.create(site.slug, derived, reference, amount, kind)
         store.record(
-            user.email, "set a price rule", site.slug, f"{derived} = {reference} {pct:+g}%"
+            user.email,
+            "set a price rule",
+            site.slug,
+            f"{derived} = {reference} {adjustment_label(saved)}",
         )
 
         # A saved formula is invisible until the next draft, which reads as
@@ -309,9 +343,9 @@ def create_rules_routes(
             )
 
             if latest is not None:
-                would_be = round(float(latest) * (1 + pct / 100.0))
+                would_be = round(_adjusted(float(latest), saved))
                 preview = (
-                    f" Preview with today's prices: {reference} is {latest:g}, "
+                    f" With today's prices: {reference} is {latest:g}, "
                     f"so {derived} would be {would_be}."
                 )
         except SiteError:
@@ -320,7 +354,8 @@ def create_rules_routes(
         return back(
             site.slug,
             "ok",
-            f"Rule saved: {derived} = {reference} {pct:+g}%. It runs on every new fetch.{preview}",
+            f"Saved. {derived} now comes from {reference} {adjustment_label(saved)}. It is "
+            f"used the next time prices are fetched.{preview}",
         )
 
     @router.post("/console/sites/{slug}/rules/{rule_id}/toggle")

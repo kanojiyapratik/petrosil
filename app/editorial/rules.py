@@ -18,13 +18,41 @@ from ..price_review.summariser import _round2
 from .review import FLAG_PCT
 
 
+PERCENT = "percent"
+USD = "usd"
+
+
 @dataclass(frozen=True)
 class PriceRule:
     id: int
     derived_location: str
     reference_location: str
-    adjustment_pct: float
+    adjustment_value: float
+    # "percent" -- the client's rulebook is written in percentages -- or
+    # "usd", a flat US dollar difference per tonne for the locations that sit
+    # a fixed amount off their benchmark rather than a fixed proportion.
+    adjustment_kind: str = PERCENT
     enabled: bool = True
+
+
+def adjustment_label(rule: PriceRule) -> str:
+    """How an adjustment is written, everywhere it is written.
+
+    The screen, the audit trail and the basis line on a derived price must
+    agree: "-10%" and "-25 USD" mean very different things and the editor
+    reads them in three different places.
+    """
+    if rule.adjustment_kind == USD:
+        return f"{rule.adjustment_value:+g} USD"
+
+    return f"{rule.adjustment_value:+g}%"
+
+
+def _adjusted(value: float, rule: PriceRule) -> float:
+    if rule.adjustment_kind == USD:
+        return value + rule.adjustment_value
+
+    return value * (1 + (rule.adjustment_value / 100.0))
 
 
 def benchmark_names(rules: list[PriceRule], site_locations: list[str]) -> list[str]:
@@ -91,10 +119,16 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
             ):
                 continue
 
+            price = _whole(_adjusted(reference["suggested_price"], rule))
+
+            # A flat USD difference can take a low benchmark below zero, which
+            # a percentage never could. A price of nothing is not a price:
+            # leave the row for the editor rather than staging one.
+            if price <= 0:
+                continue
+
             derived_this_pass = True
             remark = target.get("rationale") if target["status"] == "invalid" else None
-            factor = 1 + (rule.adjustment_pct / 100.0)
-            price = _whole(reference["suggested_price"] * factor)
             # A reference that was converted from another currency carries
             # its conversion, and the audit line for the derived price must
             # show it: the client wants the lira figure, the rate and its
@@ -113,21 +147,22 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
             target.update(
                 {
                     "status": "derived",
-                    "suggested_min": _whole(reference["suggested_min"] * factor),
-                    "suggested_max": _whole(reference["suggested_max"] * factor),
+                    "suggested_min": _whole(_adjusted(reference["suggested_min"], rule)),
+                    "suggested_max": _whole(_adjusted(reference["suggested_max"], rule)),
                     "suggested_price": price,
                     "change_pct": js_number(change) if change is not None else None,
                     "flag": "check" if change is not None and abs(change) >= FLAG_PCT else None,
                     "confidence": reference["confidence"],
-                    "basis": f"Derived: {rule.reference_location} {rule.adjustment_pct:+g}%",
+                    "basis": f"Derived: {rule.reference_location} {adjustment_label(rule)}",
                     "source": reference["source"],
                     "rationale": (
                         f"Calculated from {rule.reference_location} "
-                        f"({origin}) {rule.adjustment_pct:+g}%."
+                        f"({origin}) {adjustment_label(rule)}."
                         + (f" The reports also said: {remark}" if remark else "")
                     ),
                     "derived_from": rule.reference_location,
-                    "rule_pct": rule.adjustment_pct,
+                    "rule_adjustment": rule.adjustment_value,
+                    "rule_kind": rule.adjustment_kind,
                 }
             )
 

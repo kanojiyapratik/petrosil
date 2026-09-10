@@ -33,7 +33,7 @@ LOCATIONS = [
 def rule(derived, reference, pct, enabled=True, rule_id=1):
     return PriceRule(
         id=rule_id, derived_location=derived, reference_location=reference,
-        adjustment_pct=pct, enabled=enabled,
+        adjustment_value=pct, enabled=enabled,
     )
 
 
@@ -44,9 +44,9 @@ class TestPickingTheLocationThatIsBeingCalculated:
         )["Korea TOBS"]["derived"]
 
         assert note["tone"] == "warn"
-        assert note["title"] == "This location already has a rule"
-        assert "calculated from Singapore SN 150 -10%" in note["detail"]
-        assert "Saving replaces that rule" in note["detail"]
+        assert note["title"] == "This price already has a rule"
+        assert "Singapore SN 150 -10%" in note["detail"]
+        assert "If you save, that is replaced" in note["detail"]
 
     def test_a_rule_that_is_turned_off_says_it_stays_off(self):
         # rules.create() rewrites the formula and never touches `enabled`, so
@@ -56,9 +56,9 @@ class TestPickingTheLocationThatIsBeingCalculated:
             [rule("Korea TOBS", "Singapore SN 150", -10, enabled=False)], LOCATIONS
         )["Korea TOBS"]
 
-        assert "turned off" in note["derived"]["title"]
-        assert "stays off until you turn it on" in note["derived"]["detail"]
-        assert note["summary"].endswith("(turned off)")
+        assert "switched off" in note["derived"]["title"]
+        assert "stays switched off until you turn it on" in note["derived"]["detail"]
+        assert note["summary"].endswith("(switched off)")
 
     def test_picking_a_benchmark_warns_that_a_rule_there_moves_everything_below_it(self):
         # The engine chains rules to a fixpoint, so a rule on Singapore moves
@@ -67,9 +67,9 @@ class TestPickingTheLocationThatIsBeingCalculated:
             [rule("Korea TOBS", "Singapore SN 150", -10)], LOCATIONS
         )["Singapore SN 150"]["derived"]
 
-        assert note["title"] == "1 rule is calculated from this location"
+        assert note["title"] == "Other prices are worked out from this one"
         assert "Korea TOBS -10%" in note["detail"]
-        assert "changes what they all start from" in note["detail"]
+        assert "those prices change too" in note["detail"]
 
     def test_a_location_no_rule_touches_says_this_would_be_its_first(self):
         note = build_rule_notes(
@@ -91,7 +91,7 @@ class TestPickingWhatItIsCalculatedFrom:
             LOCATIONS,
         )["Singapore SN 150"]["reference"]
 
-        assert note["title"] == "Already the source for 2 rules"
+        assert note["title"] == "2 rules already come from this price"
         assert "Korea TOBS -10%" in note["detail"]
         assert "Saudi SN 500 +3%" in note["detail"]
 
@@ -112,16 +112,16 @@ class TestPickingWhatItIsCalculatedFrom:
             LOCATIONS,
         )["Singapore SN 150"]["reference"]
 
-        assert "itself calculated from Report: FOB Asia SN 150 -1%" in note["detail"]
-        assert "follow on from that one" in note["detail"]
+        assert "itself worked out from Report: FOB Asia SN 150 -1%" in note["detail"]
+        assert "follows on from that" in note["detail"]
 
     def test_a_calculated_location_nothing_hangs_off_still_says_it_would_chain(self):
         note = build_rule_notes(
             [rule("Korea TOBS", "Singapore SN 150", -10)], LOCATIONS
         )["Korea TOBS"]["reference"]
 
-        assert note["title"] == "This location is itself calculated"
-        assert "follow on from that one" in note["detail"]
+        assert note["title"] == "This price is itself worked out from another"
+        assert "follows on from that" in note["detail"]
 
     def test_a_benchmark_that_is_not_a_site_location_still_gets_a_note(self):
         # "Report: FOB Asia SN 150" is typed, never picked, so it is not in
@@ -130,7 +130,7 @@ class TestPickingWhatItIsCalculatedFrom:
             [rule("Singapore SN 150", "Report: FOB Asia SN 150", -1)], LOCATIONS
         )["Report: FOB Asia SN 150"]["reference"]
 
-        assert note["title"] == "Already the source for 1 rule"
+        assert note["title"] == "1 rule already comes from this price"
 
 
 class TestTheMarkInTheDropdown:
@@ -214,7 +214,7 @@ class TestTheScreenItself:
         assert 'data-combo="derived"' in page
         assert 'data-combo="reference"' in page
         # The old mismatched pair: a dropdown on the left, a text box on the right.
-        assert "<select id=" not in page
+        assert "<select id=\"derived" not in page
         assert "<datalist id=" not in page
 
     def test_the_form_still_posts_the_two_names_the_route_reads(self):
@@ -229,7 +229,7 @@ class TestTheScreenItself:
 
         assert notes["Korea TOBS"]["summary"] == "calculated from Singapore SN 150 -10%"
         assert notes["Singapore SN 150"]["derived"]["title"] == (
-            "1 rule is calculated from this location"
+            "Other prices are worked out from this one"
         )
 
     def test_the_report_figures_already_in_use_are_offered_back(self):
@@ -263,8 +263,8 @@ class TestAReferenceThatMatchesNothing:
 
         assert note["orphan"] is True
         assert note["reference"]["tone"] == "warn"
-        assert note["reference"]["title"] == "No location and no report figure has this name"
-        assert "none of them can run" in note["reference"]["detail"]
+        assert note["reference"]["title"] == "No price has this name"
+        assert "none of them work" in note["reference"]["detail"]
 
     def test_a_report_figure_is_not_flagged(self):
         note = build_rule_notes(
@@ -286,3 +286,112 @@ class TestAReferenceThatMatchesNothing:
         note = build_rule_notes([], LOCATIONS)["Korea TOBS"]
 
         assert note["orphan"] is False
+
+
+class RecordingRules(FakeRules):
+    def __init__(self):
+        super().__init__([])
+        self.created = []
+
+    def create(self, slug, derived, reference, value, kind="percent"):
+        self.created.append((derived, reference, value, kind))
+
+
+def save(**fields):
+    store = RecordingRules()
+    app = FastAPI()
+    app.include_router(
+        create_rules_routes(
+            store=FakeStore(),
+            rules=store,
+            templates=Jinja2Templates(directory="app/templates"),
+            current_user=lambda request: type(
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True}
+            )(),
+            client_factory=lambda site: FakeSiteClient(),
+        )
+    )
+    form = {
+        "derived_location": "Korea TOBS",
+        "reference_location": "Singapore SN 150",
+        "adjustment_value": "-10",
+    }
+    form.update(fields)
+    response = TestClient(app).post(
+        "/console/sites/baseoil/rules", data=form, follow_redirects=False
+    )
+
+    return store, response
+
+
+class TestSavingARuleInDollarsOrPercent:
+    def test_percent_is_what_a_rule_is_unless_dollars_are_chosen(self):
+        store, response = save()
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", -10.0, "percent")]
+        assert "ok=" in response.headers["location"]
+
+    def test_a_dollar_rule_is_stored_as_one(self):
+        store, response = save(adjustment_value="-25", adjustment_kind="usd")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", -25.0, "usd")]
+        assert "-25%20USD" in response.headers["location"]
+
+    def test_the_percent_bound_does_not_apply_to_dollars(self):
+        # -250 is a nonsense percentage and an ordinary dollar difference.
+        store, _ = save(adjustment_value="-250", adjustment_kind="usd")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", -250.0, "usd")]
+
+    def test_a_percentage_past_the_bound_is_still_refused(self):
+        store, response = save(adjustment_value="-250")
+
+        assert store.created == []
+        assert "err=" in response.headers["location"]
+
+    def test_a_slipped_decimal_point_in_dollars_is_refused(self):
+        store, response = save(adjustment_value="-250000", adjustment_kind="usd")
+
+        assert store.created == []
+        assert "err=" in response.headers["location"]
+
+    def test_an_unknown_unit_is_treated_as_a_percentage_not_as_dollars(self):
+        # The safe reading: percentages are what every stored rule is.
+        store, _ = save(adjustment_kind="bananas")
+
+        assert store.created[0][3] == "percent"
+
+
+class TestTheWorkedExample:
+    """The screen does the sum in front of the person rather than explaining
+    what a percentage or a dollar difference is. That needs today's prices.
+    """
+
+    def test_the_latest_price_of_every_location_reaches_the_page(self):
+        page = screen([rule("Korea TOBS", "Singapore SN 150", -10)]).text
+
+        assert payload(page, "PRICES")["Singapore SN 150"] == 1560
+
+    def test_a_location_with_no_price_yet_is_simply_absent(self):
+        # A newly imported location has none, and "undefined" arithmetic would
+        # put "NaN" on the screen.
+        class Unpriced(FakeSiteClient):
+            def locations(self):
+                return {"data": [{"title": "New Place", "latest_price": None}]}
+
+        app = FastAPI()
+        app.include_router(
+            create_rules_routes(
+                store=FakeStore(),
+                rules=FakeRules([]),
+                templates=Jinja2Templates(directory="app/templates"),
+                current_user=lambda request: type(
+                    "U", (), {"email": "a@b.test", "name": "A", "is_admin": True}
+                )(),
+                client_factory=lambda site: Unpriced(),
+            )
+        )
+        page = TestClient(app).get("/console/sites/baseoil/rules").text
+
+        assert payload(page, "PRICES") == {}
+        assert "New Place" in payload(page, "LOCATIONS")

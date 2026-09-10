@@ -37,7 +37,7 @@ def suggestion(location, low, high):
 
 
 RULE = PriceRule(
-    id=1, derived_location=KOREA, reference_location=SINGAPORE, adjustment_pct=-10.0
+    id=1, derived_location=KOREA, reference_location=SINGAPORE, adjustment_value=-10.0
 )
 
 
@@ -50,7 +50,8 @@ class TestApplyRules:
         assert row["status"] == "derived"
         assert row["suggested_price"] == 720
         assert row["derived_from"] == SINGAPORE
-        assert row["rule_pct"] == -10.0
+        assert row["rule_adjustment"] == -10.0
+        assert row["rule_kind"] == "percent"
 
     def test_the_whole_range_is_scaled_and_rounded_to_whole_dollars(self):
         rows = apply_rules(draft([suggestion(SINGAPORE, 1555, 1595)]), [RULE])
@@ -95,7 +96,7 @@ class TestApplyRules:
     def test_a_disabled_rule_does_nothing(self):
         disabled = PriceRule(
             id=1, derived_location=KOREA, reference_location=SINGAPORE,
-            adjustment_pct=-10.0, enabled=False,
+            adjustment_value=-10.0, enabled=False,
         )
         rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [disabled])
 
@@ -113,7 +114,7 @@ class TestApplyRules:
 
     def test_a_positive_adjustment_adds(self):
         plus = PriceRule(
-            id=2, derived_location=JAPAN, reference_location=SINGAPORE, adjustment_pct=3.0
+            id=2, derived_location=JAPAN, reference_location=SINGAPORE, adjustment_value=3.0
         )
         rows = apply_rules(draft([suggestion(SINGAPORE, 1000, 1000)]), [plus])
 
@@ -123,8 +124,8 @@ class TestApplyRules:
         # The client's rulebook is two levels deep: the report gives Europe
         # Domestic; Europe FOB is Domestic -8%; Saudi is Europe FOB +3%.
         chain = [
-            PriceRule(id=1, derived_location=JAPAN, reference_location=KOREA, adjustment_pct=3.0),
-            PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE, adjustment_pct=-10.0),
+            PriceRule(id=1, derived_location=JAPAN, reference_location=KOREA, adjustment_value=3.0),
+            PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE, adjustment_value=-10.0),
         ]
         rows = apply_rules(draft([suggestion(SINGAPORE, 1000, 1000)]), chain)
 
@@ -139,7 +140,7 @@ class TestApplyRules:
     def test_a_rule_naming_an_unknown_location_is_ignored(self):
         stray = PriceRule(
             id=3, derived_location="Atlantis SN 150", reference_location=SINGAPORE,
-            adjustment_pct=-10.0,
+            adjustment_value=-10.0,
         )
         rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [stray])
 
@@ -182,9 +183,9 @@ class TestBenchmarks:
     def test_benchmark_names_are_the_references_no_site_location_covers(self):
         rules = [
             PriceRule(id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
-                      adjustment_pct=-1.0),
+                      adjustment_value=-1.0),
             PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE,
-                      adjustment_pct=-10.0),
+                      adjustment_value=-10.0),
         ]
 
         assert benchmark_names(rules, LOCATIONS) == [BENCHMARK]
@@ -192,7 +193,7 @@ class TestBenchmarks:
     def test_a_site_price_derives_from_an_extracted_benchmark(self):
         rule = PriceRule(
             id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
-            adjustment_pct=-1.0,
+            adjustment_value=-1.0,
         )
         names = LOCATIONS + [BENCHMARK]
         parsed = parse_suggestions(json.dumps([suggestion(BENCHMARK, 1600, 1600)]), names)
@@ -207,12 +208,77 @@ class TestBenchmarks:
         # Report figure -> Singapore -1% -> South Korea -10%.
         rules = [
             PriceRule(id=1, derived_location=SINGAPORE, reference_location=BENCHMARK,
-                      adjustment_pct=-1.0),
+                      adjustment_value=-1.0),
             PriceRule(id=2, derived_location=KOREA, reference_location=SINGAPORE,
-                      adjustment_pct=-10.0),
+                      adjustment_value=-10.0),
         ]
         names = LOCATIONS + [BENCHMARK]
         parsed = parse_suggestions(json.dumps([suggestion(BENCHMARK, 1600, 1600)]), names)
         rows = apply_rules(build_rows(names, {}, parsed), rules)
 
         assert next(r for r in rows if r["location"] == KOREA)["suggested_price"] == 1426
+
+
+class TestARuleInDollarsRatherThanPercent:
+    """Some locations sit a fixed amount off their benchmark rather than a
+    fixed proportion, so a rule may be a flat US dollar difference per tonne.
+    Everything already in the rulebook is a percentage and stays one.
+    """
+
+    DOLLARS = PriceRule(
+        id=2, derived_location=KOREA, reference_location=SINGAPORE,
+        adjustment_value=-25.0, adjustment_kind="usd",
+    )
+
+    def test_a_dollar_rule_subtracts_the_amount_instead_of_a_proportion(self):
+        rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [self.DOLLARS])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["suggested_price"] == 775
+        assert row["rule_kind"] == "usd"
+
+    def test_the_whole_range_shifts_by_the_same_amount(self):
+        # A percentage widens the range; a flat difference moves it.
+        rows = apply_rules(draft([suggestion(SINGAPORE, 1555, 1595)]), [self.DOLLARS])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert (row["suggested_min"], row["suggested_max"]) == (1530, 1570)
+
+    def test_the_audit_line_says_dollars_and_never_a_bare_number(self):
+        rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [self.DOLLARS])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["basis"] == f"Derived: {SINGAPORE} -25 USD"
+        assert "-25 USD" in row["rationale"]
+
+    def test_a_price_that_would_fall_to_nothing_is_left_for_the_editor(self):
+        # A percentage can never reach zero; -25 off a benchmark of 20 can.
+        deep = PriceRule(
+            id=3, derived_location=KOREA, reference_location=SINGAPORE,
+            adjustment_value=-900.0, adjustment_kind="usd",
+        )
+        rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [deep])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["status"] != "derived"
+
+    def test_a_dollar_rule_chains_like_any_other(self):
+        rows = apply_rules(
+            draft([suggestion(SINGAPORE, 800, 800)]),
+            [
+                PriceRule(id=1, derived_location=KOREA, reference_location=SINGAPORE,
+                          adjustment_value=-25.0, adjustment_kind="usd"),
+                PriceRule(id=2, derived_location=JAPAN, reference_location=KOREA,
+                          adjustment_value=10.0, adjustment_kind="percent"),
+            ],
+        )
+        japan = next(r for r in rows if r["location"] == JAPAN)
+
+        assert japan["suggested_price"] == 853  # (800 - 25) x 1.10
+
+    def test_a_rule_with_no_kind_is_still_a_percentage(self):
+        # Every rule already stored predates the choice.
+        rows = apply_rules(draft([suggestion(SINGAPORE, 800, 800)]), [RULE])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["suggested_price"] == 720

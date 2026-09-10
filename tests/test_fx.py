@@ -164,8 +164,8 @@ class TestConvertRows:
 
 
 RULES = [
-    PriceRule(id=1, derived_location=RUSSIA, reference_location=TURKEY, adjustment_pct=-10.0),
-    PriceRule(id=2, derived_location=RUSSIA_FOB, reference_location=RUSSIA, adjustment_pct=-10.0),
+    PriceRule(id=1, derived_location=RUSSIA, reference_location=TURKEY, adjustment_value=-10.0),
+    PriceRule(id=2, derived_location=RUSSIA_FOB, reference_location=RUSSIA, adjustment_value=-10.0),
 ]
 
 

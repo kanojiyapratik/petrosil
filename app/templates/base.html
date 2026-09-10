@@ -90,6 +90,9 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--accent-soft); 
 textarea { min-height:8.5rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85rem; }
 .field { margin-bottom:.9rem; }
 .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:0 1rem; }
+/* A number and the unit it is in, read as one control. */
+.pair { display:flex; gap:.4rem; }
+.pair select { width:auto; flex:none; font-weight:600; }
 .check { display:flex; align-items:center; gap:.45rem; font-size:.88rem; color:var(--ink); font-weight:500; }
 .check input { width:auto; }
 
@@ -106,6 +109,8 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
 .flash.bad { background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
 
 .hint { color:var(--muted); font-size:.82rem; margin:.4rem 0 0; }
+ul.steps { margin:.5rem 0 0; padding-left:1.1rem; }
+ul.steps li { margin-bottom:.25rem; }
 /* A dropdown that can say something about each option. Used for both fields
    on the Price rules screen: a native <select> can hold neither a second line
    per option nor a value that is not in its list. */

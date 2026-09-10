@@ -2,11 +2,10 @@
 {% block content %}
 <h1>Price rules</h1>
 <p class="lede">
-  Many locations never appear in the market reports — their price is always calculated from a
-  benchmark, e.g. <em>South Korea = Singapore − 10%</em>. The rules live here, the calculation is
-  done by the system (never the AI), and calculated prices appear on the draft marked
-  <strong>derived</strong>, for review like any other. Change a percentage here and the next
-  draft uses it.
+  Most locations are never priced in the market reports. Their price is worked out from one that
+  is — for example <em>South Korea = Singapore − 10%</em>. Set those sums here. The system does
+  the arithmetic, not the AI, and every price it works out is shown for you to check before
+  anything is saved to the website.
 </p>
 
 <div class="panel">
@@ -28,7 +27,7 @@
               <span class="combo-caret" aria-hidden="true">▾</span>
             </button>
             <div class="combo-pop" hidden>
-              <input type="text" class="combo-search" placeholder="Type to filter…"
+              <input type="text" class="combo-search" placeholder="Type to search…"
                      autocomplete="off" spellcheck="false" aria-label="Filter locations">
               <div class="combo-list" role="listbox"></div>
             </div>
@@ -41,11 +40,11 @@
             <input type="hidden" name="reference_location" value="">
             <button type="button" class="combo-field" id="reference-button"
                     aria-haspopup="listbox" aria-expanded="false">
-              <span class="combo-value empty">Pick a location or report figure…</span>
+              <span class="combo-value empty">Pick a location, or a price from the reports…</span>
               <span class="combo-caret" aria-hidden="true">▾</span>
             </button>
             <div class="combo-pop" hidden>
-              <input type="text" class="combo-search" placeholder="Type to filter, or type a report figure…"
+              <input type="text" class="combo-search" placeholder="Type to search, or type a report price…"
                      autocomplete="off" spellcheck="false" aria-label="Filter locations">
               <div class="combo-list" role="listbox"></div>
             </div>
@@ -53,18 +52,28 @@
           <p class="rulenote" data-note="reference" hidden></p>
         </div>
         <div class="field">
-          <label for="adjustment_pct">Adjustment (%)</label>
-          <input id="adjustment_pct" type="number" step="any" name="adjustment_pct"
-                 placeholder="-10 means 10% less" required>
+          <label for="adjustment_value">Less or more by</label>
+          <div class="pair">
+            <input id="adjustment_value" type="number" step="any" name="adjustment_value"
+                   placeholder="-10" required>
+            <select id="adjustment_kind" name="adjustment_kind" aria-label="Percent or US dollars">
+              <option value="percent" selected>%</option>
+              <option value="usd">US$</option>
+            </select>
+          </div>
+          <p class="rulenote mute" id="adjustment-note">
+            <span class="mark">ⓘ</span>
+            <span id="adjustment-sum"></span>
+          </p>
         </div>
       </div>
-      <p class="hint">
-        &minus;10 means 10% less (multiply by 0.90); +3 means 3% more. A name marked
-        <span class="mark">ⓘ</span> is already in the rulebook — pick it to see what it does.
-        The "calculated from" side can also be a report figure that is not a site location:
-        type it and choose <strong>Use "Report: &hellip;"</strong>, and the AI will extract that
-        figure from uploaded reports for the rule to use.
-      </p>
+      <ul class="hint steps">
+        <li>A name with <span class="mark">ⓘ</span> already has a rule. Pick it and the box
+          below tells you what that rule is.</li>
+        <li>Not in the list? If the price you want to work from is one that only appears in the
+          market reports, type its name and choose <strong>Use "Report: &hellip;"</strong>. The
+          AI then looks for it in the reports you upload.</li>
+      </ul>
       <div class="actions"><button type="submit">Save rule</button></div>
     </form>
   </div>
@@ -75,7 +84,7 @@
   {% if rules %}
     <table>
       <thead><tr>
-        <th>This price</th><th>Calculated from</th><th class="num">Adjustment</th>
+        <th>This price</th><th>Calculated from</th><th class="num">Less or more by</th>
         <th>Status</th><th></th>
       </tr></thead>
       <tbody>
@@ -83,7 +92,7 @@
           <tr {% if not rule.enabled %}class="muted"{% endif %}>
             <td>{{ rule.derived_location }}</td>
             <td>{{ rule.reference_location }}</td>
-            <td class="num">{{ "%+g" | format(rule.adjustment_pct) }}%</td>
+            <td class="num">{{ label(rule) }}</td>
             <td>
               <span class="badge {{ 'ok' if rule.enabled else 'mute' }}">
                 {{ "active" if rule.enabled else "off" }}
@@ -122,21 +131,70 @@
   var BENCHMARKS = {{ benchmarks | tojson }};
   var form = document.getElementById('rule-form');
 
+  // Nobody needs "a fixed amount in US dollars" explained to them in words.
+  // They need the sum, with the real price of the location they just picked:
+  // "Singapore SN 150 is 1560 today, so this price would be 1535."
+  var PRICES = {{ prices | tojson }};
+
+  function example() {
+    var kind = document.getElementById('adjustment_kind');
+    var amount = document.getElementById('adjustment_value');
+    var sum = document.getElementById('adjustment-sum');
+    var from = document.querySelector('[data-combo="reference"] input[type=hidden]').value;
+    var to = document.querySelector('[data-combo="derived"] input[type=hidden]').value;
+    var typed = parseFloat(amount.value);
+    var dollars = kind.value === 'usd';
+
+    amount.placeholder = dollars ? '-25' : '-10';
+
+    if (isNaN(typed)) {
+      sum.textContent = dollars
+        ? 'Example: 1,000 − 25 = 975. The amount is the same whatever the price is.'
+        : 'Example: 1,000 − 10% = 900.';
+      return;
+    }
+
+    var unit = dollars ? '' : '%';
+    var base = PRICES[from];
+
+    if (base === undefined) {
+      var shown = 1000;
+      sum.textContent = 'Example: ' + money(shown) + ' ' + word(typed) + ' ' +
+        money(Math.abs(typed)) + unit + ' = ' + money(work(shown, typed, dollars)) + '.';
+      return;
+    }
+
+    sum.textContent = from + ' is ' + money(base) + ' today, so ' +
+      (to ? to : 'this price') + ' would be ' + money(work(base, typed, dollars)) + '.';
+  }
+
+  function work(base, typed, dollars) {
+    return Math.round(dollars ? base + typed : base * (1 + typed / 100));
+  }
+
+  function word(typed) {
+    return typed < 0 ? '−' : '+';
+  }
+
+  function money(value) {
+    return Math.round(value).toLocaleString('en-US');
+  }
+
   function noteFor(name, side) {
     var found = NOTES[name];
     if (found) return found[side];
     // A name typed into the second field that the rulebook has never seen.
     if (name.slice(0, 7).toLowerCase() === 'report:') {
       return {
-        tone: 'info', title: 'A figure from the reports',
-        detail: 'Not a site location. The AI will look for “' + name.slice(7).trim() +
-          '” in the reports you upload, and this rule will use whatever it finds.',
+        tone: 'info', title: 'A price from the market reports',
+        detail: 'This is not a location on the website. The AI will look for “' +
+          name.slice(7).trim() + '” in the reports you upload, and the rule uses what it finds.',
       };
     }
     return {
-      tone: 'mute', title: 'Not a site location',
-      detail: 'Nothing on ' + '{{ site.name }}' + ' is called this. If it is a figure from ' +
-        'the market reports, start the name with "Report:".',
+      tone: 'mute', title: 'No location has this name',
+      detail: 'Nothing on ' + '{{ site.name }}' + ' is called this. If it is a price that only ' +
+        'appears in the market reports, start the name with "Report:".',
     };
   }
 
@@ -174,6 +232,9 @@
       note.hidden = false;
       root.classList.remove('missing');
       close();
+      // The worked example names both locations and uses the price of the
+      // one on the right, so it is rewritten whenever either changes.
+      example();
     }
 
     function row(name, label) {
@@ -227,17 +288,17 @@
       var marked = LOCATIONS.filter(function (name) { return NOTES[name] && NOTES[name].flag; });
       var plain = LOCATIONS.filter(function (name) { return !NOTES[name] || !NOTES[name].flag; });
 
-      section('Already in the rulebook', marked);
+      section('Already has a rule', marked);
       section('No rule yet', plain);
 
       if (side === 'reference') {
         // A reference is matched by exact name, so one that is neither a
         // location nor a "Report:" figure matches nothing and the rules under
         // it never run. Listing it as a report figure would hide that.
-        section('Report figures', BENCHMARKS.filter(function (name) {
+        section('Prices from the market reports', BENCHMARKS.filter(function (name) {
           return !(NOTES[name] && NOTES[name].orphan);
         }));
-        section('⚠ Matches nothing — these rules never run', BENCHMARKS.filter(function (name) {
+        section('⚠ Name not found — these rules do nothing', BENCHMARKS.filter(function (name) {
           return NOTES[name] && NOTES[name].orphan;
         }));
       }
@@ -348,6 +409,10 @@
   document.querySelectorAll('[data-combo]').forEach(function (root) {
     combos[root.dataset.combo] = combo(root);
   });
+
+  document.getElementById('adjustment_kind').addEventListener('change', example);
+  document.getElementById('adjustment_value').addEventListener('input', example);
+  example();
 
   // A hidden input is exempt from the browser's own "please fill this in", so
   // the check has to be made here -- otherwise the first thing an editor sees

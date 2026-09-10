@@ -502,7 +502,8 @@ class RulesStore:
 
         with self._pool.connection() as connection:
             rows = connection.execute(
-                "SELECT id, derived_location, reference_location, adjustment_pct, enabled "
+                "SELECT id, derived_location, reference_location, adjustment_value, "
+                "adjustment_kind, enabled "
                 "FROM console_price_rules WHERE site_slug = %s ORDER BY derived_location",
                 (site_slug,),
             ).fetchall()
@@ -512,24 +513,32 @@ class RulesStore:
                 id=int(row[0]),
                 derived_location=row[1],
                 reference_location=row[2],
-                adjustment_pct=float(row[3]),
-                enabled=bool(row[4]),
+                adjustment_value=float(row[3]),
+                adjustment_kind=row[4],
+                enabled=bool(row[5]),
             )
             for row in rows
         ]
 
     def create(
-        self, site_slug: str, derived_location: str, reference_location: str, adjustment_pct: float
+        self,
+        site_slug: str,
+        derived_location: str,
+        reference_location: str,
+        adjustment_value: float,
+        adjustment_kind: str = "percent",
     ) -> None:
         with self._pool.connection() as connection:
             connection.execute(
                 "INSERT INTO console_price_rules "
-                "(site_slug, derived_location, reference_location, adjustment_pct) "
-                "VALUES (%s, %s, %s, %s) "
+                "(site_slug, derived_location, reference_location, adjustment_value, "
+                "adjustment_kind) "
+                "VALUES (%s, %s, %s, %s, %s) "
                 "ON CONFLICT (site_slug, derived_location) DO UPDATE SET "
                 "reference_location = EXCLUDED.reference_location, "
-                "adjustment_pct = EXCLUDED.adjustment_pct, updated_at = now()",
-                (site_slug, derived_location, reference_location, adjustment_pct),
+                "adjustment_value = EXCLUDED.adjustment_value, "
+                "adjustment_kind = EXCLUDED.adjustment_kind, updated_at = now()",
+                (site_slug, derived_location, reference_location, adjustment_value, adjustment_kind),
             )
             connection.commit()
 
