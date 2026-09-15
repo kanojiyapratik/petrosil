@@ -574,6 +574,7 @@ class AnalyseFakeExtractions:
             )
         }
         self.closed = []
+        self.reclaimed = []
 
     def set_by_id(self, set_id):
         return self._sets.get(set_id)
@@ -581,11 +582,38 @@ class AnalyseFakeExtractions:
     def rows_for(self, set_id):
         return self._rows.get(set_id, [])
 
-    def close_set(self, set_id):
+    def latest_open(self, site_slug):
+        return next(
+            (
+                entry for entry in self._sets.values()
+                if entry.site_slug == site_slug and entry.used_at is None
+            ),
+            None,
+        )
+
+    def claim_set(self, set_id):
+        """The real one is a single conditional UPDATE. This models exactly
+        that: whoever finds used_at still empty takes it, and nobody else."""
+        reading = self._sets.get(set_id)
+
+        if reading is None or reading.used_at is not None:
+            return False
+
+        self._sets[set_id] = dataclasses.replace(reading, used_at="claimed")
         self.closed.append(set_id)
 
-        if set_id in self._sets:
-            self._sets[set_id] = dataclasses.replace(self._sets[set_id], used_at="closed")
+        return True
+
+    def reclaim_set(self, set_id):
+        reading = self._sets.get(set_id)
+
+        if reading is None:
+            return False
+
+        self._sets[set_id] = dataclasses.replace(reading, used_at="claimed")
+        self.reclaimed.append(set_id)
+
+        return True
 
 
 def build_analyse_client(
@@ -746,7 +774,10 @@ class TestTheAnalyseRouteUsesTheCheckedRows:
         response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
 
         assert response.status_code == 502
-        assert extractions.closed == []
+        # The reading was claimed before the call -- that is the whole point of
+        # claiming before spending money -- so it is spent. Getting back to it
+        # is the deliberate "Use these prices again" button, not a re-upload.
+        assert extractions.closed == [7]
 
 
 class RecordingFx:
@@ -995,3 +1026,224 @@ class TestTheUploadScreenDescribesWhatActuallyHappens:
             source = handle.read()
 
         assert "image_note" not in source
+
+
+class StaleReadingExtractions(AnalyseFakeExtractions):
+    """set_by_id answers from a snapshot taken before anyone claimed the
+    reading -- which is exactly what the second of two overlapping submits
+    sees, because the first is still at the model and has marked nothing
+    yet. Only the claim itself knows the truth."""
+
+    def set_by_id(self, set_id):
+        reading = super().set_by_id(set_id)
+
+        return dataclasses.replace(reading, used_at=None) if reading is not None else None
+
+
+class TestTheReadingIsClaimedBeforeAnyModelCall:
+    def test_the_claim_happens_before_the_model_is_asked_anything(self):
+        events = []
+
+        class Recording(AnalyseFakeExtractions):
+            def claim_set(self, set_id):
+                events.append("claim")
+
+                return super().claim_set(set_id)
+
+        class Watching(StubDriver):
+            def generate(self, model, prompt):
+                events.append("model")
+
+                return super().generate(model, prompt)
+
+        driver = Watching(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver
+        )
+        extractions.__class__ = Recording
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        assert events[0] == "claim"
+        assert "model" in events
+
+    def test_a_submit_that_overlaps_another_buys_nothing(self):
+        # Read-then-check-then-close let both submits through: both saw
+        # used_at empty, both ran the full pair of AI calls, and both billed.
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver
+        )
+        extractions.__class__ = StaleReadingExtractions
+
+        first = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+        calls_after_first = len(driver.calls)
+
+        second = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert len(driver.calls) == calls_after_first
+        assert extractions.closed == [7]
+
+
+class TestASpentReadingIsNotADeadEnd:
+    """A SiteError at stage time redirects away, the draft is gone, and going
+    back got a refusal -- five files to re-upload, ten step-one calls to
+    re-pay, every correction to retype. The uploaded reports are not stored,
+    so the checked rows are the only copy there is."""
+
+    def test_the_refusal_offers_the_checked_prices_again(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": "2026-08-12"},
+        )
+
+        assert response.status_code == 409
+        assert "Use these prices again" in response.text
+        assert 'name="again" value="1"' in response.text
+        # The date the editor picked survives the refusal.
+        assert 'name="pricedate" value="2026-08-12"' in response.text
+        assert driver.calls == []
+
+    def test_pressing_it_runs_the_analysis_again_on_the_same_checked_rows(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1", "pricedate": "2026-08-12"},
+        )
+
+        assert response.status_code == 200
+        assert extractions.reclaimed == [7]
+        assert "FOB Asia SN 150" in driver.calls[0]["prompt"]
+
+    def test_an_ordinary_resubmit_is_still_refused(self):
+        # The recovery has to be deliberate: a back-button or a double-click
+        # must still buy nothing.
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 409
+        assert extractions.reclaimed == []
+        assert driver.calls == []
+
+
+class TestAReadingLeftUncheckedIsStillReachable:
+    def test_the_upload_screen_links_to_a_reading_that_is_waiting(self):
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows())
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert "A reading is waiting to be checked" in page
+        assert 'href="/console/sites/baseoil/reading/7"' in page
+
+    def test_a_used_reading_is_not_offered(self):
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), used_at="2026-08-01T00:00:00",
+        )
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert "A reading is waiting to be checked" not in page
+
+
+class TestTheFocusedPassGetsTheWholeCheckedRow:
+    """benchmarks.py asks the model to fill in "the range printed" and, for a
+    non-USD benchmark, "the date the report gives for it". A digest line of
+    name, single figure and currency carried neither."""
+
+    @staticmethod
+    def _rule():
+        return PriceRule(
+            id=1, derived_location="Europe Domestic SN150",
+            reference_location="Report: FOB Asia SN 150", adjustment_value=-20,
+        )
+
+    def test_the_printed_range_reaches_the_focused_prompt(self):
+        driver = StubDriver(empty_completion())
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="FOB Asia SN 150", price=1475.0,
+                price_min=1450.0, price_max=1500.0, currency="USD", unit="MT", basis="FOB",
+                price_date="2026-08-14", note=None, kept=True,
+            ),
+        ]
+        client, extractions, store = build_analyse_client(
+            rows, driver=driver, rules_list=[self._rule()]
+        )
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert "1450-1500" in driver.calls[1]["prompt"]
+
+    def test_the_basis_the_unit_and_the_assessment_date_reach_it_too(self):
+        # The Turkey lira benchmarks lost their assessment date here, which
+        # left price_date empty, sent convert_rows to the editor's price date
+        # instead, and picked today's ECB rate rather than the report's.
+        driver = StubDriver(empty_completion())
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="Ex-rack Izmir SN 150",
+                price=81212.0, price_min=None, price_max=None, currency="TRY", unit="MT",
+                basis="ex-rack plus VAT", price_date="2026-08-14", note=None, kept=True,
+            ),
+        ]
+        client, extractions, store = build_analyse_client(
+            rows, driver=driver, rules_list=[self._rule()]
+        )
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        focused_prompt = driver.calls[1]["prompt"]
+
+        assert "TRY" in focused_prompt
+        assert "MT" in focused_prompt
+        assert "ex-rack plus VAT" in focused_prompt
+        assert "dated 2026-08-14" in focused_prompt
+
+
+class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
+    def test_the_lede_no_longer_describes_the_deleted_one_step_flow(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
+
+        assert "fetches a suggested price for every location" not in page
+        assert "You review the fetched prices here" not in page
+
+    def test_the_lede_says_read_check_and_use(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
+        lede = page[page.index('<p class="lede">') : page.index("</p>")]
+
+        assert "reads" in lede
+        assert "check" in lede
+        assert "used" in lede
+
+        for banned in ("drafting", "derived", "parsed", "extraction", "rulebook"):
+            assert banned not in lede.lower()
+
+    def test_the_read_button_warns_that_unsaved_instructions_are_ignored(self):
+        # read_files reads site.editorial_instructions from the database, so
+        # text typed into the box and never saved is simply thrown away.
+        client, extractions, store = build_analyse_client([])
+
+        page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
+
+        assert "as saved" in page
+        assert "press <strong>Save instructions</strong> first" in page

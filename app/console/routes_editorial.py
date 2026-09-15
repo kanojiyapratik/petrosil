@@ -29,6 +29,34 @@ MAX_DOCUMENTS = 5
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 
+def _figure(value: float) -> str:
+    """A checked figure as the report printed it, not as a float repr."""
+    return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+
+
+def _digest_line(row) -> str:
+    """One checked row, whole, for the focused benchmark pass.
+
+    That pass is asked to fill in "the range printed" and, for a benchmark in
+    another currency, "the date the report gives for it". A line of name,
+    single figure and currency carried neither: a benchmark printed
+    1,450-1,500 arrived as the one number 1450, and a lira benchmark lost its
+    assessment date -- which left price_date empty, sent convert_rows to the
+    editor's price date instead, and picked today's ECB rate.
+    """
+    if row.price_min is not None and row.price_max is not None and row.price_min != row.price_max:
+        figure = f"{_figure(row.price_min)}-{_figure(row.price_max)}"
+    else:
+        figure = _figure(row.price)
+
+    parts = [row.name, figure, row.currency or "", row.unit or "", row.basis or ""]
+
+    if row.price_date:
+        parts.append(f"dated {row.price_date}")
+
+    return " ".join(part for part in parts if part)
+
+
 def create_editorial_routes(
     *,
     store: Store,
@@ -97,7 +125,11 @@ def create_editorial_routes(
             "error": None,
             "batches": None,
             "benchmarks": None,
-            "image_note": None,
+            # Set only on the 409: the reading whose figures may be used again.
+            "reuse": None,
+            # A reading already read and not yet used, so a closed tab does
+            # not strand it. See ExtractionStore.latest_open.
+            "waiting": None,
             # The saved per-site instructions prefill the form; after a draft
             # the just-typed text wins, so an edit is never silently reverted.
             "instructions": site.editorial_instructions,
@@ -126,11 +158,23 @@ def create_editorial_routes(
         if request.query_params.get("ok"):
             flash = {"kind": "ok", "text": request.query_params["ok"]}
 
+        # A reading that has been paid for and not yet used must stay
+        # reachable: the only other way back to one is the 303 straight after
+        # the upload, so closing the tab lost four read reports.
+        waiting = None
+
+        if extractions is not None:
+            try:
+                waiting = extractions.latest_open(site.slug)
+            except Exception:  # noqa: BLE001 - a missing reminder is not a broken screen
+                waiting = None
+
         return screen(
             request, user, site,
             {
                 "error": request.query_params.get("err"),
                 "flash": flash,
+                "waiting": waiting,
                 "batches": [
                     {**batch, "tone": tone_for(batch.get("status"))} for batch in batches
                 ],
@@ -194,18 +238,27 @@ def create_editorial_routes(
                     request, user, site, {"error": "That reading could not be found."}, 404
                 )
 
-            # A reading is only ever used once -- closed here on success, so
-            # a back-button, a double-click or a re-POST would otherwise buy
-            # a second full AI draft against the same checked figures.
-            if reading.used_at is not None:
+            # The editor asked, on the refusal screen below, to use these
+            # checked prices a second time -- a staging failure or a closed
+            # tab loses the draft, and the reports themselves are not kept,
+            # so without this the only way back is re-uploading five files
+            # and retyping every correction.
+            again = str(form_data.get("again") or "").strip() == "1"
+
+            def already_used():
                 return screen(
                     request, user, site,
                     {
-                        "error": "Those prices have already been used. Read the reports again "
-                        "for a fresh check.",
+                        "error": "Those prices have already been used.",
+                        "reuse": {"set_id": set_id, "pricedate": pricedate},
                     },
                     409,
                 )
+
+            # The cheap first word. It is not the guard -- the claim below is
+            # -- but it keeps a plain double-submit off the site's API.
+            if reading.used_at is not None and not again:
+                return already_used()
 
             # Only the rows the editor left ticked -- the reading step is
             # where a figure gets corrected or dropped, never here.
@@ -254,6 +307,19 @@ def create_editorial_routes(
             model = getattr(chosen, "model", default_model) if chosen is not None else default_model
 
             provider_name = getattr(chosen or driver, "provider_key", "gemini")
+
+            # The reading is spent HERE, before the first model call and in a
+            # single statement, so two submits arriving together cannot both
+            # pass a check and both buy a full draft. Reading used_at and
+            # deciding minutes earlier was never a guard, only a hint.
+            claimed = (
+                extractions.reclaim_set(set_id) if again else extractions.claim_set(set_id)
+            )
+
+            if not claimed:
+                return already_used()
+
+            store.record(user.email, "used a reading", site.slug, f"reading #{set_id}")
 
             # Report benchmarks: figures the rulebook derives from that are not
             # site locations ("Report: FOB Asia SN 150"). Asked of the model like
@@ -305,11 +371,7 @@ def create_editorial_routes(
             # currency symbol, a "/t" unit or a currency code), so the lines
             # are joined directly instead.
             benchmark_note = None
-            digest = (
-                "\n".join(f"{row.name} {row.price} {row.currency or ''}" for row in kept_rows)
-                if benchmarks
-                else ""
-            )
+            digest = "\n".join(_digest_line(row) for row in kept_rows) if benchmarks else ""
 
             if digest:
                 try:
@@ -373,11 +435,6 @@ def create_editorial_routes(
                 "dropped_unknown": len(parsed.unmatched) - near_matches,
             }
 
-            # The reading is spent: closing it means it is not offered again
-            # from a site's editorial screen once its figures have been used.
-            extractions.close_set(set_id)
-            store.record(user.email, "used a reading", site.slug, f"reading #{set_id}")
-
             return screen(
                 request, user, site,
                 {
@@ -385,7 +442,6 @@ def create_editorial_routes(
                     "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
                     "summary": summary,
                     "pricedate": pricedate,
-                    "image_note": None,
                     "benchmark_note": benchmark_note,
                     "analysis": {
                         "status": completion.status,

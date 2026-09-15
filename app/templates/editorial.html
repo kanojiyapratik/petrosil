@@ -3,12 +3,39 @@
 <h1>AI editorial update</h1>
 <p class="lede">
   Upload market reports (Word, Excel, PDF or plain text — e.g. the weekly Lube Report). The AI
-  fetches a suggested price for every location, checked against the latest price
-  {{ site.name }} holds. You review the fetched prices here, keep the rows you agree with, and save
-  them from the review page. Nothing reaches {{ site.name }} until you press Save.
+  <strong>reads</strong> each report on its own; you <strong>check</strong> what it read on the
+  next screen and correct anything wrong; then the checked prices are <strong>used</strong> to
+  work out a price for every location {{ site.name }} tracks. Nothing reaches {{ site.name }}
+  until you press Save.
 </p>
 
 {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+{% if waiting %}
+  <div class="flash ok">
+    A reading is waiting to be checked —
+    {{ waiting.files|length }} report{{ "" if waiting.files|length == 1 else "s" }} already read.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ waiting.id }}">Check what was read</a>
+  </div>
+{% endif %}
+{% if reuse %}
+  <div class="panel">
+    <div class="head"><h2>Use these prices again</h2></div>
+    <div class="body">
+      <p class="hint" style="margin-top:0">
+        These checked prices were used once already. If that run was lost — the page was closed,
+        or saving to {{ site.name }} failed — use them again here rather than uploading and
+        checking the reports a second time. It is another AI reading.
+      </p>
+      <form method="post" action="/console/sites/{{ site.slug }}/editorial/analyse"
+            data-working-title="Working out the prices&hellip;">
+        <input type="hidden" name="set_id" value="{{ reuse.set_id }}">
+        <input type="hidden" name="pricedate" value="{{ reuse.pricedate }}">
+        <input type="hidden" name="again" value="1">
+        <div class="actions"><button type="submit">Use these prices again</button></div>
+      </form>
+    </div>
+  </div>
+{% endif %}
 {% if benchmark_note %}<div class="flash bad">The second reading of the report figures failed, so only the first reading was used: {{ benchmark_note }}</div>{% endif %}
 
 <div class="panel">
@@ -29,7 +56,9 @@
       </div>
       <p class="hint">
         Nothing changes on the website from this step &mdash; you'll check what was read on the next
-        screen before choosing what to use.
+        screen before choosing what to use. The AI is given the instructions <em>as saved</em>: if
+        you have just typed something in the box below, press <strong>Save instructions</strong>
+        first.
       </p>
       <div class="actions"><button type="submit">Read the reports</button></div>
     </form>
