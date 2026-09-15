@@ -588,3 +588,146 @@ class FxStore:
                 (rate.currency, asked_date, rate.rate_date, rate.rate, rate.source),
             )
             connection.commit()
+
+
+@dataclass(frozen=True)
+class ReadingSet:
+    id: int
+    site_slug: str
+    created_by: str
+    created_at: object
+    files: list[str]
+
+
+@dataclass(frozen=True)
+class ReadRow:
+    id: int
+    set_id: int
+    filename: str
+    name: str
+    price: float
+    price_min: float | None
+    price_max: float | None
+    currency: str | None
+    unit: str | None
+    basis: str | None
+    price_date: str | None
+    note: str | None
+    kept: bool
+
+
+READ_ROW_COLUMNS = (
+    "id, set_id, filename, name, price, price_min, price_max, currency, unit, "
+    "basis, price_date, note, kept"
+)
+
+
+class ExtractionStore:
+    """What step one read, kept until step two uses it.
+
+    See app/editorial/reading.py for what a row means: the report's own
+    words, no site location attached and no arithmetic applied.
+    """
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def open_set(self, site_slug: str, created_by: str) -> ReadingSet:
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "INSERT INTO console_reading_sets (site_slug, created_by) "
+                "VALUES (%s, %s) RETURNING id, site_slug, created_by, created_at",
+                (site_slug, created_by),
+            ).fetchone()
+            connection.commit()
+
+        return ReadingSet(
+            id=int(row[0]), site_slug=row[1], created_by=row[2], created_at=row[3], files=[]
+        )
+
+    def add_rows(self, set_id: int, filename: str, rows: list[dict]) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "INSERT INTO console_reading_files (set_id, filename) VALUES (%s, %s)",
+                (set_id, filename),
+            )
+
+            for row in rows:
+                connection.execute(
+                    "INSERT INTO console_reading_rows (set_id, filename, name, price, "
+                    "price_min, price_max, currency, unit, basis, price_date, note) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        set_id, filename, row["name"], row["price"], row.get("price_min"),
+                        row.get("price_max"), row.get("currency"), row.get("unit"),
+                        row.get("basis"), row.get("price_date"), row.get("note"),
+                    ),
+                )
+
+            connection.commit()
+
+    def set_by_id(self, set_id: int) -> ReadingSet | None:
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT id, site_slug, created_by, created_at FROM console_reading_sets "
+                "WHERE id = %s",
+                (set_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            files = connection.execute(
+                "SELECT filename FROM console_reading_files WHERE set_id = %s ORDER BY id",
+                (set_id,),
+            ).fetchall()
+
+        return ReadingSet(
+            id=int(row[0]), site_slug=row[1], created_by=row[2], created_at=row[3],
+            files=[entry[0] for entry in files],
+        )
+
+    def rows_for(self, set_id: int) -> list[ReadRow]:
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                f"SELECT {READ_ROW_COLUMNS} FROM console_reading_rows "
+                "WHERE set_id = %s ORDER BY filename, id",
+                (set_id,),
+            ).fetchall()
+
+        return [
+            ReadRow(
+                id=int(row[0]), set_id=int(row[1]), filename=row[2], name=row[3],
+                price=float(row[4]),
+                price_min=float(row[5]) if row[5] is not None else None,
+                price_max=float(row[6]) if row[6] is not None else None,
+                currency=row[7], unit=row[8], basis=row[9],
+                price_date=row[10].isoformat() if row[10] is not None else None,
+                note=row[11], kept=bool(row[12]),
+            )
+            for row in rows
+        ]
+
+    def update_row(self, row_id: int, **fields) -> None:
+        allowed = ("name", "price", "price_min", "price_max", "currency", "unit",
+                   "basis", "price_date", "note", "kept")
+        changes = {key: value for key, value in fields.items() if key in allowed}
+
+        if not changes:
+            return
+
+        assignments = ", ".join(f"{key} = %s" for key in changes)
+
+        with self._pool.connection() as connection:
+            connection.execute(
+                f"UPDATE console_reading_rows SET {assignments} WHERE id = %s",
+                (*changes.values(), row_id),
+            )
+            connection.commit()
+
+    def close_set(self, set_id: int) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_reading_sets SET used_at = now() WHERE id = %s", (set_id,)
+            )
+            connection.commit()
