@@ -11,7 +11,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..ai.providers import (
@@ -112,6 +112,40 @@ def create_ai_routes(
                 "usage_days": usage.by_day(14) if usage is not None else [],
             },
         )
+
+    @router.post("/console/settings/ai/check-key")
+    async def check_key(request: Request):
+        """What a key being typed into the add-a-key form can actually run.
+
+        Before this, the add-a-key form could only offer the hardcoded
+        catalogue, because there was no saved key yet to ask -- the live list
+        only appeared after the row existed. This lets the form ask the key
+        itself, the same way a saved row already does.
+
+        The key here is never saved, never logged and never echoed back:
+        available_models never raises and never carries the key in what it
+        returns, so a failure here is always the same clean "not accepted",
+        not a provider's own error text.
+        """
+        user, response = guard(request)
+
+        if response is not None:
+            return response
+
+        form = await request.form()
+        provider = str(form.get("provider") or "").lower()
+        api_key = str(form.get("api_key") or "").strip()
+
+        if provider not in PROVIDERS or api_key == "":
+            return JSONResponse({"ok": False, "error": "That key was not accepted."})
+
+        # Short: a person is waiting on this form to fill in.
+        live = available_models(provider, api_key, timeout_seconds=6)
+
+        if not live:
+            return JSONResponse({"ok": False, "error": "That key was not accepted."})
+
+        return JSONResponse({"ok": True, "models": live})
 
     @router.post("/console/settings/ai")
     async def add_provider(request: Request):

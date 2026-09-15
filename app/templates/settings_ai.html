@@ -24,7 +24,7 @@
         </div>
         <div class="field">
           <label for="provider">Provider</label>
-          <select id="provider" name="provider" required onchange="showModels(this.value)">
+          <select id="provider" name="provider" required>
             {% for key, meta in catalogue.items() %}
               <option value="{{ key }}">{{ meta.label }}</option>
             {% endfor %}
@@ -36,10 +36,11 @@
         <select id="model" name="model" required>
           {% for key, meta in catalogue.items() %}
             {% for m in meta.models %}
-              <option value="{{ m }}" data-provider="{{ key }}">{{ m }}</option>
+              <option value="{{ m }}" data-provider="{{ key }}" data-fallback="1">{{ m }}</option>
             {% endfor %}
           {% endfor %}
         </select>
+        <p class="hint" id="model-source">Typical models for this provider — type the key to check the models it can use.</p>
       </div>
       <div class="field">
         <label for="api_key">API key</label>
@@ -147,9 +148,10 @@
 
 <script>
 // The model list and the key hint follow the chosen provider, so nobody picks
-// a Claude model for an OpenAI key.
+// a Claude model for an OpenAI key. This only ever touches the hardcoded
+// (data-fallback) options -- the ones offered before a key has been checked.
 function showModels(provider) {
-  document.querySelectorAll('#model option').forEach(function (option) {
+  document.querySelectorAll('#model option[data-fallback]').forEach(function (option) {
     var mine = option.dataset.provider === provider;
     option.hidden = !mine;
     if (mine && document.getElementById('model').selectedOptions[0].hidden) option.selected = true;
@@ -158,7 +160,99 @@ function showModels(provider) {
     span.hidden = span.dataset.provider !== provider;
   });
 }
-showModels(document.getElementById('provider').value);
+
+// What the typed-but-unsaved key can actually run, asked the same way a
+// saved row already is (see routes_ai.py's check-key route). This never
+// blocks the form: the hardcoded list above is the fallback, and it is what
+// stays in use if the check fails, times out, or JavaScript never runs at
+// all -- this script only ever adds to what already works.
+(function () {
+  var modelSelect = document.getElementById('model');
+  var providerSelect = document.getElementById('provider');
+  var apiKeyInput = document.getElementById('api_key');
+  var modelSource = document.getElementById('model-source');
+  var checkTimer = null;
+  var checkSeq = 0;
+
+  function clearLiveModels() {
+    modelSelect.querySelectorAll('option[data-live]').forEach(function (option) {
+      option.remove();
+    });
+  }
+
+  function useFallback(provider) {
+    clearLiveModels();
+    showModels(provider);
+    modelSource.textContent =
+      'Typical models for this provider — type the key to check the models it can use.';
+    modelSource.hidden = false;
+  }
+
+  function useLiveModels(previous, models) {
+    clearLiveModels();
+    document.querySelectorAll('#model option[data-fallback]').forEach(function (option) {
+      option.hidden = true;
+    });
+    models.forEach(function (name) {
+      var option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      option.dataset.live = '1';
+      if (name === previous) option.selected = true;
+      modelSelect.appendChild(option);
+    });
+    if (modelSelect.selectedIndex < 0 && modelSelect.options.length) {
+      modelSelect.options[0].selected = true;
+    }
+    modelSource.textContent = 'Read from this key just now — the models it can actually use.';
+    modelSource.hidden = false;
+  }
+
+  function checkKey() {
+    var provider = providerSelect.value;
+    var apiKey = apiKeyInput.value.trim();
+
+    if (!provider || !apiKey) {
+      useFallback(provider);
+      return;
+    }
+
+    var mySeq = ++checkSeq;
+    var previous = modelSelect.value;
+    modelSource.textContent = 'Checking the key…';
+    modelSource.hidden = false;
+
+    fetch('/console/settings/ai/check-key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ provider: provider, api_key: apiKey }),
+    })
+      .then(function (response) {
+        return response.ok ? response.json() : { ok: false };
+      })
+      .then(function (data) {
+        if (mySeq !== checkSeq) return;
+
+        if (data.ok && data.models && data.models.length) {
+          useLiveModels(previous, data.models);
+        } else {
+          useFallback(provider);
+        }
+      })
+      .catch(function () {
+        if (mySeq !== checkSeq) return;
+        useFallback(provider);
+      });
+  }
+
+  providerSelect.addEventListener('change', checkKey);
+  apiKeyInput.addEventListener('input', function () {
+    clearTimeout(checkTimer);
+    checkTimer = setTimeout(checkKey, 500);
+  });
+
+  useFallback(providerSelect.value);
+})();
 </script>
 
 <div class="panel">
