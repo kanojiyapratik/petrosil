@@ -289,28 +289,45 @@ def create_reading_routes(
     def grouped_files(reading, rows) -> list[dict]:
         """One panel per file that was read -- per row of the files table, not
         per filename. Two reports both called report.docx are two uploads and
-        two panels; keying on the name merged them into one."""
-        panels: dict[object, dict] = {}
+        two panels; keying on the name merged them into one.
+
+        Rows written before migration 0010 have no file_id. They still have to
+        land in the panel their file already made, so the panels are reachable
+        by name as well as by id: console_reading_files.id is never NULL, so a
+        name-only lookup was the one thing a legacy row could do, and without
+        it every such file was drawn twice -- once empty, saying "No prices
+        found in this report" above its own twelve prices.
+        """
+        panels: dict[int, dict] = {}
+        by_name: dict[str, dict] = {}
+        order: list[dict] = []
+
+        def panel_for(file_id: int | None, filename: str) -> dict:
+            if file_id is not None and file_id in panels:
+                return panels[file_id]
+
+            if file_id is None and filename in by_name:
+                return by_name[filename]
+
+            made = {"id": file_id, "filename": filename, "rows": []}
+
+            if file_id is not None:
+                panels[file_id] = made
+
+            # First file of a given name wins the name, so a legacy row goes
+            # to the earliest panel that could have produced it.
+            by_name.setdefault(filename, made)
+            order.append(made)
+
+            return made
 
         for entry in reading.files:
-            file_id = getattr(entry, "id", None)
-            filename = getattr(entry, "filename", entry)
-            panels[file_id if file_id is not None else ("name", filename)] = {
-                "id": file_id, "filename": filename, "rows": [],
-            }
+            panel_for(getattr(entry, "id", None), getattr(entry, "filename", entry))
 
         for row in rows:
-            key = getattr(row, "file_id", None)
+            panel_for(getattr(row, "file_id", None), row.filename)["rows"].append(row)
 
-            if key is None or key not in panels:
-                key = ("name", row.filename)
-
-            panel = panels.setdefault(
-                key, {"id": getattr(row, "file_id", None), "filename": row.filename, "rows": []}
-            )
-            panel["rows"].append(row)
-
-        return list(panels.values())
+        return order
 
     @router.get("/console/sites/{slug}/reading/{set_id}", response_class=HTMLResponse)
     def check(request: Request, slug: str, set_id: int):

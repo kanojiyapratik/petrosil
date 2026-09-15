@@ -772,6 +772,62 @@ class TestTwoUploadsWithTheSameName:
         assert page.count("<h2>report.docx</h2>") == 2
 
 
+class LegacyExtractions:
+    """A reading taken before migration 0010: console_reading_files has its
+    rows, and the price rows have no file_id at all."""
+
+    def __init__(self):
+        self.sets = {
+            1: ReadingSet(
+                id=1, site_slug="baseoil", created_by="editor@local.test", created_at=None,
+                files=[ReadFile(id=11, filename="report.docx")],
+            )
+        }
+        self.rows = [
+            ReadRow(
+                id=index, set_id=1, filename="report.docx", name=f"SN {index}",
+                price=1000.0 + index, price_min=None, price_max=None, currency="USD",
+                unit="MT", basis="FOB", price_date=None, note=None, kept=True, file_id=None,
+            )
+            for index in (1, 2)
+        ]
+
+    def set_by_id(self, set_id):
+        return self.sets.get(set_id)
+
+    def rows_for(self, set_id):
+        return list(self.rows)
+
+
+class TestAReadingFromBeforeTheFileColumnExisted:
+    def test_its_rows_land_in_the_panel_their_file_already_made(self):
+        # console_reading_files.id is never NULL, so a legacy row keyed by
+        # ("name", filename) matched nothing and made a SECOND panel: the
+        # file drawn once empty, saying "No prices found in this report",
+        # directly above the same file with its twelve prices in it.
+        client, _ = build(extractions=LegacyExtractions())
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert page.count("<h2>report.docx</h2>") == 1
+        assert "No prices found in this report" not in page
+        assert "2 prices read" in page
+        assert "SN 1" in page and "SN 2" in page
+
+    def test_two_uploads_of_the_same_name_are_still_two_panels(self):
+        # The fix must not undo the one before it: a filename index that
+        # swallowed real file rows would merge them again.
+        client, extractions = build(StubDriver(answers=[ANSWER, ANSWER]))
+        upload(
+            client,
+            [("report.docx", b"FOB Asia SN 150 1260"), ("report.docx", b"Izmir 81212")],
+        )
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert page.count("<h2>report.docx</h2>") == 2
+
+
 class TestAddingAPriceTheModelMissed:
     """The spec's fourth verb: "change a figure, fix a name, drop a row, or
     add one the model missed". Seeing a skipped table and still not being
