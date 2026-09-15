@@ -17,7 +17,11 @@ from fastapi.testclient import TestClient
 
 from app.ai.gemini import AiCompletion, AiProviderError
 from app.api import create_api
-from app.console.routes_editorial import create_editorial_routes
+from app.console.routes_editorial import (
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENTS,
+    create_editorial_routes,
+)
 from app.db.store import ReadingSet, ReadRow, StoredSite
 from app.editorial.extract import document_to_text
 from app.editorial.review import build_rows, editorial_prompt, parse_suggestions
@@ -1290,6 +1294,80 @@ class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
 
         assert "as saved" in page
         assert "press <strong>Save instructions</strong> first" in page
+
+
+class TestReportsCanBeAddedOneAtATime:
+    """A plain <input type=file multiple> only ever expresses the files
+    chosen together in one dialog -- reopening the picker replaces the first
+    choice rather than adding to it. The owner hit this directly: "once i
+    upload 1 file there is no option for other files". The server-side
+    contract (MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, the field name, `multiple`)
+    does not change, so that is what is pinned here; the accumulate/merge/
+    duplicate/disable behaviour itself is client-side JavaScript and is not
+    exercised by TestClient -- it needs a human click-through."""
+
+    def test_the_real_posting_control_is_unchanged(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert 'id="documents"' in page
+        assert 'name="documents"' in page
+        assert "multiple" in page
+        assert "required" in page
+        assert 'action="/console/sites/baseoil/reading"' in page
+
+    def test_the_add_another_control_is_present_and_starts_hidden(self):
+        # Progressive enhancement: present in the markup so the script can
+        # reveal it, but hidden until that script actually runs.
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        add_at = page.index('id="doc-add"')
+        tag_start = page.rindex("<button", 0, add_at)
+        tag_end = page.index(">", add_at)
+        add_tag = page[tag_start:tag_end]
+
+        assert "Add another report" in page
+        assert "hidden" in add_tag
+        assert 'type="button"' in add_tag
+
+    def test_the_running_list_and_its_error_slot_are_present_and_start_hidden(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        list_at = page.index('id="doc-list"')
+        list_tag = page[page.rindex("<ul", 0, list_at) : page.index(">", list_at)]
+        error_at = page.index('id="doc-file-error"')
+        error_tag = page[page.rindex("<p", 0, error_at) : page.index(">", error_at)]
+
+        assert "hidden" in list_tag
+        assert "hidden" in error_tag
+
+    def test_the_limits_shown_come_from_the_same_constants_the_server_enforces(self):
+        # Not hardcoded a second time: MAX_DOCUMENTS=5 and MAX_DOCUMENT_BYTES
+        # is the same 10 MB read_files() itself refuses an upload over.
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+        max_mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
+
+        assert f"up to {MAX_DOCUMENTS}" in page
+        assert f"{max_mb} MB each" in page
+        assert f'data-max-documents="{MAX_DOCUMENTS}"' in page
+        assert f'data-max-bytes="{MAX_DOCUMENT_BYTES}"' in page
+
+    def test_the_read_button_is_wired_to_the_upload_form_from_outside_it(self):
+        # It now renders after the instructions form (fix #2), so it can only
+        # still submit /reading via the form="" attribute, not ancestry.
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert 'id="reading-submit"' in page
+        assert 'form="reading-form"' in page
 
 
 class TestAFailedAnalysisDoesNotSwallowTheReading:

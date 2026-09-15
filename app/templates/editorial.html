@@ -67,8 +67,19 @@
       data-working-hint="The AI is reading each report on its own — this can take a few minutes. Please keep this page open. You'll check what it found on the next screen before anything is used.">
       <div class="fields">
         <div class="field">
-          <label for="documents">Reports (up to 5, 10 MB each)</label>
-          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required>
+          <label for="documents">Reports (up to {{ max_documents }}, {{ max_document_mb }} MB each)</label>
+          {#- The one control that actually posts, with or without the script
+              below: a plain multiple-select file input works on its own, and
+              stays the source the form submits. The elements after it are
+              hidden until the script runs, since a picker that cannot be
+              reopened without replacing the first choice is still exactly
+              what "up to {{ max_documents }} files" already promises. #}
+          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required
+            data-max-documents="{{ max_documents }}" data-max-bytes="{{ max_document_bytes }}">
+          <ul id="doc-list" class="doc-list" style="list-style:none;margin:.5rem 0 0;padding:0" hidden></ul>
+          <p id="doc-note" class="hint" style="margin:.35rem 0 0" hidden></p>
+          <p id="doc-file-error" class="flash bad" style="margin:.5rem 0 0" hidden></p>
+          <button type="button" id="doc-add" class="ghost" style="margin-top:.5rem" hidden>Add another report</button>
         </div>
         <div class="field">
           <label for="pricedate">Price date</label>
@@ -95,9 +106,144 @@
       <div class="actions"><button type="submit">Save instructions</button></div>
     </form>
 
-    <div class="actions"><button type="submit" form="reading-form">Read the reports</button></div>
+    <div class="actions"><button type="submit" id="reading-submit" form="reading-form">Read the reports</button></div>
   </div>
 </div>
+
+<script>
+// A plain <input type=file multiple> only ever expresses "the files chosen
+// together in one dialog" -- reopen the picker and the second choice
+// replaces the first, so there was no way to add a second report to an
+// already-made selection. This turns "documents" into an accumulating list
+// while keeping that same input as the one thing that actually posts:
+// what the picker returns on each round is merged into a running list here,
+// then written straight back to the input via DataTransfer, so the POST
+// body is exactly what the list on screen shows.
+//
+// Progressive enhancement only: everything below stays hidden, and the
+// input behaves exactly as it always did, until this runs.
+(function () {
+  var input = document.getElementById('documents');
+  var list = document.getElementById('doc-list');
+  var note = document.getElementById('doc-note');
+  var fileError = document.getElementById('doc-file-error');
+  var addButton = document.getElementById('doc-add');
+  var submitButton = document.getElementById('reading-submit');
+
+  if (!input || !list || !addButton || !submitButton || typeof DataTransfer === 'undefined') return;
+
+  var maxDocuments = parseInt(input.dataset.maxDocuments, 10) || 5;
+  var maxBytes = parseInt(input.dataset.maxBytes, 10) || 0;
+  var maxMb = Math.round(maxBytes / (1024 * 1024));
+  var chosen = [];
+
+  function sameFile(a, b) { return a.name === b.name && a.size === b.size; }
+
+  function formatSize(bytes) {
+    return bytes >= 1024 * 1024
+      ? (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  }
+
+  function render() {
+    list.innerHTML = '';
+    list.hidden = chosen.length === 0;
+
+    chosen.forEach(function (file, index) {
+      var row = document.createElement('li');
+      row.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.2rem 0';
+
+      var label = document.createElement('span');
+      label.className = 'small';
+      label.style.flex = '1';
+      label.textContent = file.name + ' (' + formatSize(file.size) + ')';
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ghost';
+      remove.style.cssText = 'padding:.15rem .55rem';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', function () {
+        chosen.splice(index, 1);
+        sync();
+      });
+
+      row.appendChild(label);
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+
+    var atLimit = chosen.length >= maxDocuments;
+
+    note.hidden = false;
+    note.textContent = atLimit
+      ? chosen.length + ' of ' + maxDocuments + ' reports selected — remove one to add another.'
+      : chosen.length + ' of ' + maxDocuments + ' reports selected.';
+
+    addButton.hidden = false;
+    addButton.disabled = atLimit;
+    addButton.textContent = atLimit ? 'Limit reached' : 'Add another report';
+
+    submitButton.disabled = chosen.length === 0;
+  }
+
+  function sync() {
+    // The only way to make the browser accept a built-up-in-script file
+    // list: a DataTransfer's own files, assigned onto the real input.
+    var transfer = new DataTransfer();
+    chosen.forEach(function (file) { transfer.items.add(file); });
+    input.files = transfer.files;
+    render();
+  }
+
+  function merge(files) {
+    fileError.hidden = true;
+
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+
+      if (maxBytes && file.size > maxBytes) {
+        fileError.hidden = false;
+        fileError.textContent = file.name + ' is larger than ' + maxMb + ' MB and was not added.';
+        continue;
+      }
+
+      var existing = -1;
+
+      for (var j = 0; j < chosen.length; j++) {
+        if (sameFile(chosen[j], file)) { existing = j; break; }
+      }
+
+      if (existing >= 0) {
+        // Same name and size chosen again -- replaces its old copy rather
+        // than sitting next to it as a second entry of the same report.
+        chosen[existing] = file;
+      } else if (chosen.length < maxDocuments) {
+        chosen.push(file);
+      } else {
+        fileError.hidden = false;
+        fileError.textContent = 'Only ' + maxDocuments + ' reports can be read at a time — ' +
+          file.name + ' was not added.';
+      }
+    }
+
+    sync();
+  }
+
+  input.addEventListener('change', function () {
+    // input.files here is only what this one dialog just returned -- one
+    // file or several picked together -- never the running total. merge()
+    // folds it into `chosen`; sync() writes the result back onto the input.
+    if (input.files && input.files.length) merge(input.files);
+  });
+
+  addButton.addEventListener('click', function () {
+    if (!addButton.disabled) input.click();
+  });
+
+  render();
+})();
+</script>
 
 {% if batches is not none %}
 <div class="panel">
