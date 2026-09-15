@@ -36,6 +36,7 @@
                   <input type="hidden" name="price_min" value="{{ row.price_min if row.price_min is not none else '' }}">
                   <input type="hidden" name="price_max" value="{{ row.price_max if row.price_max is not none else '' }}">
                   <input type="hidden" name="note" value="{{ row.note or '' }}">
+                  <input type="hidden" name="pricedate" value="{{ pricedate }}">
                   <td><input type="text" name="name" value="{{ row.name }}" style="width:100%"></td>
                   <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:7rem"></td>
                   <td><input type="text" name="currency" value="{{ row.currency or '' }}" style="width:5rem"></td>
@@ -60,6 +61,10 @@
   <form method="post" action="/console/sites/{{ site.slug }}/editorial/analyse"
         data-working-title="Working out the prices&hellip;">
     <input type="hidden" name="set_id" value="{{ set.id }}">
+    <div class="field">
+      <label for="analyse-pricedate">Price date</label>
+      <input id="analyse-pricedate" type="date" name="pricedate" value="{{ pricedate }}">
+    </div>
     <div class="actions"><button type="submit">Use these prices</button></div>
   </form>
 {% else %}

@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
-from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks, price_digest
+from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks
 from ..editorial.fx import FrankfurterRates, convert_rows
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from ..editorial.rules import apply_rules, benchmark_names
@@ -158,7 +158,10 @@ def create_editorial_routes(
         if instructions != (site.editorial_instructions or ""):
             store.set_editorial_instructions(site.slug, instructions)
 
-        return RedirectResponse(f"/console/sites/{site.slug}/editorial", status_code=303)
+        return RedirectResponse(
+            f"/console/sites/{site.slug}/editorial?ok={quote('Instructions saved.')}",
+            status_code=303,
+        )
 
     if extractions is not None:
 
@@ -269,14 +272,20 @@ def create_editorial_routes(
             )
 
             # The benchmarks get a second, focused reading: only the checked
-            # figures' price lines, only the benchmark names, one answer per
-            # name. See app/editorial/benchmarks.py for why this pass exists.
-            # A failure here costs the second reading, never the draft.
+            # figures, only the benchmark names, one answer per name. See
+            # app/editorial/benchmarks.py for why this pass exists. Every
+            # checked row is already a price line -- price_digest()'s job is
+            # finding price-bearing lines inside a whole report, which is not
+            # what this is; running it here would silently drop a row with no
+            # currency (its PRICE_LINE regex has nothing to match without a
+            # currency symbol, a "/t" unit or a currency code), so the lines
+            # are joined directly instead.
             benchmark_note = None
-            evidence_text = "\n".join(
-                f"{row.name} {row.price} {row.currency or ''}" for row in kept_rows
+            digest = (
+                "\n".join(f"{row.name} {row.price} {row.currency or ''}" for row in kept_rows)
+                if benchmarks
+                else ""
             )
-            digest = price_digest([evidence_text]) if benchmarks else ""
 
             if digest:
                 try:

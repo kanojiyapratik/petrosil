@@ -13,7 +13,8 @@ thrown away because the fifth timed out.
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
+from datetime import date
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -87,6 +88,10 @@ def create_reading_routes(
             "error": None,
             "set": None,
             "files": [],
+            # The date the checked prices are analysed as of -- carried from
+            # the upload form through to the "Use these prices" form, so it
+            # is never silently swapped for today's.
+            "pricedate": date.today().isoformat(),
         }
         context.update(extra)
 
@@ -102,6 +107,9 @@ def create_reading_routes(
         form_data = await request.form()
         uploads = [f for f in form_data.getlist("documents") if getattr(f, "filename", "")]
         instructions = (site.editorial_instructions or "").strip() or None
+        # The date the editor picked on this form -- carried to the analyse
+        # step over the redirect below, never silently replaced by today's.
+        pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
 
         if not uploads:
             return screen(request, user, site, {"error": "Choose at least one report."}, 422)
@@ -198,10 +206,12 @@ def create_reading_routes(
         store.record(
             user.email, "read reports", site.slug, f"{len(bodies)} file(s), reading #{reading.id}"
         )
-        target = f"/console/sites/{slug}/reading/{reading.id}"
+        query = {"pricedate": pricedate}
 
         if failures:
-            target += "?err=" + quote("; ".join(failures)[:400])
+            query["err"] = "; ".join(failures)[:400]
+
+        target = f"/console/sites/{slug}/reading/{reading.id}?{urlencode(query)}"
 
         return RedirectResponse(target, status_code=303)
 
@@ -252,9 +262,11 @@ def create_reading_routes(
         if request.query_params.get("err"):
             flash = {"kind": "bad", "text": request.query_params["err"]}
 
+        pricedate = request.query_params.get("pricedate") or date.today().isoformat()
+
         return screen(
             request, user, site,
-            {"set": reading, "files": files, "flash": flash},
+            {"set": reading, "files": files, "flash": flash, "pricedate": pricedate},
         )
 
     @router.post("/console/sites/{slug}/reading/{set_id}/rows/{row_id}")
@@ -280,11 +292,18 @@ def create_reading_routes(
             return not_found(request, user, site)
 
         form_data = await request.form()
+        # Carried in a hidden field on each row's own form (reading.html), so
+        # a row correction never resets the date chosen on the foot form back
+        # to today.
+        pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
 
         def invalid(message: str) -> HTMLResponse:
             return screen(
                 request, user, site,
-                {"set": reading, "files": grouped_files(reading, rows), "error": message},
+                {
+                    "set": reading, "files": grouped_files(reading, rows), "error": message,
+                    "pricedate": pricedate,
+                },
                 422,
             )
 
@@ -336,6 +355,9 @@ def create_reading_routes(
 
         extractions.update_row(row_id, **fields)
 
-        return RedirectResponse(f"/console/sites/{slug}/reading/{set_id}", status_code=303)
+        return RedirectResponse(
+            f"/console/sites/{slug}/reading/{set_id}?{urlencode({'pricedate': pricedate})}",
+            status_code=303,
+        )
 
     return router

@@ -115,10 +115,11 @@ def build(driver=None, extractions=None):
     return TestClient(app), extractions
 
 
-def upload(client, files):
+def upload(client, files, pricedate=None):
     return client.post(
         "/console/sites/baseoil/reading",
         files=[("documents", (name, io.BytesIO(body), "text/plain")) for name, body in files],
+        data={"pricedate": pricedate} if pricedate else None,
         follow_redirects=False,
     )
 
@@ -407,3 +408,50 @@ class TestTheReadingIsRecorded:
         upload(TestClient(app), [("lube.txt", b"FOB Asia SN 150 1260")])
 
         assert extractions.added[0][0] == "lube.txt"
+
+
+class TestThePriceDateCarriesThrough:
+    """The upload form's own pricedate field used to be dropped entirely
+    once the form started posting here -- the analyse route defaulted to
+    today, silently, however carefully the editor set it."""
+
+    def test_the_chosen_date_is_on_the_redirect_and_prefills_the_foot_form(self):
+        client, extractions = build()
+
+        response = upload(client, [("lube.txt", b"FOB Asia SN 150 1260")], pricedate="2026-08-12")
+
+        assert response.status_code == 303
+        assert "pricedate=2026-08-12" in response.headers["location"]
+
+        page = client.get(response.headers["location"]).text
+
+        assert 'name="pricedate" value="2026-08-12"' in page
+
+    def test_without_a_chosen_date_it_falls_back_to_today(self):
+        import datetime
+
+        client, extractions = build()
+
+        response = upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+        page = client.get(response.headers["location"]).text
+
+        assert f'name="pricedate" value="{datetime.date.today().isoformat()}"' in page
+
+    def test_a_row_correction_does_not_reset_the_chosen_date(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")], pricedate="2026-08-12")
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "kept": "1",
+                "pricedate": "2026-08-12",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert "pricedate=2026-08-12" in response.headers["location"]
+
+        page = client.get(response.headers["location"]).text
+        assert 'name="pricedate" value="2026-08-12"' in page

@@ -535,6 +535,11 @@ class AnalyseFakeStore:
     def record(self, *args, **kwargs):
         self.recorded.append(args)
 
+    def set_editorial_instructions(self, slug, text):
+        import dataclasses
+
+        self.site = dataclasses.replace(self.site, editorial_instructions=text.strip() or None)
+
 
 class AnalyseFakeSiteClient:
     def __init__(self, locations):
@@ -542,6 +547,9 @@ class AnalyseFakeSiteClient:
 
     def locations(self):
         return {"data": self._locations}
+
+    def batches(self):
+        return {"data": []}
 
 
 class AnalyseFakeRules:
@@ -564,7 +572,7 @@ class AnalyseFakeExtractions:
         self.closed.append(set_id)
 
 
-def build_analyse_client(rows, driver=None, rules_list=None, locations=None, store=None):
+def build_analyse_client(rows, driver=None, rules_list=None, locations=None, store=None, fx=None):
     from app.console.routes import datefmt, label_for
 
     extractions = AnalyseFakeExtractions(rows)
@@ -588,6 +596,7 @@ def build_analyse_client(rows, driver=None, rules_list=None, locations=None, sto
             ),
             rules=AnalyseFakeRules(rules_list or []),
             extractions=extractions,
+            fx=fx,
         )
     )
 
@@ -717,3 +726,168 @@ class TestTheAnalyseRouteUsesTheCheckedRows:
 
         assert response.status_code == 502
         assert extractions.closed == []
+
+
+class RecordingFx:
+    """Records what it was asked to convert -- proves the analyse route
+    passed the picked pricedate through, not today's date."""
+
+    def __init__(self):
+        self.calls = []
+
+    def get(self, currency, on_date):
+        self.calls.append((currency, on_date))
+
+        return None
+
+
+class TestTheChosenPriceDateReachesFxConversion:
+    def test_a_posted_pricedate_is_used_for_fx_not_todays_date(self):
+        # The row's own price_date is null, so convert_rows falls back to the
+        # analysis's pricedate -- exactly the value that must come from the
+        # form, not from date.today().
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 80000,
+                    "suggested_max": 82000, "confidence": "high", "basis": "Ex-rack Izmir",
+                    "source": "reading", "rationale": "checked by the editor", "currency": "TRY",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="Europe Domestic SN150", price=81212.0,
+                price_min=None, price_max=None, currency="TRY", unit="MT", basis="Ex-rack",
+                price_date=None, note=None, kept=True,
+            ),
+        ]
+        fx = RecordingFx()
+        client, extractions, store = build_analyse_client(
+            rows, driver=driver,
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 2500.0}],
+            fx=fx,
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": "2026-08-12"},
+        )
+
+        assert response.status_code == 200
+        assert fx.calls == [("TRY", "2026-08-12")]
+
+    def test_without_a_posted_pricedate_it_falls_back_to_today(self):
+        from datetime import date
+
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 80000,
+                    "suggested_max": 82000, "confidence": "high", "basis": "Ex-rack Izmir",
+                    "source": "reading", "rationale": "checked by the editor", "currency": "TRY",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="Europe Domestic SN150", price=81212.0,
+                price_min=None, price_max=None, currency="TRY", unit="MT", basis="Ex-rack",
+                price_date=None, note=None, kept=True,
+            ),
+        ]
+        fx = RecordingFx()
+        client, extractions, store = build_analyse_client(
+            rows, driver=driver,
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 2500.0}],
+            fx=fx,
+        )
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert fx.calls == [("TRY", date.today().isoformat())]
+
+
+class TestTheFocusedPassKeepsACurrencyLessCheckedRow:
+    def test_a_row_with_no_currency_still_reaches_the_focused_pass(self):
+        # price_digest() would drop this line -- its PRICE_LINE regex has
+        # nothing to match without a currency token. The analyse route must
+        # not run the evidence lines through it.
+        rule = PriceRule(
+            id=1, derived_location="Europe Domestic SN150",
+            reference_location="Report: FOB Asia SN 150", adjustment_value=-20,
+        )
+        answer = json.dumps(
+            [
+                {
+                    "location": "Report: FOB Asia SN 150", "suggested_min": 1280,
+                    "suggested_max": 1320, "confidence": "high", "basis": "FOB Asia",
+                    "source": "reading", "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="FOB Asia SN 150", price=1300.0,
+                price_min=None, price_max=None, currency=None, unit="MT", basis="FOB",
+                price_date="2026-08-14", note=None, kept=True,
+            ),
+        ]
+        client, extractions, store = build_analyse_client(rows, driver=driver, rules_list=[rule])
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        # Two model calls: the main pass and the focused benchmark pass --
+        # the currency-less row still made it into the focused prompt.
+        assert len(driver.calls) == 2
+        focused_prompt = driver.calls[1]["prompt"]
+        assert "FOB Asia SN 150" in focused_prompt
+        assert "1300" in focused_prompt
+        assert "Europe Domestic SN150" in response.text
+
+
+class TestTheInstructionsBoxSavesOnItsOwn:
+    def test_posting_instructions_saves_them_and_redirects_with_a_flash(self):
+        client, extractions, store = build_analyse_client([])
+
+        response = client.post(
+            "/console/sites/baseoil/editorial",
+            data={"instructions": "The USA prices are in the picture table."},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("/console/sites/baseoil/editorial?ok=")
+        assert store.site.editorial_instructions == "The USA prices are in the picture table."
+
+    def test_the_instructions_box_is_not_nested_inside_the_upload_form(self):
+        # The upload form now posts to /reading -- if the instructions box
+        # were still inside it, whatever the editor typed would travel there
+        # and be silently discarded (routes_reading.py never reads it).
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        upload_form_at = page.index('action="/console/sites/baseoil/reading"')
+        upload_form_closes_at = page.index("</form>", upload_form_at)
+        instructions_at = page.index('name="instructions"')
+
+        assert instructions_at > upload_form_closes_at
+        # It has become its own form, posting back to the save-instructions route.
+        assert 'action="/console/sites/baseoil/editorial"' in page
