@@ -12,6 +12,7 @@ thrown away because the fifth timed out.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
@@ -22,6 +23,11 @@ from ..editorial.extract import document_images, document_to_text
 from ..editorial.reading import parse_reading, reading_prompt
 from .routes import tone_for
 from .routes_editorial import MAX_DOCUMENTS, MAX_DOCUMENT_BYTES
+
+# Same shape parse_reading holds a model's own reports to (app/editorial/reading.py).
+# A hand-typed correction is held to it too -- a garbled date is a screenful, not a
+# 500 from the database's DATE column.
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def create_reading_routes(
@@ -199,6 +205,33 @@ def create_reading_routes(
 
         return RedirectResponse(target, status_code=303)
 
+    def not_found(request: Request, user, site):
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "user": user, "flash": None, "site": site, "section": "editorial",
+                "crumbs": [
+                    {"label": site.name, "href": f"/console/sites/{site.slug}"},
+                    {"label": "Check what was read"},
+                ],
+                "tone_for": tone_for, "title": "No such reading",
+                "message": "That set of reports could not be found.",
+            },
+            status_code=404,
+        )
+
+    def grouped_files(reading, rows) -> list[dict]:
+        rows_by_file: dict[str, list] = {filename: [] for filename in reading.files}
+
+        for row in rows:
+            rows_by_file.setdefault(row.filename, []).append(row)
+
+        return [
+            {"filename": filename, "rows": file_rows}
+            for filename, file_rows in rows_by_file.items()
+        ]
+
     @router.get("/console/sites/{slug}/reading/{set_id}", response_class=HTMLResponse)
     def check(request: Request, slug: str, set_id: int):
         user, site, response = guard(request, slug)
@@ -209,31 +242,10 @@ def create_reading_routes(
         reading = extractions.set_by_id(set_id)
 
         if reading is None or reading.site_slug != site.slug:
-            return templates.TemplateResponse(
-                request,
-                "error.html",
-                {
-                    "user": user, "flash": None, "site": site, "section": "editorial",
-                    "crumbs": [
-                        {"label": site.name, "href": f"/console/sites/{site.slug}"},
-                        {"label": "Check what was read"},
-                    ],
-                    "tone_for": tone_for, "title": "No such reading",
-                    "message": "That set of reports could not be found.",
-                },
-                status_code=404,
-            )
+            return not_found(request, user, site)
 
         rows = extractions.rows_for(set_id)
-        rows_by_file: dict[str, list] = {filename: [] for filename in reading.files}
-
-        for row in rows:
-            rows_by_file.setdefault(row.filename, []).append(row)
-
-        files = [
-            {"filename": filename, "rows": file_rows}
-            for filename, file_rows in rows_by_file.items()
-        ]
+        files = grouped_files(reading, rows)
 
         flash = None
 
@@ -252,37 +264,56 @@ def create_reading_routes(
         if response is not None:
             return response
 
+        # The set must belong to this site, and the row must belong to this
+        # set -- otherwise `POST .../reading/1/rows/<any id>` could read or
+        # rewrite a row that has nothing to do with the reading on screen,
+        # which is exactly what `check` above is careful never to show.
+        reading = extractions.set_by_id(set_id)
+
+        if reading is None or reading.site_slug != site.slug:
+            return not_found(request, user, site)
+
+        rows = extractions.rows_for(set_id)
+        row = next((candidate for candidate in rows if candidate.id == row_id), None)
+
+        if row is None or row.set_id != set_id:
+            return not_found(request, user, site)
+
         form_data = await request.form()
-        raw_price = (form_data.get("price") or "").strip()
 
-        try:
-            price = float(raw_price)
-
-            if price <= 0:
-                raise ValueError("price must be positive")
-        except (TypeError, ValueError):
-            reading = extractions.set_by_id(set_id)
-            rows = extractions.rows_for(set_id) if reading is not None else []
-            rows_by_file: dict[str, list] = {
-                filename: [] for filename in (reading.files if reading is not None else [])
-            }
-
-            for row in rows:
-                rows_by_file.setdefault(row.filename, []).append(row)
-
-            files = [
-                {"filename": filename, "rows": file_rows}
-                for filename, file_rows in rows_by_file.items()
-            ]
-
+        def invalid(message: str) -> HTMLResponse:
             return screen(
                 request, user, site,
-                {
-                    "set": reading, "files": files,
-                    "error": "That price is not a number.",
-                },
+                {"set": reading, "files": grouped_files(reading, rows), "error": message},
                 422,
             )
+
+        def numeric(field: str) -> float | None:
+            raw = form_data.get(field)
+            raw = raw.strip() if isinstance(raw, str) else raw
+
+            if not raw:
+                return None
+
+            return float(raw)
+
+        try:
+            price = numeric("price")
+
+            if price is None or price <= 0:
+                raise ValueError("price must be a positive number")
+
+            price_min = numeric("price_min")
+            price_max = numeric("price_max")
+        except (TypeError, ValueError):
+            return invalid("That price is not a number.")
+
+        date_text = form_data.get("price_date")
+        date_text = date_text.strip() if isinstance(date_text, str) else date_text
+        date_text = date_text or None
+
+        if date_text and not _ISO_DATE.fullmatch(date_text):
+            return invalid("That date is not in YYYY-MM-DD form.")
 
         def optional(field: str) -> str | None:
             value = form_data.get(field)
@@ -293,21 +324,15 @@ def create_reading_routes(
         fields = {
             "name": (form_data.get("name") or "").strip(),
             "price": price,
-            "price_min": optional("price_min"),
-            "price_max": optional("price_max"),
+            "price_min": price_min,
+            "price_max": price_max,
             "currency": optional("currency"),
             "unit": optional("unit"),
             "basis": optional("basis"),
-            "price_date": optional("price_date"),
+            "price_date": date_text,
             "note": optional("note"),
             "kept": "kept" in form_data,
         }
-
-        if fields["price_min"] is not None:
-            fields["price_min"] = float(fields["price_min"])
-
-        if fields["price_max"] is not None:
-            fields["price_max"] = float(fields["price_max"])
 
         extractions.update_row(row_id, **fields)
 

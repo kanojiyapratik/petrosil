@@ -6,6 +6,7 @@ suggestions across 47 locations. One report per call is small enough to be
 read properly, and it makes plain which file gave what.
 """
 
+import dataclasses
 import io
 import json
 
@@ -229,6 +230,134 @@ class TestCheckingWhatWasRead:
 
         assert response.status_code == 422
         assert extractions.updated == []
+
+
+class ScopedExtractions:
+    """Like FakeExtractions, but a row only ever answers to the set that made it.
+
+    FakeExtractions (the spec's own fake) tags every row returned by rows_for()
+    with whatever set_id was asked for, regardless of which set actually made
+    it -- fine for the tests above, but useless for proving a row from one
+    reading cannot be edited through a different reading's URL.
+    """
+
+    def __init__(self):
+        self.sets = {}
+        self.rows_by_set = {}
+        self.updated = []
+        self._next_set = 1
+        self._next_row = 1
+
+    def open_set(self, site_slug, created_by):
+        made = ReadingSet(
+            id=self._next_set, site_slug=site_slug, created_by=created_by,
+            created_at=None, files=[],
+        )
+        self.sets[self._next_set] = made
+        self.rows_by_set[self._next_set] = []
+        self._next_set += 1
+
+        return made
+
+    def add_rows(self, set_id, filename, rows):
+        for row in rows:
+            self.rows_by_set[set_id].append(
+                ReadRow(
+                    id=self._next_row, set_id=set_id, filename=filename, name=row["name"],
+                    price=row["price"], price_min=None, price_max=None,
+                    currency=row.get("currency"), unit=None, basis=None,
+                    price_date=None, note=None, kept=True,
+                )
+            )
+            self._next_row += 1
+
+    def set_by_id(self, set_id):
+        return self.sets.get(set_id)
+
+    def rows_for(self, set_id):
+        return list(self.rows_by_set.get(set_id, []))
+
+    def update_row(self, row_id, **fields):
+        self.updated.append((row_id, fields))
+
+
+class TestEditRowIsGuarded:
+    def test_a_row_from_another_sites_reading_is_refused(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+        # The reading exists, but under a different site than the one in the URL.
+        extractions.sets[1] = dataclasses.replace(extractions.sets[1], site_slug="other-site")
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={"name": "FOB Asia SN 150", "price": "1300", "kept": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 404
+        assert extractions.updated == []
+
+    def test_a_row_from_a_different_reading_is_refused(self):
+        client, extractions = build(extractions=ScopedExtractions())
+        upload(client, [("first.txt", b"FOB Asia SN 150 1260")])
+        upload(client, [("second.txt", b"FOB Asia SN 150 1260")])
+
+        # Row 2 belongs to reading #2, not reading #1.
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/2",
+            data={"name": "FOB Asia SN 150", "price": "1300", "kept": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 404
+        assert extractions.updated == []
+
+    def test_a_bad_range_value_is_a_422_not_a_500(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "price_min": "cheap", "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.updated == []
+
+    def test_a_garbled_date_is_a_422_not_saved(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "price_date": "12th Aug",
+                "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.updated == []
+
+    def test_a_well_formed_date_is_saved(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "price_date": "2026-08-19",
+                "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert extractions.updated[0][1]["price_date"] == "2026-08-19"
 
 
 class TestTheReadingIsRecorded:
