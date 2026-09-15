@@ -745,6 +745,25 @@ class ExtractionStore:
 
         return self.set_by_id(int(row[0])) if row else None
 
+    def latest_used(self, site_slug: str) -> ReadingSet | None:
+        """The newest reading this site has already used.
+
+        Claiming before the first model call means a reading can be spent and
+        still have produced nothing the editor can save -- a provider failure
+        releases it again, but a failure at stage time happens in another
+        route entirely, long after the draft was rendered and with no set id
+        to hand. This is how that reading stays findable from the editorial
+        screen, without anybody having to know a URL.
+        """
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT id FROM console_reading_sets WHERE site_slug = %s "
+                "AND used_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+                (site_slug,),
+            ).fetchone()
+
+        return self.set_by_id(int(row[0])) if row else None
+
     def rows_for(self, set_id: int) -> list[ReadRow]:
         with self._pool.connection() as connection:
             rows = connection.execute(
@@ -802,19 +821,41 @@ class ExtractionStore:
 
         return row is not None
 
-    def reclaim_set(self, set_id: int) -> bool:
-        """Spend an already-spent reading again, on purpose.
+    def reclaim_set(self, set_id: int, used_at: str) -> bool:
+        """Spend an already-spent reading again, on purpose, exactly once.
 
         A staging failure used to destroy a whole draft: the reading was
         closed, the uploaded reports were never stored, and going back got a
         refusal -- five files re-uploaded and every correction retyped. This
         is what the "Use these prices again" button calls, and nothing else.
+
+        It is a compare-and-swap, not a plain update: the button carries the
+        used_at it was drawn with, and only that value can be swapped. A
+        refresh or a back-forward re-POST of the same form therefore arrives
+        holding a stale value and buys nothing -- otherwise the one screen
+        that exists to recover a lost draft was also the one screen where a
+        reload bought a second one.
         """
         with self._pool.connection() as connection:
             row = connection.execute(
-                "UPDATE console_reading_sets SET used_at = now() WHERE id = %s RETURNING id",
-                (set_id,),
+                "UPDATE console_reading_sets SET used_at = now() "
+                "WHERE id = %s AND used_at = %s::timestamptz RETURNING id",
+                (set_id, used_at),
             ).fetchone()
             connection.commit()
 
         return row is not None
+
+    def release_set(self, set_id: int) -> None:
+        """Hand a claimed reading back, because nothing was made with it.
+
+        The claim is taken before the first model call, which is the only
+        place it is worth anything -- so a provider failure leaves a reading
+        spent on a draft that does not exist. No draft, nothing used: the
+        reading goes back to waiting, and the editor can simply try again.
+        """
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_reading_sets SET used_at = NULL WHERE id = %s", (set_id,)
+            )
+            connection.commit()

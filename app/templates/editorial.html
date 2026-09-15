@@ -17,6 +17,15 @@
     <a href="/console/sites/{{ site.slug }}/reading/{{ waiting.id }}">Check what was read</a>
   </div>
 {% endif %}
+{% if spent %}
+  <div class="flash ok">
+    The last reading was already used once &mdash;
+    {{ spent.files|length }} report{{ "" if spent.files|length == 1 else "s" }} read. If its
+    prices never reached {{ site.name }}, open it and use them again rather than uploading the
+    reports afresh.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ spent.id }}">Open what was read</a>
+  </div>
+{% endif %}
 {% if reuse %}
   <div class="panel">
     <div class="head"><h2>Use these prices again</h2></div>
@@ -31,6 +40,11 @@
         <input type="hidden" name="set_id" value="{{ reuse.set_id }}">
         <input type="hidden" name="pricedate" value="{{ reuse.pricedate }}">
         <input type="hidden" name="again" value="1">
+        {#- The used_at this button was drawn with. Using these prices moves it,
+            so a refresh or a back-forward re-POST of this same form arrives
+            holding a value that is no longer there and is refused rather than
+            buying a second draft. #}
+        <input type="hidden" name="used_at" value="{{ reuse.used_at }}">
         <div class="actions"><button type="submit">Use these prices again</button></div>
       </form>
     </div>

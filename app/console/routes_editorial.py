@@ -130,6 +130,8 @@ def create_editorial_routes(
             # A reading already read and not yet used, so a closed tab does
             # not strand it. See ExtractionStore.latest_open.
             "waiting": None,
+            # A reading already used, whose draft may have been lost with it.
+            "spent": None,
             # The saved per-site instructions prefill the form; after a draft
             # the just-typed text wins, so an edit is never silently reverted.
             "instructions": site.editorial_instructions,
@@ -161,13 +163,22 @@ def create_editorial_routes(
         # A reading that has been paid for and not yet used must stay
         # reachable: the only other way back to one is the 303 straight after
         # the upload, so closing the tab lost four read reports.
+        # A reading that was used and then lost -- staging failed, or the tab
+        # was closed -- is not waiting, but it is still the only copy of the
+        # editor's checked figures, and opening it leads to the "Use these
+        # prices again" button. So it is offered too, saying plainly that it
+        # has been used once.
         waiting = None
+        spent = None
 
         if extractions is not None:
             try:
                 waiting = extractions.latest_open(site.slug)
+
+                if waiting is None:
+                    spent = extractions.latest_used(site.slug)
             except Exception:  # noqa: BLE001 - a missing reminder is not a broken screen
-                waiting = None
+                waiting, spent = None, None
 
         return screen(
             request, user, site,
@@ -175,6 +186,7 @@ def create_editorial_routes(
                 "error": request.query_params.get("err"),
                 "flash": flash,
                 "waiting": waiting,
+                "spent": spent,
                 "batches": [
                     {**batch, "tone": tone_for(batch.get("status"))} for batch in batches
                 ],
@@ -244,13 +256,27 @@ def create_editorial_routes(
             # so without this the only way back is re-uploading five files
             # and retyping every correction.
             again = str(form_data.get("again") or "").strip() == "1"
+            # The used_at the reuse button was drawn with. reclaim_set swaps
+            # only that exact value, so a refresh or a back-forward re-POST of
+            # this form arrives stale and buys nothing.
+            held = str(form_data.get("used_at") or "")
 
             def already_used():
+                # Re-read: when a concurrent submit won the claim, the copy
+                # fetched at the top of this request says used_at is still
+                # empty, and a reuse button drawn from it would be stale the
+                # moment it was rendered.
+                current = extractions.set_by_id(set_id) or reading
+
                 return screen(
                     request, user, site,
                     {
                         "error": "Those prices have already been used.",
-                        "reuse": {"set_id": set_id, "pricedate": pricedate},
+                        "reuse": {
+                            "set_id": set_id,
+                            "pricedate": pricedate,
+                            "used_at": str(current.used_at or ""),
+                        },
                     },
                     409,
                 )
@@ -313,7 +339,8 @@ def create_editorial_routes(
             # pass a check and both buy a full draft. Reading used_at and
             # deciding minutes earlier was never a guard, only a hint.
             claimed = (
-                extractions.reclaim_set(set_id) if again else extractions.claim_set(set_id)
+                extractions.reclaim_set(set_id, held) if again
+                else extractions.claim_set(set_id)
             )
 
             if not claimed:
@@ -341,6 +368,11 @@ def create_editorial_routes(
                         kind="editorial", provider=provider_name, model=model,
                         status="failed", site_slug=site.slug,
                     )
+
+                # No draft was produced, so nothing was used: the reading goes
+                # back to waiting. Otherwise a 502 and a closed tab left five
+                # reports read and paid for with no route back to them.
+                extractions.release_set(set_id)
 
                 return screen(request, user, site, {"error": str(error)}, 502)
 

@@ -575,6 +575,7 @@ class AnalyseFakeExtractions:
         }
         self.closed = []
         self.reclaimed = []
+        self.released = []
 
     def set_by_id(self, set_id):
         return self._sets.get(set_id)
@@ -591,6 +592,22 @@ class AnalyseFakeExtractions:
             None,
         )
 
+    def latest_used(self, site_slug):
+        return next(
+            (
+                entry for entry in self._sets.values()
+                if entry.site_slug == site_slug and entry.used_at is not None
+            ),
+            None,
+        )
+
+    def release_set(self, set_id):
+        self.released.append(set_id)
+        reading = self._sets.get(set_id)
+
+        if reading is not None:
+            self._sets[set_id] = dataclasses.replace(reading, used_at=None)
+
     def claim_set(self, set_id):
         """The real one is a single conditional UPDATE. This models exactly
         that: whoever finds used_at still empty takes it, and nobody else."""
@@ -604,13 +621,17 @@ class AnalyseFakeExtractions:
 
         return True
 
-    def reclaim_set(self, set_id):
+    def reclaim_set(self, set_id, used_at):
+        """The real one is a compare-and-swap. This models exactly that: the
+        caller has to be holding the used_at that is actually there."""
         reading = self._sets.get(set_id)
 
-        if reading is None:
+        if reading is None or str(reading.used_at or "") != str(used_at or ""):
             return False
 
-        self._sets[set_id] = dataclasses.replace(reading, used_at="claimed")
+        self._sets[set_id] = dataclasses.replace(
+            reading, used_at=f"reclaimed-{len(self.reclaimed) + 1}"
+        )
         self.reclaimed.append(set_id)
 
         return True
@@ -1120,7 +1141,10 @@ class TestASpentReadingIsNotADeadEnd:
 
         response = client.post(
             "/console/sites/baseoil/editorial/analyse",
-            data={"set_id": "7", "again": "1", "pricedate": "2026-08-12"},
+            data={
+                "set_id": "7", "again": "1", "pricedate": "2026-08-12",
+                "used_at": "2026-08-01T00:00:00",
+            },
         )
 
         assert response.status_code == 200
@@ -1247,3 +1271,98 @@ class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
 
         assert "as saved" in page
         assert "press <strong>Save instructions</strong> first" in page
+
+
+class TestAFailedAnalysisDoesNotSwallowTheReading:
+    """Claiming before the first model call is right, and it made a new dead
+    end: a 502 left used_at set, latest_open filters on used_at IS NULL, and
+    the reuse panel only ever renders from a POST that already carries a
+    set_id. A closed tab after a 502 meant five reports read, paid for, and
+    unreachable."""
+
+    def test_a_provider_failure_hands_the_reading_back(self):
+        driver = StubDriver(raises=AiProviderError("Gemini could not be reached"))
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 502
+        assert extractions.released == [7]
+        assert extractions.set_by_id(7).used_at is None
+
+    def test_after_a_provider_failure_the_editorial_screen_finds_it_again(self):
+        driver = StubDriver(raises=AiProviderError("Gemini could not be reached"))
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver
+        )
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert "A reading is waiting to be checked" in page
+        assert 'href="/console/sites/baseoil/reading/7"' in page
+
+    def test_a_reading_used_but_never_staged_is_still_offered(self):
+        # Staging fails in another route entirely, long after the draft was
+        # rendered and with no set id to hand, so releasing on failure cannot
+        # reach it. It is offered here instead, saying it was used once.
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), used_at="2026-08-01T00:00:00",
+        )
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert "already used once" in page
+        assert 'href="/console/sites/baseoil/reading/7"' in page
+
+
+class TestTheReuseButtonCannotBePressedTwiceByAccident:
+    """reclaim_set updated unconditionally and the used_at fast path is
+    skipped when again=1, so a refresh or a back-forward after clicking "Use
+    these prices again" re-POSTed the same form and bought a second full
+    draft behind nothing but the browser's own resubmission dialog."""
+
+    def test_a_stale_reuse_post_never_reaches_the_model(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+        payload = {
+            "set_id": "7", "again": "1", "pricedate": "2026-08-12",
+            "used_at": "2026-08-01T00:00:00",
+        }
+
+        first = client.post("/console/sites/baseoil/editorial/analyse", data=payload)
+        calls_after_first = len(driver.calls)
+
+        # The same form again -- a refresh, or the back-forward cache.
+        second = client.post("/console/sites/baseoil/editorial/analyse", data=payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert len(driver.calls) == calls_after_first
+        assert extractions.reclaimed == [7]
+
+    def test_the_refusal_hands_back_a_button_that_does_work(self):
+        # The recovery must stay possible: a fresh refusal carries the
+        # used_at that is actually there now.
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+
+        refusal = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert 'name="used_at" value="2026-08-01T00:00:00"' in refusal.text
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1", "used_at": "2026-08-01T00:00:00"},
+        )
+
+        assert response.status_code == 200
+        assert extractions.reclaimed == [7]

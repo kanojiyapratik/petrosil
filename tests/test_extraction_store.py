@@ -210,15 +210,37 @@ class TestClaimingAReading:
 
         assert ExtractionStore(pool).claim_set(7) is False
 
-    def test_the_deliberate_second_use_does_not_ask_for_used_at_to_be_empty(self):
+    def test_the_deliberate_second_use_swaps_the_used_at_it_was_drawn_with(self):
         pool = FakePoolReturning(row=(7,))
 
-        assert ExtractionStore(pool).reclaim_set(7) is True
+        assert ExtractionStore(pool).reclaim_set(7, "2026-08-01T09:00:00+00:00") is True
 
-        sql, _ = pool.statements[0]
+        sql, params = pool.statements[0]
 
         assert "used_at IS NULL" not in sql
-        assert sql.startswith("UPDATE console_reading_sets SET used_at = now() WHERE id = %s")
+        # A plain unconditional update let a refresh of the reuse form buy a
+        # second full draft. Only the value the button carried can be swapped.
+        assert sql == (
+            "UPDATE console_reading_sets SET used_at = now() "
+            "WHERE id = %s AND used_at = %s::timestamptz RETURNING id"
+        )
+        assert params == (7, "2026-08-01T09:00:00+00:00")
+
+    def test_a_stale_reuse_swaps_nothing_and_answers_no(self):
+        # RETURNING gives nothing back when used_at has already moved on.
+        pool = FakePoolReturning(row=None)
+
+        assert ExtractionStore(pool).reclaim_set(7, "2026-08-01T09:00:00+00:00") is False
+
+    def test_a_reading_that_made_no_draft_goes_back_to_waiting(self):
+        pool = FakePool()
+
+        ExtractionStore(pool).release_set(7)
+
+        sql, params = pool.statements[0]
+
+        assert sql == "UPDATE console_reading_sets SET used_at = NULL WHERE id = %s"
+        assert params == (7,)
 
 
 class TestFindingAReadingAgain:
