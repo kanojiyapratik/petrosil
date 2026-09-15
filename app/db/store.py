@@ -597,6 +597,10 @@ class ReadingSet:
     created_by: str
     created_at: object
     files: list[str]
+    # None until analyse() spends the reading (close_set). Kept off the
+    # constructor's required list so open_set() and every existing test
+    # construction, which never had a reason to know about it, still work.
+    used_at: object = None
 
 
 @dataclass(frozen=True)
@@ -669,7 +673,7 @@ class ExtractionStore:
     def set_by_id(self, set_id: int) -> ReadingSet | None:
         with self._pool.connection() as connection:
             row = connection.execute(
-                "SELECT id, site_slug, created_by, created_at FROM console_reading_sets "
+                "SELECT id, site_slug, created_by, created_at, used_at FROM console_reading_sets "
                 "WHERE id = %s",
                 (set_id,),
             ).fetchone()
@@ -684,7 +688,7 @@ class ExtractionStore:
 
         return ReadingSet(
             id=int(row[0]), site_slug=row[1], created_by=row[2], created_at=row[3],
-            files=[entry[0] for entry in files],
+            files=[entry[0] for entry in files], used_at=row[4],
         )
 
     def rows_for(self, set_id: int) -> list[ReadRow]:

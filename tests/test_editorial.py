@@ -5,6 +5,7 @@ range with confidence, basis, source and rationale. The model proposes; the
 code validates every row and computes every number the editor acts on.
 """
 
+import dataclasses
 import io
 import json
 import zipfile
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient
 from app.ai.gemini import AiCompletion, AiProviderError
 from app.api import create_api
 from app.console.routes_editorial import create_editorial_routes
-from app.db.store import ReadRow, StoredSite
+from app.db.store import ReadingSet, ReadRow, StoredSite
 from app.editorial.extract import document_to_text
 from app.editorial.review import build_rows, editorial_prompt, parse_suggestions
 from app.editorial.rules import PriceRule
@@ -536,8 +537,6 @@ class AnalyseFakeStore:
         self.recorded.append(args)
 
     def set_editorial_instructions(self, slug, text):
-        import dataclasses
-
         self.site = dataclasses.replace(self.site, editorial_instructions=text.strip() or None)
 
 
@@ -561,21 +560,43 @@ class AnalyseFakeRules:
 
 
 class AnalyseFakeExtractions:
-    def __init__(self, rows):
-        self._rows = rows
+    """Honours `set_id` on both `rows_for` and `set_by_id` -- the spec's own
+    fake for the reading routes (`FakeExtractions` in test_reading_routes.py)
+    ignored it, which is exactly how a missing site/set guard on `analyse`
+    could pass a green suite unnoticed."""
+
+    def __init__(self, rows, set_id=7, site_slug="baseoil", used_at=None):
+        self._rows = {set_id: rows}
+        self._sets = {
+            set_id: ReadingSet(
+                id=set_id, site_slug=site_slug, created_by="editor@local.test",
+                created_at=None, files=[], used_at=used_at,
+            )
+        }
         self.closed = []
 
+    def set_by_id(self, set_id):
+        return self._sets.get(set_id)
+
     def rows_for(self, set_id):
-        return self._rows
+        return self._rows.get(set_id, [])
 
     def close_set(self, set_id):
         self.closed.append(set_id)
 
+        if set_id in self._sets:
+            self._sets[set_id] = dataclasses.replace(self._sets[set_id], used_at="closed")
 
-def build_analyse_client(rows, driver=None, rules_list=None, locations=None, store=None, fx=None):
+
+def build_analyse_client(
+    rows, driver=None, rules_list=None, locations=None, store=None, fx=None,
+    set_id=7, reading_site_slug="baseoil", used_at=None,
+):
     from app.console.routes import datefmt, label_for
 
-    extractions = AnalyseFakeExtractions(rows)
+    extractions = AnalyseFakeExtractions(
+        rows, set_id=set_id, site_slug=reading_site_slug, used_at=used_at
+    )
     store = store or AnalyseFakeStore()
     templates = Jinja2Templates(directory="app/templates")
     templates.env.globals["datefmt"] = datefmt
@@ -891,3 +912,86 @@ class TestTheInstructionsBoxSavesOnItsOwn:
         assert instructions_at > upload_form_closes_at
         # It has become its own form, posting back to the save-instructions route.
         assert 'action="/console/sites/baseoil/editorial"' in page
+
+
+class TestTheAnalyseRouteGuardsTheReadingsOwnership:
+    """routes_reading.py's `check` and `edit_row` both refuse a set that does
+    not belong to this site; `analyse` had no such guard at all."""
+
+    def test_a_reading_belonging_to_another_site_is_a_404_not_analysed(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, reading_site_slug="other-site",
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 404
+        # Never touched the model, and never closed someone else's reading.
+        assert driver.calls == []
+        assert extractions.closed == []
+
+    def test_a_set_id_that_does_not_exist_is_a_404_not_the_nothing_kept_422(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "999"})
+
+        assert response.status_code == 404
+        assert driver.calls == []
+
+
+class TestAUsedReadingCannotBeAnalysedTwice:
+    def test_an_already_used_reading_is_refused_before_any_model_call(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 409
+        assert "already been used" in response.text
+        assert driver.calls == []
+
+    def test_a_second_submission_of_the_same_reading_does_not_redraft(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        first = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+        assert first.status_code == 200
+        assert extractions.closed == [7]
+        calls_after_first = len(driver.calls)
+
+        second = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert second.status_code == 409
+        # No second AI call, and the reading was not closed a second time.
+        assert len(driver.calls) == calls_after_first
+        assert extractions.closed == [7]
+
+
+class TestTheUploadScreenDescribesWhatActuallyHappens:
+    def test_the_working_hint_describes_reading_not_drafting(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert "drafting prices for every location" not in page
+        assert "reading each report on its own" in page
+
+    def test_the_nothing_changes_hint_no_longer_points_below(self):
+        client, extractions, store = build_analyse_client([])
+
+        page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
+
+        assert "review the fetched prices below" not in page
+        assert "check what was read on the next screen" in page
+
+    def test_the_dead_image_note_branch_is_gone_from_the_template(self):
+        # analyse() always passes image_note=None now -- the block only ever
+        # existed for the one-step handler's vision-transcription failures.
+        with open("app/templates/editorial.html", encoding="utf-8") as handle:
+            source = handle.read()
+
+        assert "image_note" not in source

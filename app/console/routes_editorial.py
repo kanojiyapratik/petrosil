@@ -183,6 +183,30 @@ def create_editorial_routes(
                     request, user, site, {"error": "That reading could not be found."}, 404
                 )
 
+            # The set must belong to this site -- the same guard
+            # routes_reading.py's `check` and `edit_row` already carry.
+            # Without it, a set_id for another site's reading would be
+            # analysed against this site's locations and then closed.
+            reading = extractions.set_by_id(set_id)
+
+            if reading is None or reading.site_slug != site.slug:
+                return screen(
+                    request, user, site, {"error": "That reading could not be found."}, 404
+                )
+
+            # A reading is only ever used once -- closed here on success, so
+            # a back-button, a double-click or a re-POST would otherwise buy
+            # a second full AI draft against the same checked figures.
+            if reading.used_at is not None:
+                return screen(
+                    request, user, site,
+                    {
+                        "error": "Those prices have already been used. Read the reports again "
+                        "for a fresh check.",
+                    },
+                    409,
+                )
+
             # Only the rows the editor left ticked -- the reading step is
             # where a figure gets corrected or dropped, never here.
             kept_rows = [row for row in extractions.rows_for(set_id) if row.kept]
