@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 
 READING_PREAMBLE = """You are reading one market report and listing the prices it publishes.
 
@@ -145,9 +146,22 @@ def _number(value) -> float | None:
 
 
 def _iso_date(value) -> str | None:
+    """A date the DATE column will take, or nothing.
+
+    The shape alone is not enough: a hallucinated "2025-02-30" matches
+    YYYY-MM-DD and is not a day. It used to travel straight into the insert,
+    where psycopg raised -- 500ing the whole reading after every AI call in
+    the batch had already been paid for. A bad date costs the date; the row
+    keeps its price.
+    """
     text = _text(value)
 
-    if text and re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-        return text
+    if not text or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return None
 
-    return None
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return None
+
+    return text

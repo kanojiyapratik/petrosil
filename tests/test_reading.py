@@ -111,3 +111,27 @@ class TestReadingTheAnswer:
         )
 
         assert rows[0]["price_date"] is None
+
+    def test_a_shape_valid_day_that_does_not_exist_is_dropped_too(self):
+        # "2025-02-30" matched the old YYYY-MM-DD pattern and travelled into
+        # the insert, where the DATE column raised -- 500ing the whole
+        # reading after every AI call in the batch had been paid for. The
+        # row keeps its price; only the impossible date goes.
+        rows = parse_reading(
+            json.dumps(
+                [
+                    {"name": "A", "price": 10, "price_date": "2025-02-30"},
+                    {"name": "B", "price": 20, "price_date": "2026-13-01"},
+                ]
+            )
+        )
+
+        assert [row["price_date"] for row in rows] == [None, None]
+        assert [row["price"] for row in rows] == [10.0, 20.0]
+
+    def test_a_real_day_is_kept(self):
+        rows = parse_reading(
+            json.dumps([{"name": "A", "price": 10, "price_date": "2026-02-28"}])
+        )
+
+        assert rows[0]["price_date"] == "2026-02-28"
