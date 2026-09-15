@@ -169,3 +169,92 @@ class TestReadingSetById:
         pool = FakePoolReturning(row=None)
 
         assert ExtractionStore(pool).set_by_id(999) is None
+
+    def test_the_files_come_back_as_rows_with_their_own_ids(self):
+        # Two uploads can share a filename; they are still two files, and the
+        # check screen has to be able to tell them apart.
+        pool = FakePoolReturning(
+            row=(7, "baseoil", "editor@local.test", datetime.datetime(2026, 8, 1), None),
+            files_rows=[(11, "report.docx"), (12, "report.docx")],
+        )
+
+        reading = ExtractionStore(pool).set_by_id(7)
+
+        assert [(entry.id, entry.filename) for entry in reading.files] == [
+            (11, "report.docx"), (12, "report.docx"),
+        ]
+
+
+class TestClaimingAReading:
+    """analyse() used to read used_at, decide, run two AI calls for many
+    seconds, and only then mark the reading spent. Two submits arriving
+    together both passed that check and both bought a full draft -- the exact
+    thing the guard was written to stop. The database decides now."""
+
+    def test_the_claim_is_one_conditional_update_that_says_who_won(self):
+        pool = FakePoolReturning(row=(7,))
+
+        assert ExtractionStore(pool).claim_set(7) is True
+
+        sql, params = pool.statements[0]
+
+        assert sql == (
+            "UPDATE console_reading_sets SET used_at = now() "
+            "WHERE id = %s AND used_at IS NULL RETURNING id"
+        )
+        assert params == (7,)
+
+    def test_a_reading_already_claimed_updates_no_row_and_answers_no(self):
+        # RETURNING gives nothing back when used_at is already set.
+        pool = FakePoolReturning(row=None)
+
+        assert ExtractionStore(pool).claim_set(7) is False
+
+    def test_the_deliberate_second_use_does_not_ask_for_used_at_to_be_empty(self):
+        pool = FakePoolReturning(row=(7,))
+
+        assert ExtractionStore(pool).reclaim_set(7) is True
+
+        sql, _ = pool.statements[0]
+
+        assert "used_at IS NULL" not in sql
+        assert sql.startswith("UPDATE console_reading_sets SET used_at = now() WHERE id = %s")
+
+
+class TestFindingAReadingAgain:
+    """The only other way to a reading is the 303 straight after the upload,
+    so a closed tab used to strand four reports that had already been read
+    and paid for."""
+
+    def test_the_newest_unused_reading_for_the_site_is_the_one_offered(self):
+        pool = FakePoolReturning(
+            row=(7, "baseoil", "editor@local.test", datetime.datetime(2026, 8, 1), None),
+        )
+
+        reading = ExtractionStore(pool).latest_open("baseoil")
+
+        sql, params = pool.statements[0]
+
+        assert "used_at IS NULL" in sql
+        assert "ORDER BY id DESC LIMIT 1" in sql
+        assert params == ("baseoil",)
+        assert reading.id == 7
+
+    def test_no_open_reading_is_none_not_an_error(self):
+        pool = FakePoolReturning(row=None)
+
+        assert ExtractionStore(pool).latest_open("baseoil") is None
+
+
+class TestARowRemembersWhichUploadItCameFrom:
+    def test_a_typed_row_carries_the_file_it_was_added_to(self):
+        pool = FakePool()
+
+        ExtractionStore(pool).add_row(
+            7, "lube.docx", {"name": "SN 500", "price": 1480.0, "kept": True}, file_id=11
+        )
+
+        sql, params = pool.statements[0]
+
+        assert "file_id" in sql
+        assert params[:5] == (7, 11, "lube.docx", "SN 500", 1480.0)

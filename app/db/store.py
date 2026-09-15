@@ -591,13 +591,26 @@ class FxStore:
 
 
 @dataclass(frozen=True)
+class ReadFile:
+    """One upload, as its own row of console_reading_files.
+
+    Two reports can arrive in the same upload both called report.docx; they
+    are two files and get two panels on the check screen, so the identity of
+    a file is this row, never its name.
+    """
+
+    id: int
+    filename: str
+
+
+@dataclass(frozen=True)
 class ReadingSet:
     id: int
     site_slug: str
     created_by: str
     created_at: object
-    files: list[str]
-    # None until analyse() spends the reading (close_set). Kept off the
+    files: list[ReadFile]
+    # None until analyse() claims the reading (claim_set). Kept off the
     # constructor's required list so open_set() and every existing test
     # construction, which never had a reason to know about it, still work.
     used_at: object = None
@@ -618,11 +631,14 @@ class ReadRow:
     price_date: str | None
     note: str | None
     kept: bool
+    # Which upload this row came out of. Null only for rows written before
+    # the column existed, which fall back to grouping by filename.
+    file_id: int | None = None
 
 
 READ_ROW_COLUMNS = (
     "id, set_id, filename, name, price, price_min, price_max, currency, unit, "
-    "basis, price_date, note, kept"
+    "basis, price_date, note, kept, file_id"
 )
 
 
@@ -649,25 +665,45 @@ class ExtractionStore:
             id=int(row[0]), site_slug=row[1], created_by=row[2], created_at=row[3], files=[]
         )
 
+    _ROW_INSERT = (
+        "INSERT INTO console_reading_rows (set_id, file_id, filename, name, price, "
+        "price_min, price_max, currency, unit, basis, price_date, note, kept) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    )
+
+    @staticmethod
+    def _row_values(set_id: int, file_id: int | None, filename: str, row: dict) -> tuple:
+        return (
+            set_id, file_id, filename, row["name"], row["price"], row.get("price_min"),
+            row.get("price_max"), row.get("currency"), row.get("unit"),
+            row.get("basis"), row.get("price_date"), row.get("note"),
+            row.get("kept", True),
+        )
+
     def add_rows(self, set_id: int, filename: str, rows: list[dict]) -> None:
         with self._pool.connection() as connection:
-            connection.execute(
-                "INSERT INTO console_reading_files (set_id, filename) VALUES (%s, %s)",
+            file_row = connection.execute(
+                "INSERT INTO console_reading_files (set_id, filename) VALUES (%s, %s) "
+                "RETURNING id",
                 (set_id, filename),
-            )
+            ).fetchone()
+            file_id = int(file_row[0]) if file_row else None
 
             for row in rows:
                 connection.execute(
-                    "INSERT INTO console_reading_rows (set_id, filename, name, price, "
-                    "price_min, price_max, currency, unit, basis, price_date, note) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (
-                        set_id, filename, row["name"], row["price"], row.get("price_min"),
-                        row.get("price_max"), row.get("currency"), row.get("unit"),
-                        row.get("basis"), row.get("price_date"), row.get("note"),
-                    ),
+                    self._ROW_INSERT, self._row_values(set_id, file_id, filename, row)
                 )
 
+            connection.commit()
+
+    def add_row(
+        self, set_id: int, filename: str, row: dict, file_id: int | None = None
+    ) -> None:
+        """One price the editor typed because the model missed it."""
+        with self._pool.connection() as connection:
+            connection.execute(
+                self._ROW_INSERT, self._row_values(set_id, file_id, filename, row)
+            )
             connection.commit()
 
     def set_by_id(self, set_id: int) -> ReadingSet | None:
@@ -682,14 +718,32 @@ class ExtractionStore:
                 return None
 
             files = connection.execute(
-                "SELECT filename FROM console_reading_files WHERE set_id = %s ORDER BY id",
+                "SELECT id, filename FROM console_reading_files WHERE set_id = %s ORDER BY id",
                 (set_id,),
             ).fetchall()
 
         return ReadingSet(
             id=int(row[0]), site_slug=row[1], created_by=row[2], created_at=row[3],
-            files=[entry[0] for entry in files], used_at=row[4],
+            files=[ReadFile(id=int(entry[0]), filename=entry[1]) for entry in files],
+            used_at=row[4],
         )
+
+    def latest_open(self, site_slug: str) -> ReadingSet | None:
+        """The newest reading this site has read and not yet used.
+
+        The only other way to a reading is the 303 straight after the upload,
+        so without this a closed tab loses a reading that has already been
+        paid for -- against the whole point that four reports can be read,
+        left, and come back to.
+        """
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT id FROM console_reading_sets WHERE site_slug = %s AND used_at IS NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (site_slug,),
+            ).fetchone()
+
+        return self.set_by_id(int(row[0])) if row else None
 
     def rows_for(self, set_id: int) -> list[ReadRow]:
         with self._pool.connection() as connection:
@@ -708,6 +762,7 @@ class ExtractionStore:
                 currency=row[7], unit=row[8], basis=row[9],
                 price_date=row[10].isoformat() if row[10] is not None else None,
                 note=row[11], kept=bool(row[12]),
+                file_id=int(row[13]) if row[13] is not None else None,
             )
             for row in rows
         ]
@@ -729,9 +784,37 @@ class ExtractionStore:
             )
             connection.commit()
 
-    def close_set(self, set_id: int) -> None:
+    def claim_set(self, set_id: int) -> bool:
+        """Spend the reading, atomically, and say whether this caller got it.
+
+        Reading used_at, deciding, then spending it many AI-seconds later let
+        two concurrent submits both pass the check and both buy a full draft
+        -- the very thing the guard exists to stop. The database decides
+        instead: exactly one UPDATE can find used_at still NULL.
+        """
         with self._pool.connection() as connection:
-            connection.execute(
-                "UPDATE console_reading_sets SET used_at = now() WHERE id = %s", (set_id,)
-            )
+            row = connection.execute(
+                "UPDATE console_reading_sets SET used_at = now() "
+                "WHERE id = %s AND used_at IS NULL RETURNING id",
+                (set_id,),
+            ).fetchone()
             connection.commit()
+
+        return row is not None
+
+    def reclaim_set(self, set_id: int) -> bool:
+        """Spend an already-spent reading again, on purpose.
+
+        A staging failure used to destroy a whole draft: the reading was
+        closed, the uploaded reports were never stored, and going back got a
+        refusal -- five files re-uploaded and every correction retyped. This
+        is what the "Use these prices again" button calls, and nothing else.
+        """
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "UPDATE console_reading_sets SET used_at = now() WHERE id = %s RETURNING id",
+                (set_id,),
+            ).fetchone()
+            connection.commit()
+
+        return row is not None

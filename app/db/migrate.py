@@ -236,6 +236,19 @@ MIGRATIONS: list[Migration] = [
             WHERE used_at IS NULL;
         """,
     ),
+    Migration(
+        id="0010_reading_rows_know_their_file",
+        sql="""
+        -- A row knew only the NAME of the file it came from, so two reports
+        -- uploaded together and both called report.docx were one panel on
+        -- the check screen with both files' prices in it. The file is the
+        -- row of console_reading_files, not the name on it.
+        ALTER TABLE console_reading_rows
+            ADD COLUMN file_id BIGINT REFERENCES console_reading_files(id) ON DELETE CASCADE;
+
+        CREATE INDEX console_reading_rows_file ON console_reading_rows (file_id);
+        """,
+    ),
 ]
 
 
