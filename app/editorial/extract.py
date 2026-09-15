@@ -56,17 +56,56 @@ IMAGE_TYPES = {
 MAX_IMAGES = 6
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
+# A scanned circular has no text layer at all (the HPCL sample: 0 chars); a
+# typed one runs to hundreds or thousands of characters even when short (the
+# BPCL sample: 2,953). 200 chars is comfortably above what a stray text run
+# or watermark on a scan would leave behind, and comfortably below a genuine
+# assessment -- below it the PDF is worth also checking for pictures, at or
+# above it the text extractor already did the job and sending its pictures
+# to a vision model would just bill a call for a logo.
+PDF_TEXT_FLOOR = 200
+
+# A full-page scan of a price table runs to hundreds of kilobytes (the HPCL
+# sample: ~690 KB); a logo, signature or letterhead mark sitting in a PDF
+# alongside real text is typically a few KB to a few tens of KB. This sits
+# well above logo-sized art and well below a scanned page, so it screens out
+# decoration without risking a genuine table.
+MIN_PDF_IMAGE_BYTES = 20 * 1024
+
+# Only a JPEG (/DCTDecode) embedded image is self-contained bytes a vision
+# model can read as-is -- the PDF filter literally means "this stream is a
+# JPEG file". Every other PDF image filter (/FlateDecode raw bitmaps,
+# /CCITTFaxDecode fax data, /JPXDecode JPEG2000) needs Pillow to become a
+# standalone image file, and pillow is not a dependency this module carries
+# (pypdf's own page.images needs it too, and raises ImportError without it).
+PDF_IMAGE_FILTERS = {"/DCTDecode": "image/jpeg"}
+
+# A price circular is a handful of pages at most; nothing legitimate needs
+# hunting for pictures past this many, and it keeps a huge, image-free PDF
+# from being walked page by page for no reason.
+MAX_PDF_PAGES_FOR_IMAGES = 25
+
 
 def document_images(filename: str, body: bytes) -> list[tuple[str, bytes]]:
-    """The pictures embedded in a docx, as (mime_type, bytes).
+    """The pictures embedded in a docx or PDF, as (mime_type, bytes).
 
     Reports put whole price tables in as images -- the USA posted prices are
-    one -- which the text extractor cannot see. A vision model transcribes
-    these. Anything unreadable is simply no pictures.
+    one, and a scanned circular is nothing but one -- which the text
+    extractor cannot see. A vision model transcribes these. Anything
+    unreadable is simply no pictures.
     """
-    if not (filename or "").lower().endswith(".docx"):
-        return []
+    name = (filename or "").lower()
 
+    if name.endswith(".docx"):
+        return _docx_images(body)
+
+    if name.endswith(".pdf"):
+        return _pdf_images(body)
+
+    return []
+
+
+def _docx_images(body: bytes) -> list[tuple[str, bytes]]:
     images: list[tuple[str, bytes]] = []
 
     try:
@@ -90,6 +129,75 @@ def document_images(filename: str, body: bytes) -> list[tuple[str, bytes]]:
                     break
     except (zipfile.BadZipFile, OSError, ValueError):
         return []
+
+    return images
+
+
+def _pdf_images(body: bytes) -> list[tuple[str, bytes]]:
+    # A PDF with a usable text layer already reads fine; harvesting its
+    # pictures too would send a report's letterhead or a logo to a vision
+    # model on every ordinary upload.
+    try:
+        from scraper.pdf import pdf_to_text
+
+        if len(pdf_to_text(body)) >= PDF_TEXT_FLOOR:
+            return []
+    except Exception:  # noqa: BLE001 - a text failure should not block images
+        pass
+
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # pragma: no cover - declared in requirements.txt
+        return []
+
+    images: list[tuple[str, bytes]] = []
+
+    try:
+        reader = PdfReader(io.BytesIO(body))
+
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception:  # noqa: BLE001
+                return []
+
+        for page in reader.pages[:MAX_PDF_PAGES_FOR_IMAGES]:
+            if len(images) >= MAX_IMAGES:
+                break
+
+            try:
+                xobjects = page["/Resources"]["/XObject"]
+            except KeyError:
+                continue
+
+            for xobj_name in xobjects:
+                if len(images) >= MAX_IMAGES:
+                    break
+
+                # pypdf throws on unusual encodings and filters, and a
+                # corrupted embedded picture is not this file's fault --
+                # skip that one picture and keep whatever else worked.
+                try:
+                    xobj = xobjects[xobj_name]
+
+                    if xobj.get("/Subtype") != "/Image":
+                        continue
+
+                    filters = xobj.get("/Filter")
+                    last_filter = filters[-1] if isinstance(filters, list) else filters
+                    mime = PDF_IMAGE_FILTERS.get(last_filter)
+
+                    if mime is None:
+                        continue
+
+                    data = xobj.get_data()
+
+                    if MIN_PDF_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
+                        images.append((mime, bytes(data)))
+                except Exception:  # noqa: BLE001
+                    continue
+    except Exception:  # noqa: BLE001
+        return images
 
     return images
 

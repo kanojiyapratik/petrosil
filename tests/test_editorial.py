@@ -159,6 +159,151 @@ class TestDocumentImages:
         assert document_images("report.docx", b"not a zip") == []
 
 
+class TestDocumentImagesForPdf:
+    """The HPCL circular the owner uploaded is a scan -- a page-sized JPEG
+    with no text layer at all. document_to_text correctly returns "" for it,
+    so the picture has to come out here for a vision model to read the
+    prices out of it."""
+
+    def test_a_pdf_with_real_text_harvests_no_pictures(self):
+        from app.editorial.extract import PDF_TEXT_FLOOR, document_images
+
+        # Real text well past the floor, alongside a picture big enough to
+        # clear the size floor too -- the BPCL circular's own situation: good
+        # text and a couple of logos that are not worth a vision call.
+        lines = ["Singapore SN 150 FOB Group I 845.00"] * 10
+        assert sum(len(line) for line in lines) >= PDF_TEXT_FLOOR
+
+        pdf = build_pdf_with_images(lines, [("/DCTDecode", _jpeg_bytes(40_000))])
+
+        assert document_images("report.pdf", pdf) == []
+
+    def test_a_text_free_pdf_with_a_big_picture_harvests_it(self):
+        from app.editorial.extract import document_images
+
+        jpeg = _jpeg_bytes(40_000)
+        pdf = build_pdf_with_images([], [("/DCTDecode", jpeg)])
+
+        assert document_images("report.pdf", pdf) == [("image/jpeg", jpeg)]
+
+    def test_a_picture_under_the_size_floor_is_skipped(self):
+        from app.editorial.extract import document_images
+
+        pdf = build_pdf_with_images([], [("/DCTDecode", _jpeg_bytes(500))])
+
+        assert document_images("report.pdf", pdf) == []
+
+    def test_the_image_cap_holds_across_a_multi_page_scan(self):
+        from app.editorial.extract import MAX_IMAGES, document_images
+
+        images = [("/DCTDecode", _jpeg_bytes(21_000)) for _ in range(MAX_IMAGES + 3)]
+        pdf = build_pdf_with_images([], images)
+
+        assert len(document_images("report.pdf", pdf)) == MAX_IMAGES
+
+    def test_a_corrupt_picture_is_skipped_rather_than_raising(self):
+        from app.editorial.extract import document_images
+
+        good = _jpeg_bytes(30_000)
+        # None stands for an /Image XObject with no stream at all -- what a
+        # corrupted or unusually encoded picture looks like to code that
+        # expects every image object to carry picture bytes.
+        pdf = build_pdf_with_images([], [(None, b""), ("/DCTDecode", good)])
+
+        assert document_images("report.pdf", pdf) == [("image/jpeg", good)]
+
+    def test_a_broken_pdf_yields_no_pictures_rather_than_raising(self):
+        from app.editorial.extract import document_images
+
+        assert document_images("report.pdf", b"not a pdf") == []
+        assert document_images("report.pdf", b"") == []
+
+
+def build_pdf_with_images(lines: list[str], images: list[tuple[str | None, bytes]]) -> bytes:
+    """A minimal, valid single-page PDF (built the same way as
+    tests/test_pdf.py's build_pdf) whose page /Resources also lists one
+    XObject per entry in `images`.
+
+    Each entry is (filter_name, data). filter_name is a PDF /Filter name
+    such as "/DCTDecode", or None for an /Image XObject with no stream at
+    all -- the shape of the corrupted or unusual image pypdf's own image
+    extraction is documented to throw on. Nothing here draws the pictures
+    into the content stream: document_images reads the Resources dictionary
+    directly, so an entry only needs to be listed there.
+    """
+    content = "BT /F1 12 Tf 40 720 Td 14 TL\n"
+    content += "".join(f"({line}) Tj T*\n" for line in lines)
+    content += "ET"
+    stream = content.encode("latin-1")
+
+    xobject_entries = []
+    image_objects = []
+
+    for at, (filt, data) in enumerate(images, start=1):
+        obj_num = 5 + at
+        xobject_entries.append(f"/Im{at} {obj_num} 0 R")
+
+        if filt is None:
+            image_objects.append(
+                b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+                b"/Filter /DCTDecode >>"
+            )
+        else:
+            image_objects.append(
+                (
+                    f"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+                    f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter {filt} "
+                    f"/Length {len(data)} >>\nstream\n"
+                ).encode("latin-1")
+                + data
+                + b"\nendstream"
+            )
+
+    resources = (
+        b"<< /Font << /F1 5 0 R >> /XObject << "
+        + " ".join(xobject_entries).encode("latin-1")
+        + b" >> >>"
+    )
+
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources " + resources + b" /Contents 4 0 R >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        *image_objects,
+    ]
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
+
+    xref_at = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF"
+    ).encode()
+
+    return bytes(out)
+
+
+# A stand-in for a JPEG: real content does not matter because DCTDecode bytes
+# pass straight through to the vision model unmodified, but the SOI/EOI
+# markers keep it recognisably JPEG-shaped.
+def _jpeg_bytes(size: int) -> bytes:
+    body = b"\xff\xd8\xff\xe0" + (b"\x00" * (size - 8)) + b"\xff\xd9"
+    return body
+
+
 LOCATIONS = ["Singapore SN 150 FOB Group I", "UAE 4 CST FOB Group III"]
 
 

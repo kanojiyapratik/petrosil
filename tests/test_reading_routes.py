@@ -755,6 +755,60 @@ class TestPicturesThatCouldNotBeRead:
         assert "The USA prices are in the picture." in seen["prompt"]
 
 
+class TestAScannedPdfReachesTheReadingCall:
+    """The HPCL circular the owner uploaded is a scan -- a page-sized JPEG
+    with no text layer at all. document_to_text correctly returns "" for it,
+    so its own picture has to be transcribed and that text has to reach the
+    ordinary reading call -- if "no text, record as unreadable" ran before
+    the transcription was appended, a scanned PDF would still die there and
+    this whole feature would do nothing."""
+
+    def test_a_text_free_pdf_reaches_the_reading_call_via_its_own_picture(self):
+        from tests.test_editorial import _jpeg_bytes, build_pdf_with_images
+
+        pdf = build_pdf_with_images([], [("/DCTDecode", _jpeg_bytes(40_000))])
+
+        class Seeing(StubDriver):
+            def generate_with_images(self, prompt, images):
+                return AiCompletion(
+                    status="complete", text="FOB Asia SN 150 1260",
+                    prompt_tokens=1, completion_tokens=1, error=None,
+                )
+
+        client, extractions = build(Seeing(answers=[ANSWER]))
+
+        response = upload(client, [("scan.pdf", pdf)])
+        page = client.get(response.headers["location"]).text
+
+        # It reached the ordinary reading call and got a row out of it --
+        # the opposite of the "could not be read" panel a scan used to get.
+        assert "could not be read" not in page
+        assert extractions.added[0][0] == "scan.pdf"
+        assert extractions.added[0][1][0]["name"] == "FOB Asia SN 150"
+
+    def test_a_pdf_whose_picture_also_fails_still_reports_honestly(self):
+        # No text and no usable picture: it must still land as the plain
+        # "could not be read" failure, never a silent empty panel.
+        from tests.test_editorial import _jpeg_bytes, build_pdf_with_images
+
+        pdf = build_pdf_with_images([], [("/DCTDecode", _jpeg_bytes(40_000))])
+
+        class Blind(StubDriver):
+            def generate_with_images(self, prompt, images):
+                return AiCompletion(
+                    status="declined", text=None, prompt_tokens=1,
+                    completion_tokens=1, error="The model would not read the picture.",
+                )
+
+        client, extractions = build(Blind())
+
+        response = upload(client, [("scan.pdf", pdf)])
+        page = client.get(response.headers["location"]).text
+
+        assert "could not be read" in page
+        assert extractions.added == [("scan.pdf", [])]
+
+
 class TestTwoUploadsWithTheSameName:
     def test_they_are_two_panels_not_one(self):
         # Keyed on the filename, report.docx and report.docx merged into one
