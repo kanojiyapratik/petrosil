@@ -1492,11 +1492,15 @@ class TestReportsCanBeAddedOneAtATime:
     """A plain <input type=file multiple> only ever expresses the files
     chosen together in one dialog -- reopening the picker replaces the first
     choice rather than adding to it. The owner hit this directly: "once i
-    upload 1 file there is no option for other files". The server-side
-    contract (MAX_DOCUMENTS, MAX_DOCUMENT_BYTES, the field name, `multiple`)
-    does not change, so that is what is pinned here; the accumulate/merge/
-    duplicate/disable behaviour itself is client-side JavaScript and is not
-    exercised by TestClient -- it needs a human click-through."""
+    upload 1 file there is no option for other files". A first pass fixed
+    that with a second, separate "Add another report" button next to the
+    picker -- two controls where the owner wanted one, so the picker's own
+    on-screen trigger (#doc-trigger) now relabels itself instead once a
+    report is in the list. The server-side contract (MAX_DOCUMENTS,
+    MAX_DOCUMENT_BYTES, the field name, `multiple`) does not change, so that
+    is what is pinned here; the accumulate/merge/duplicate/relabel/disable
+    behaviour itself is client-side JavaScript and is not exercised by
+    TestClient -- it needs a human click-through."""
 
     def test_the_real_posting_control_is_unchanged(self):
         client, extractions, store = build_analyse_client([])
@@ -1509,21 +1513,24 @@ class TestReportsCanBeAddedOneAtATime:
         assert "required" in page
         assert 'action="/console/sites/baseoil/reading"' in page
 
-    def test_the_add_another_control_is_present_and_starts_hidden(self):
+    def test_the_single_trigger_control_is_present_and_starts_hidden(self):
         # Progressive enhancement: present in the markup so the script can
-        # reveal it, but hidden until that script actually runs.
+        # reveal it (and hide the real input in its place), but hidden until
+        # that script actually runs -- there is no separate "Add another"
+        # button any more, just this one control relabelling itself.
         client, extractions, store = build_analyse_client([])
 
         page = client.get("/console/sites/baseoil/editorial").text
 
-        add_at = page.index('id="doc-add"')
-        tag_start = page.rindex("<button", 0, add_at)
-        tag_end = page.index(">", add_at)
-        add_tag = page[tag_start:tag_end]
+        trigger_at = page.index('id="doc-trigger"')
+        tag_start = page.rindex("<button", 0, trigger_at)
+        tag_end = page.index(">", trigger_at)
+        trigger_tag = page[tag_start:tag_end]
 
-        assert "Add another report" in page
-        assert "hidden" in add_tag
-        assert 'type="button"' in add_tag
+        assert "Choose files" in page
+        assert 'id="doc-add"' not in page
+        assert "hidden" in trigger_tag
+        assert 'type="button"' in trigger_tag
 
     def test_the_running_list_and_its_error_slot_are_present_and_start_hidden(self):
         client, extractions, store = build_analyse_client([])

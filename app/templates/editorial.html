@@ -70,16 +70,19 @@
           <label for="documents">Reports (up to {{ max_documents }}, {{ max_document_mb }} MB each)</label>
           {#- The one control that actually posts, with or without the script
               below: a plain multiple-select file input works on its own, and
-              stays the source the form submits. The elements after it are
-              hidden until the script runs, since a picker that cannot be
-              reopened without replacing the first choice is still exactly
-              what "up to {{ max_documents }} files" already promises. #}
+              stays the source the form submits. Without the script this input
+              is exactly what "up to {{ max_documents }} files" already
+              promises -- a picker that cannot be reopened without replacing
+              the first choice. With it, #doc-trigger takes over as the one
+              thing on screen: it opens the same picker, and once a report is
+              in the list it relabels itself "Add another report" so there is
+              never a second, separate control for that. #}
           <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required
             data-max-documents="{{ max_documents }}" data-max-bytes="{{ max_document_bytes }}">
+          <button type="button" id="doc-trigger" class="ghost" style="margin-top:.5rem" hidden>Choose files</button>
           <ul id="doc-list" class="doc-list" style="list-style:none;margin:.5rem 0 0;padding:0" hidden></ul>
           <p id="doc-note" class="hint" style="margin:.35rem 0 0" hidden></p>
           <p id="doc-file-error" class="flash bad" style="margin:.5rem 0 0" hidden></p>
-          <button type="button" id="doc-add" class="ghost" style="margin-top:.5rem" hidden>Add another report</button>
         </div>
         <div class="field">
           <label for="pricedate">Price date</label>
@@ -120,17 +123,25 @@
 // then written straight back to the input via DataTransfer, so the POST
 // body is exactly what the list on screen shows.
 //
+// One control, not two: the real input is hidden once this runs and
+// #doc-trigger stands in for it -- same picker, opened via input.click(),
+// relabelled between "Choose files" and "Add another report" depending on
+// whether the list is empty. A hidden file input still submits normally and
+// still fires "change" from a script-triggered click, so nothing about the
+// POST changes.
+//
 // Progressive enhancement only: everything below stays hidden, and the
-// input behaves exactly as it always did, until this runs.
+// input behaves exactly as it always did -- visible, plain, multiple-select
+// -- until this runs.
 (function () {
   var input = document.getElementById('documents');
+  var trigger = document.getElementById('doc-trigger');
   var list = document.getElementById('doc-list');
   var note = document.getElementById('doc-note');
   var fileError = document.getElementById('doc-file-error');
-  var addButton = document.getElementById('doc-add');
   var submitButton = document.getElementById('reading-submit');
 
-  if (!input || !list || !addButton || !submitButton || typeof DataTransfer === 'undefined') return;
+  if (!input || !trigger || !list || !submitButton || typeof DataTransfer === 'undefined') return;
 
   var maxDocuments = parseInt(input.dataset.maxDocuments, 10) || 5;
   var maxBytes = parseInt(input.dataset.maxBytes, 10) || 0;
@@ -180,9 +191,10 @@
       ? chosen.length + ' of ' + maxDocuments + ' reports selected — remove one to add another.'
       : chosen.length + ' of ' + maxDocuments + ' reports selected.';
 
-    addButton.hidden = false;
-    addButton.disabled = atLimit;
-    addButton.textContent = atLimit ? 'Limit reached' : 'Add another report';
+    trigger.disabled = atLimit;
+    trigger.textContent = atLimit
+      ? 'Limit reached'
+      : (chosen.length === 0 ? 'Choose files' : 'Add another report');
 
     submitButton.disabled = chosen.length === 0;
   }
@@ -237,9 +249,15 @@
     if (input.files && input.files.length) merge(input.files);
   });
 
-  addButton.addEventListener('click', function () {
-    if (!addButton.disabled) input.click();
+  trigger.addEventListener('click', function () {
+    if (!trigger.disabled) input.click();
   });
+
+  // The swap that makes this one control: the real input drops out of view
+  // (it still submits, hidden or not) and #doc-trigger takes its place as
+  // the only thing on screen that opens the picker.
+  input.hidden = true;
+  trigger.hidden = false;
 
   render();
 })();

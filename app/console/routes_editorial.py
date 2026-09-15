@@ -157,8 +157,8 @@ def create_editorial_routes(
             # The saved per-site instructions prefill the form; after a draft
             # the just-typed text wins, so an edit is never silently reverted.
             "instructions": site.editorial_instructions,
-            # The upload panel's "Add another report" enhancement reads its
-            # own limits from here rather than a second hardcoded 5 and 10.
+            # The upload panel's accumulating-list enhancement reads its own
+            # limits from here rather than a second hardcoded 5 and 10.
             "max_documents": MAX_DOCUMENTS,
             "max_document_bytes": MAX_DOCUMENT_BYTES,
             "max_document_mb": MAX_DOCUMENT_BYTES // (1024 * 1024),
