@@ -66,7 +66,10 @@ fences. Each element must be an object with exactly these fields:
 
 
 def editorial_prompt(
-    locations: list[str], documents: list[str], instructions: str | None = None
+    locations: list[str],
+    documents: list[str],
+    instructions: str | None = None,
+    evidence: list[dict] | None = None,
 ) -> str:
     parts = [PREAMBLE, ""]
 
@@ -84,8 +87,19 @@ def editorial_prompt(
             "",
         ]
 
-    for index, text in enumerate(documents, start=1):
-        parts += [f"--- Report {index} ---", text, ""]
+    if evidence:
+        # The figures an editor has already checked, one line each, instead of
+        # five whole reports. The reading step has done the finding; this call
+        # only has to decide which site location each figure belongs to.
+        parts += ["--- Prices read from the reports and checked by the editor ---"]
+
+        for row in evidence:
+            parts.append(json.dumps(row, sort_keys=True))
+
+        parts.append("")
+    else:
+        for index, text in enumerate(documents, start=1):
+            parts += [f"--- Report {index} ---", text, ""]
 
     parts += ["--- Locations (copy these exactly) ---", json.dumps(locations, indent=2)]
 

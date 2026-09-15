@@ -10,12 +10,16 @@ import json
 import zipfile
 
 from fastapi import FastAPI
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from app.ai.gemini import AiCompletion, AiProviderError
 from app.api import create_api
+from app.console.routes_editorial import create_editorial_routes
+from app.db.store import ReadRow, StoredSite
 from app.editorial.extract import document_to_text
 from app.editorial.review import build_rows, editorial_prompt, parse_suggestions
+from app.editorial.rules import PriceRule
 
 TOKEN = "test-api-token"
 
@@ -467,3 +471,249 @@ class TestEditorialReviewsEndpoint:
 
         assert response.status_code == 502
         assert response.json()["analysis"]["status"] == "failed"
+
+
+class TestTheAnalysisReadsCheckedFiguresNotWholeReports:
+    def test_the_prompt_carries_the_checked_figures(self):
+        prompt = editorial_prompt(
+            ["Singapore SN 150 FOB Group I"],
+            [],
+            None,
+            evidence=[
+                {
+                    "name": "FOB Asia SN 150", "price": 1260.0, "price_min": 1260.0,
+                    "price_max": 1300.0, "currency": "USD", "unit": "MT", "basis": "FOB",
+                    "price_date": "2026-08-14", "note": None, "filename": "lube.docx",
+                }
+            ],
+        )
+
+        assert "FOB Asia SN 150" in prompt
+        assert "1260" in prompt
+        assert "lube.docx" in prompt
+
+    def test_the_locations_are_still_the_names_to_answer_with(self):
+        prompt = editorial_prompt(
+            ["Singapore SN 150 FOB Group I"], [], None,
+            evidence=[{"name": "FOB Asia SN 150", "price": 1260.0, "filename": "a.docx"}],
+        )
+
+        assert "Singapore SN 150 FOB Group I" in prompt
+
+    def test_no_whole_report_text_is_sent_when_evidence_is_given(self):
+        # The point of the split: the analysis reads a short checked list,
+        # not 65k characters of five reports.
+        prompt = editorial_prompt(
+            ["A"], ["the entire text of a market report"], None,
+            evidence=[{"name": "X", "price": 1.0, "filename": "a.docx"}],
+        )
+
+        assert "the entire text of a market report" not in prompt
+
+    def test_without_evidence_the_prompt_is_unchanged(self):
+        # The headless POST /api/editorial-reviews still sends documents.
+        prompt = editorial_prompt(["A"], ["report text"], None)
+
+        assert "report text" in prompt
+
+
+SITE = StoredSite(
+    db_id=1, slug="baseoil", name="Base Oil Report",
+    api_url="https://example.test/api", token="t", enabled=True,
+    editorial_instructions="Ignore last week's recap.",
+)
+
+
+class AnalyseFakeStore:
+    def __init__(self, site=SITE):
+        self.site = site
+        self.recorded = []
+
+    def site_by_slug(self, slug):
+        return self.site if slug == self.site.slug else None
+
+    def record(self, *args, **kwargs):
+        self.recorded.append(args)
+
+
+class AnalyseFakeSiteClient:
+    def __init__(self, locations):
+        self._locations = locations
+
+    def locations(self):
+        return {"data": self._locations}
+
+
+class AnalyseFakeRules:
+    def __init__(self, rules):
+        self._rules = rules
+
+    def for_site(self, slug):
+        return self._rules
+
+
+class AnalyseFakeExtractions:
+    def __init__(self, rows):
+        self._rows = rows
+        self.closed = []
+
+    def rows_for(self, set_id):
+        return self._rows
+
+    def close_set(self, set_id):
+        self.closed.append(set_id)
+
+
+def build_analyse_client(rows, driver=None, rules_list=None, locations=None, store=None):
+    from app.console.routes import datefmt, label_for
+
+    extractions = AnalyseFakeExtractions(rows)
+    store = store or AnalyseFakeStore()
+    templates = Jinja2Templates(directory="app/templates")
+    templates.env.globals["datefmt"] = datefmt
+    templates.env.globals["label_for"] = label_for
+    app = FastAPI()
+    app.include_router(
+        create_editorial_routes(
+            store=store,
+            templates=templates,
+            current_user=lambda request: type(
+                "U", (), {"email": "editor@local.test", "name": "Editor", "is_admin": True}
+            )(),
+            driver=driver or StubDriver(),
+            default_model="gemini-2.5-flash",
+            client_factory=lambda site: AnalyseFakeSiteClient(
+                locations if locations is not None
+                else [{"title": "Europe Domestic SN150", "latest_price": 1000.0}]
+            ),
+            rules=AnalyseFakeRules(rules_list or []),
+            extractions=extractions,
+        )
+    )
+
+    return TestClient(app), extractions, store
+
+
+def kept_and_dropped_rows():
+    return [
+        ReadRow(
+            id=1, set_id=7, filename="lube.docx", name="FOB Asia SN 150", price=1300.0,
+            price_min=None, price_max=None, currency=None, unit="MT", basis="FOB",
+            price_date="2026-08-14", note=None, kept=True,
+        ),
+        ReadRow(
+            id=2, set_id=7, filename="lube.docx", name="Brent Crude Futures", price=80.0,
+            price_min=None, price_max=None, currency=None, unit=None, basis=None,
+            price_date=None, note=None, kept=False,
+        ),
+    ]
+
+
+def empty_completion():
+    return AiCompletion(status="complete", text="[]", prompt_tokens=1, completion_tokens=1, error=None)
+
+
+class TestTheAnalyseRouteUsesTheCheckedRows:
+    def test_only_kept_rows_reach_the_prompt(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        prompt = driver.calls[0]["prompt"]
+        assert "FOB Asia SN 150" in prompt
+        assert "1300" in prompt
+        assert "lube.docx" in prompt
+        # The dropped row never reaches the model.
+        assert "Brent Crude Futures" not in prompt
+
+    def test_the_editors_saved_instructions_ride_along(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert "Ignore last week's recap." in driver.calls[0]["prompt"]
+
+    def test_nothing_kept_is_a_422_not_a_call_to_the_model(self):
+        driver = StubDriver(empty_completion())
+        dropped_only = [row for row in kept_and_dropped_rows() if not row.kept]
+        client, extractions, store = build_analyse_client(dropped_only, driver=driver)
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 422
+        assert "Nothing was kept" in response.text
+        assert driver.calls == []
+
+    def test_a_set_id_that_is_not_a_number_is_a_404(self):
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows())
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "not-a-number"}
+        )
+
+        assert response.status_code == 404
+
+    def test_success_closes_the_reading_and_is_recorded(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        assert extractions.closed == [7]
+        assert store.recorded[-1] == (
+            "editor@local.test", "used a reading", "baseoil", "reading #7",
+        )
+
+    def test_the_focused_benchmark_pass_reads_the_checked_rows_not_report_text(self):
+        # The point of Task 4: the second, focused reading no longer needs
+        # price_digest() to scan whole reports -- it scans the checked rows.
+        rule = PriceRule(
+            id=1, derived_location="Europe Domestic SN150",
+            reference_location="Report: FOB Asia SN 150", adjustment_value=-20,
+        )
+        answer = json.dumps(
+            [
+                {
+                    "location": "Report: FOB Asia SN 150", "suggested_min": 1280,
+                    "suggested_max": 1320, "confidence": "high", "basis": "FOB Asia",
+                    "source": "reading", "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="FOB Asia SN 150", price=1300.0,
+                price_min=None, price_max=None, currency="USD", unit="MT", basis="FOB",
+                price_date="2026-08-14", note=None, kept=True,
+            ),
+        ]
+        client, extractions, store = build_analyse_client(rows, driver=driver, rules_list=[rule])
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        # Two model calls: the main pass and the focused benchmark pass.
+        assert len(driver.calls) == 2
+        focused_prompt = driver.calls[1]["prompt"]
+        assert "FOB Asia SN 150" in focused_prompt
+        assert "1300" in focused_prompt
+        # The rulebook -- code, not the model -- derives the site location
+        # from the benchmark the focused pass confirmed.
+        assert "Europe Domestic SN150" in response.text
+
+    def test_a_provider_failure_is_a_502_not_a_500(self):
+        driver = StubDriver(raises=AiProviderError("Gemini could not be reached"))
+        client, extractions, store = build_analyse_client(kept_and_dropped_rows(), driver=driver)
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 502
+        assert extractions.closed == []

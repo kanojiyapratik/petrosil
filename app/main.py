@@ -266,6 +266,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 usage=usage,
                 rules=rules,
                 fx=app.state.fx,
+                extractions=extractions,
             )
         )
         app.include_router(
