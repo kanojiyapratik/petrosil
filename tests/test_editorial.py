@@ -9,6 +9,7 @@ import dataclasses
 import io
 import json
 import zipfile
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -635,6 +636,24 @@ class AnalyseFakeExtractions:
         self.reclaimed.append(set_id)
 
         return True
+
+
+class RaisingReclaimExtractions(AnalyseFakeExtractions):
+    """Stands in for the real ExtractionStore, whose reclaim_set casts the
+    held value straight into ``... AND used_at = %s::timestamptz``. A bad
+    cast raises inside Postgres -- exactly what the route must guard against
+    before the value ever gets there. If the route calls reclaim_set at all
+    with something unparseable, this raises the way the real database would."""
+
+    def reclaim_set(self, set_id, used_at):
+        try:
+            datetime.fromisoformat(used_at)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                f"invalid input syntax for type timestamp with time zone: {used_at!r}"
+            ) from error
+
+        return super().reclaim_set(set_id, used_at)
 
 
 def build_analyse_client(
@@ -1366,3 +1385,78 @@ class TestTheReuseButtonCannotBePressedTwiceByAccident:
 
         assert response.status_code == 200
         assert extractions.reclaimed == [7]
+
+
+class TestAMalformedReuseTokenIsAScreenfulNotACrash:
+    """held = str(form_data.get("used_at") or "") used to travel straight into
+    reclaim_set's ::timestamptz cast with no guard and no try/except at all.
+    A hand-crafted request, stale or corrupted form state, or a browser
+    extension sending again=1 with a used_at that is missing, blank or
+    garbled made Postgres raise -- an unhandled 500. Not reachable from the
+    normally rendered form, so this is hardening, not a live regression."""
+
+    def test_a_missing_used_at_on_again_is_a_screenful_not_a_crash(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+        extractions.__class__ = RaisingReclaimExtractions
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1"},  # used_at omitted entirely
+        )
+
+        assert response.status_code == 409
+        assert "Use these prices again" in response.text
+        assert driver.calls == []
+
+    def test_a_blank_used_at_on_again_is_a_screenful_not_a_crash(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+        extractions.__class__ = RaisingReclaimExtractions
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1", "used_at": ""},
+        )
+
+        assert response.status_code == 409
+        assert "Use these prices again" in response.text
+        assert driver.calls == []
+
+    def test_a_garbled_used_at_on_again_is_a_screenful_not_a_crash(self):
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+        extractions.__class__ = RaisingReclaimExtractions
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1", "used_at": "not-a-timestamp; drop table"},
+        )
+
+        assert response.status_code == 409
+        assert "Use these prices again" in response.text
+        assert driver.calls == []
+
+    def test_a_well_formed_but_stale_token_still_reaches_reclaim_set(self):
+        # The guard only screens out gibberish -- a real, merely stale token
+        # must still be handed to reclaim_set and fail the compare-and-swap
+        # there, exactly as it always has.
+        driver = StubDriver(empty_completion())
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, used_at="2026-08-01T00:00:00",
+        )
+        extractions.__class__ = RaisingReclaimExtractions
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "again": "1", "used_at": "2019-01-01T00:00:00"},
+        )
+
+        assert response.status_code == 409
+        assert driver.calls == []

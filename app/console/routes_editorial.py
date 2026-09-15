@@ -10,7 +10,7 @@ gains no UI and the module still holds no site database credentials.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
@@ -32,6 +32,28 @@ MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 def _figure(value: float) -> str:
     """A checked figure as the report printed it, not as a float repr."""
     return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+
+
+def _plausible_timestamp(value: str) -> bool:
+    """A guard before a reuse token reaches reclaim_set's ``::timestamptz`` cast.
+
+    The button always carries exactly what this screen itself rendered, but
+    a hand-crafted request, stale or corrupted form state, or a browser
+    extension can send again=1 with a used_at that is missing, blank or
+    plain garbage. Postgres raises on a bad cast into a timestamp -- an
+    unhandled 500 -- so this is checked first. A value that merely looks
+    like a timestamp but is stale still reaches the database and fails the
+    compare-and-swap there, exactly as it always has.
+    """
+    if not value:
+        return False
+
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+
+    return True
 
 
 def _digest_line(row) -> str:
@@ -333,6 +355,13 @@ def create_editorial_routes(
             model = getattr(chosen, "model", default_model) if chosen is not None else default_model
 
             provider_name = getattr(chosen or driver, "provider_key", "gemini")
+
+            # A held value that could never match reclaim_set's compare -- not
+            # merely stale, but not a timestamp at all -- must not reach its
+            # ::timestamptz cast. Refuse it the same way a stale-but-well-formed
+            # token is refused, rather than letting Postgres raise on it.
+            if again and not _plausible_timestamp(held):
+                return already_used()
 
             # The reading is spent HERE, before the first model call and in a
             # single statement, so two submits arriving together cannot both
