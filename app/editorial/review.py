@@ -24,6 +24,20 @@ CONFIDENCES = ("high", "medium", "low")
 # is exactly the row a human must look at before staging.
 FLAG_PCT = 50.0
 
+# The owner's ruling: when a report prints the same item both pre-tax and
+# tax-inclusive (BASIC and TOTAL, and the like -- see reading.py's
+# READING_PREAMBLE, which is what makes both figures reach here as two
+# checked rows with the same name), the pre-tax/basic figure is the default
+# price, because price lists are ordinarily quoted ex-tax. The choice is
+# never silent -- the model is told to say which figure it used in that
+# row's rationale -- and an editor who wants the other figure for a given
+# site overrides it in that site's own instructions, which ride on this
+# same prompt (see the "Editor's instructions" block below). No tax rate is
+# ever hardcoded and no tax is computed or stripped anywhere in this
+# module: code, never the model, computes every number that reaches a
+# price, and the model is only ever asked to pick which printed figure to
+# use, not to do arithmetic on it.
+
 PREAMBLE = """You are a base oil market analyst drafting a price update for a human
 editor. Below are one or more market reports, followed by the exact
 list of price locations the site tracks.
@@ -44,6 +58,15 @@ assessment, return it under that entry. Only when the evidence is for
 a grade or region that genuinely has no listed counterpart, do not
 discard it: include the row with the name exactly as printed in the
 report, and a human editor will decide where it belongs.
+
+Two checked rows sometimes carry the same name and differ only in price
+and a qualifier in note -- BASIC vs TOTAL, pre-tax vs tax-inclusive, a
+discounted price vs a list price, two delivery bases. That is one item
+priced on different terms, never two locations and never two figures to
+average: use the pre-tax / basic figure as the price
+unless the editor's own instructions say otherwise, and say in that
+row's rationale which figure you used and why (e.g. "used the BASIC
+figure, pre-tax").
 
 Some "Report: " benchmarks are printed in a currency other than USD (for
 example Turkey ex-rack prices in Turkish lira, "Tl 81,212.00/t plus VAT").

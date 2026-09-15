@@ -41,6 +41,17 @@ class TestWhatOneReportIsAsked:
         assert "exactly as printed" in prompt
         assert "do not convert" in prompt.lower()
 
+    def test_a_second_figure_for_the_same_item_is_told_to_carry_a_note(self):
+        # Measured on a real BPCL circular: BASIC and TOTAL columns for every
+        # product read as 36 rows for 18 products, with nothing on either row
+        # saying which column it came from.
+        prompt = reading_prompt("text", "a.docx")
+
+        assert "one row PER figure" in prompt
+        assert "BASIC" in prompt
+        assert "TOTAL incl. GST" in prompt
+        assert "in note" in prompt
+
 
 class TestReadingTheAnswer:
     def test_a_plain_answer_becomes_rows(self):
@@ -128,6 +139,22 @@ class TestReadingTheAnswer:
 
         assert [row["price_date"] for row in rows] == [None, None]
         assert [row["price"] for row in rows] == [10.0, 20.0]
+
+    def test_a_note_qualifying_the_figure_is_kept(self):
+        # A BASIC/TOTAL pair reads as two rows with the same name; note is
+        # the only thing telling them apart, and it has to survive parsing
+        # to reach the evidence step two sees.
+        rows = parse_reading(
+            json.dumps(
+                [
+                    {"name": "Bit Bulk VG10", "price": 69100, "note": "BASIC"},
+                    {"name": "Bit Bulk VG10", "price": 81538, "note": "TOTAL incl. GST"},
+                ]
+            )
+        )
+
+        assert [row["note"] for row in rows] == ["BASIC", "TOTAL incl. GST"]
+        assert [row["name"] for row in rows] == ["Bit Bulk VG10", "Bit Bulk VG10"]
 
     def test_a_real_day_is_kept(self):
         rows = parse_reading(

@@ -40,6 +40,14 @@ Rules:
   and price_max.
 - A percentage, a volume, a freight rate and a change-on-the-week are not
   prices. Leave them out.
+- Some reports print more than one figure for the same item: pre-tax and
+  tax-inclusive, BASIC and TOTAL, a discounted price and a list price, two
+  delivery bases. When that happens, return one row PER figure -- do not
+  merge them, do not pick one, do not average them -- and put whatever
+  distinguishes that column in note, in the report's own words (for
+  example "BASIC", "TOTAL incl. GST", "PREVIOUS"). The name stays exactly
+  as the report writes it either way; the qualifier belongs in note, never
+  folded into the name.
 - If the report prints no price at all, return []."""
 
 

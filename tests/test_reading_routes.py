@@ -567,6 +567,73 @@ class TestTheWholeRangeIsVisibleAndCorrectable:
         assert (saved["price_min"], saved["price_max"]) == (1450.0, 1500.0)
 
 
+class TestTheNoteIsVisibleAndCorrectable:
+    """note already rode every row -- stored, round-tripped through
+    edit_row, and sent to step two's model -- but only as a hidden field
+    nobody could see or fix. That is the same defect as the hidden Min/Max
+    above: a BASIC/TOTAL pair reads as two rows with the same name, price
+    and unit, distinguished only by note, and an editor with no way to see
+    or correct it cannot tell them apart either."""
+
+    def test_note_is_an_editable_box_not_a_hidden_field(self):
+        answer = json.dumps(
+            [{"name": "Bit Bulk VG10", "price": 69100, "note": "BASIC"}]
+        )
+        client, extractions = build(StubDriver(answers=[answer]))
+        upload(client, [("bpcl.txt", b"Bit Bulk VG10 69,100 BASIC")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert "<th>Note</th>" in page
+        assert 'type="hidden" name="note"' not in page
+        assert 'type="text" name="note" value="BASIC"' in page
+
+    def test_a_correction_to_the_note_is_saved(self):
+        answer = json.dumps(
+            [{"name": "Bit Bulk VG10", "price": 69100, "note": "BASIC"}]
+        )
+        client, extractions = build(StubDriver(answers=[answer]))
+        upload(client, [("bpcl.txt", b"Bit Bulk VG10 69,100 BASIC")])
+
+        client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "Bit Bulk VG10", "price": "69100", "note": "BASIC, pre-tax",
+                "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert extractions.updated[0][1]["note"] == "BASIC, pre-tax"
+
+    def test_the_add_a_price_form_also_has_a_note_field(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert 'name="note"' in page
+        assert "Note</label>" in page
+
+    def test_a_typed_price_can_carry_a_note(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+        file_id = extractions.set_by_id(1).files[0].id
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows",
+            data={
+                "file_id": str(file_id), "filename": "lube.txt",
+                "name": "Bit Bulk VG30", "price": "70060", "note": "BASIC", "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        _, _, row, _ = extractions.inserted[0]
+        assert row["note"] == "BASIC"
+
+
 class TestACorrectionIsHeldToRealValues:
     def test_a_shape_valid_impossible_date_is_a_422_not_a_500(self):
         # "2026-02-31" matched the old YYYY-MM-DD pattern, reached the DATE

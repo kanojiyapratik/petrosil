@@ -345,6 +345,29 @@ class TestEditorialPrompt:
         assert "Editor's instructions" not in editorial_prompt(LOCATIONS, ["text"])
         assert "Editor's instructions" not in editorial_prompt(LOCATIONS, ["text"], instructions="   ")
 
+    def test_two_rows_sharing_a_name_are_told_to_be_one_item_not_two(self):
+        # Measured on a real upload: a BPCL circular printed BASIC and TOTAL
+        # for every product, and every product came out doubled because
+        # nothing said the two rows were the same item on different terms.
+        prompt = editorial_prompt(LOCATIONS, ["text"])
+
+        assert "never two locations" in prompt
+        assert "pre-tax / basic figure" in prompt
+        assert "rationale" in prompt
+
+    def test_the_editors_instructions_and_the_tie_break_wording_are_in_the_same_prompt(self):
+        # The default is a ruling, not an absolute -- an editor's own per-site
+        # instructions must be able to override it, so both have to reach the
+        # model in the one prompt, not one instead of the other.
+        prompt = editorial_prompt(
+            LOCATIONS, ["text"],
+            instructions="For this site, use the TOTAL (tax-inclusive) figure instead.",
+        )
+
+        assert "For this site, use the TOTAL (tax-inclusive) figure instead." in prompt
+        assert "pre-tax / basic figure" in prompt
+        assert "unless the editor's own instructions say otherwise" in prompt
+
 
 def suggestion(location, low=1500, high=1600, confidence="High", **extra):
     row = {
@@ -642,6 +665,30 @@ class TestTheAnalysisReadsCheckedFiguresNotWholeReports:
         assert "FOB Asia SN 150" in prompt
         assert "1260" in prompt
         assert "lube.docx" in prompt
+
+    def test_the_checked_notes_reach_the_evidence_json(self):
+        # Two rows sharing a name, one BASIC and one TOTAL, are indistinguishable
+        # to step two unless the qualifier travels with them.
+        prompt = editorial_prompt(
+            ["Singapore SN 150 FOB Group I"], [], None,
+            evidence=[
+                {
+                    "name": "Bit Bulk VG10", "price": 69100.0, "price_min": None,
+                    "price_max": None, "currency": "INR", "unit": "MT",
+                    "basis": "Ex Mumbai Refinery", "price_date": "2026-09-01",
+                    "note": "BASIC", "filename": "bpcl.pdf",
+                },
+                {
+                    "name": "Bit Bulk VG10", "price": 81538.0, "price_min": None,
+                    "price_max": None, "currency": "INR", "unit": "MT",
+                    "basis": "Ex Mumbai Refinery", "price_date": "2026-09-01",
+                    "note": "TOTAL incl. GST", "filename": "bpcl.pdf",
+                },
+            ],
+        )
+
+        assert '"note": "BASIC"' in prompt
+        assert '"note": "TOTAL incl. GST"' in prompt
 
     def test_the_locations_are_still_the_names_to_answer_with(self):
         prompt = editorial_prompt(

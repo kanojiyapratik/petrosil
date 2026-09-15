@@ -26,7 +26,7 @@
           <thead>
             <tr>
               <th>Name</th><th>Price</th><th>Min</th><th>Max</th><th>Currency</th>
-              <th>Unit</th><th>Basis</th><th>Date</th><th>Use this</th><th></th>
+              <th>Unit</th><th>Basis</th><th>Date</th><th>Note</th><th>Use this</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -43,7 +43,6 @@
                     action="/console/sites/{{ site.slug }}/reading/{{ set.id }}/rows/{{ row.id }}"
                     data-no-overlay="1" style="display:contents">
                 <tr>
-                  <input type="hidden" name="note" value="{{ row.note or '' }}">
                   <input type="hidden" name="pricedate" value="{{ pricedate }}">
                   <td><input type="text" name="name" value="{{ row.name }}" style="width:100%"></td>
                   <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:7rem"></td>
@@ -53,6 +52,7 @@
                   <td><input type="text" name="unit" value="{{ row.unit or '' }}" style="width:5rem"></td>
                   <td><input type="text" name="basis" value="{{ row.basis or '' }}" style="width:6rem"></td>
                   <td><input type="text" name="price_date" value="{{ row.price_date or '' }}" style="width:7rem"></td>
+                  <td><input type="text" name="note" value="{{ row.note or '' }}" style="width:8rem"></td>
                   <td style="text-align:center">
                     <input type="checkbox" name="kept" value="1" {% if row.kept %}checked{% endif %}>
                   </td>
@@ -108,6 +108,10 @@
               <label for="add-date-{{ loop.index0 }}">Date</label>
               <input id="add-date-{{ loop.index0 }}" type="text" name="price_date"
                      placeholder="YYYY-MM-DD" style="width:7rem">
+            </div>
+            <div class="field">
+              <label for="add-note-{{ loop.index0 }}">Note</label>
+              <input id="add-note-{{ loop.index0 }}" type="text" name="note" style="width:8rem">
             </div>
           </div>
           <div class="actions">
