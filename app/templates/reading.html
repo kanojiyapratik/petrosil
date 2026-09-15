@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{# Name and Basis are the two values that disambiguate a row -- the same
+   product printed at five different depots reads as five identical rows
+   until Basis is legible -- so this screen alone is let to use the full
+   window instead of the console's shared 72rem column. No other screen
+   opts into .wide. #}
+{% block content_class %} wide{% endblock %}
 {% block content %}
 <h1>Check what was read</h1>
 <p class="lede">
@@ -22,7 +28,21 @@
         </span>
       </div>
       {% if file.rows %}
-        <table>
+        {#- table-layout:fixed makes the colgroup below the source of truth for
+            every column's width, so Name and Basis -- the two values that tell
+            otherwise-identical rows apart -- get the room, and the short
+            numeric/code columns take only what they need. Each input is
+            width:100% of its own <td>, so it grows or shrinks with the column
+            rather than staying a fixed size. min-width keeps the columns
+            readable on a narrow window; the panel (see base.html, .panel {
+            overflow-x:auto }) scrolls sideways for it, never the page body. #}
+        <table class="reading-table" style="table-layout:fixed;min-width:56rem">
+          <colgroup>
+            <col style="width:24%"><col style="width:6%"><col style="width:5%">
+            <col style="width:5%"><col style="width:5%"><col style="width:5%">
+            <col style="width:26%"><col style="width:7%"><col style="width:7%">
+            <col style="width:4%"><col style="width:6%">
+          </colgroup>
           <thead>
             <tr>
               <th>Name</th><th>Price</th><th>Min</th><th>Max</th><th>Currency</th>
@@ -45,14 +65,14 @@
                 <tr>
                   <input type="hidden" name="pricedate" value="{{ pricedate }}">
                   <td><input type="text" name="name" value="{{ row.name }}" style="width:100%"></td>
-                  <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:7rem"></td>
-                  <td><input type="number" step="any" name="price_min" value="{{ row.price_min if row.price_min is not none else '' }}" style="width:6rem"></td>
-                  <td><input type="number" step="any" name="price_max" value="{{ row.price_max if row.price_max is not none else '' }}" style="width:6rem"></td>
-                  <td><input type="text" name="currency" value="{{ row.currency or '' }}" style="width:5rem"></td>
-                  <td><input type="text" name="unit" value="{{ row.unit or '' }}" style="width:5rem"></td>
-                  <td><input type="text" name="basis" value="{{ row.basis or '' }}" style="width:6rem"></td>
-                  <td><input type="text" name="price_date" value="{{ row.price_date or '' }}" style="width:7rem"></td>
-                  <td><input type="text" name="note" value="{{ row.note or '' }}" style="width:8rem"></td>
+                  <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:100%"></td>
+                  <td><input type="number" step="any" name="price_min" value="{{ row.price_min if row.price_min is not none else '' }}" style="width:100%"></td>
+                  <td><input type="number" step="any" name="price_max" value="{{ row.price_max if row.price_max is not none else '' }}" style="width:100%"></td>
+                  <td><input type="text" name="currency" value="{{ row.currency or '' }}" style="width:100%"></td>
+                  <td><input type="text" name="unit" value="{{ row.unit or '' }}" style="width:100%"></td>
+                  <td><input type="text" name="basis" value="{{ row.basis or '' }}" style="width:100%"></td>
+                  <td><input type="text" name="price_date" value="{{ row.price_date or '' }}" style="width:100%"></td>
+                  <td><input type="text" name="note" value="{{ row.note or '' }}" style="width:100%"></td>
                   <td style="text-align:center">
                     <input type="checkbox" name="kept" value="1" {% if row.kept %}checked{% endif %}>
                   </td>

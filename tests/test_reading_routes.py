@@ -9,6 +9,7 @@ read properly, and it makes plain which file gave what.
 import dataclasses
 import io
 import json
+import re
 
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -947,6 +948,124 @@ class TestAReadingFromBeforeTheFileColumnExisted:
         page = client.get("/console/sites/baseoil/reading/1").text
 
         assert page.count("<h2>report.docx</h2>") == 2
+
+
+class TestTheCheckScreenUsesTheFullWidth:
+    """The table is squeezed into the console's shared 72rem content column,
+    and Name and Basis -- the two longest values, and the two that tell an
+    otherwise-identical row apart -- get truncated worst. This screen alone
+    opts into the full window; nothing else does."""
+
+    def test_the_content_pane_opts_into_the_wide_class(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert 'class="content wide"' in page
+
+    def test_no_other_console_template_opts_into_wide(self):
+        # base.html defines the {% block content_class %} every screen can
+        # fill in; reading.html is the only one that should.
+        import pathlib
+
+        templates_dir = pathlib.Path("app/templates")
+        others = [
+            path for path in templates_dir.glob("*.html")
+            if path.name not in ("reading.html", "base.html")
+        ]
+
+        assert others, "expected other console templates to check"
+
+        for path in others:
+            assert "content_class" not in path.read_text(encoding="utf-8"), path
+
+    def test_name_and_basis_are_the_two_widest_columns(self):
+        answer = json.dumps(
+            [
+                {
+                    "name": "HP Tuffbit Bitumen VG 40 (Bulk) Ex-Hincol Vashi",
+                    "price": 70060,
+                    "currency": "INR",
+                    "unit": "MT",
+                    "basis": "Ex Koyali Installation / Baroda Bitumen COD",
+                }
+            ]
+        )
+        client, extractions = build(StubDriver(answers=[answer]))
+        upload(client, [("hpcl.txt", b"HP Tuffbit VG40 70060 Koyali")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert "<colgroup>" in page
+        # The two widest <col> shares in the group belong to Name and Basis
+        # (columns 1 and 7 of the header row: Name, Price, Min, Max,
+        # Currency, Unit, Basis, Date, Note, Use this, blank).
+        widths = [int(pct) for pct in re.findall(r'width:(\d+)%', page.split("<colgroup>")[1].split("</colgroup>")[0])]
+        assert len(widths) == 11
+        name_width, basis_width = widths[0], widths[6]
+        others = widths[1:6] + widths[7:]
+        assert all(name_width > other for other in others)
+        assert all(basis_width > other for other in others)
+
+    def test_the_row_inputs_grow_with_their_column_rather_than_a_fixed_size(self):
+        answer = json.dumps(
+            [
+                {
+                    "name": "Bit Bulk VG30", "price": 70060, "currency": "INR",
+                    "basis": "Ex Mumbai Refinery",
+                }
+            ]
+        )
+        client, extractions = build(StubDriver(answers=[answer]))
+        upload(client, [("bpcl.txt", b"Bit Bulk VG30 70060 Ex Mumbai Refinery")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert 'name="name" value="Bit Bulk VG30" style="width:100%"' in page
+        assert 'name="basis" value="Ex Mumbai Refinery" style="width:100%"' in page
+        assert 'name="currency" value="INR" style="width:100%"' in page
+
+    def test_the_table_scrolls_inside_its_own_panel_not_the_page(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        # .panel's own overflow-x:auto (defined once in base.html) is the
+        # scroll container; the table declares a bounded min-width rather
+        # than forcing the page body itself to scroll sideways.
+        assert "overflow-x:auto" in page
+        match = re.search(r'<table class="reading-table" style="[^"]*min-width:(\d+(?:\.\d+)?)rem', page)
+        assert match, page
+        # Well short of a laptop's own width so the page never forces a
+        # wider-than-the-screen layout.
+        assert float(match.group(1)) <= 70
+
+    def test_every_existing_control_survives_the_layout_change(self):
+        answer = json.dumps([{"name": "Bit Bulk VG30", "price": 70060, "note": "BASIC"}])
+        client, extractions = build(StubDriver(answers=[answer]))
+        response = upload(
+            client, [("bpcl.txt", b"Bit Bulk VG30 70060 BASIC")], pricedate="2026-09-01"
+        )
+
+        page = client.get(response.headers["location"]).text
+
+        assert "Save" in page
+        assert 'name="kept" value="1"' in page
+        assert "Add a price from this report" in page
+        assert 'type="hidden" name="pricedate" value="2026-09-01"' in page
+        assert "<th>Note</th>" in page
+
+        # The owner's vocabulary only, and only within this screen's own
+        # body content -- base.html's shared <style> carries an unrelated
+        # code comment mentioning "rulebook" for the Price rules screen,
+        # which is not this screen's concern and not something a person
+        # reads here, and the <title> can repeat the h1's own words.
+        body = page.split("</style>", 1)[1]
+        content = body.split("Check what was read", 1)[1]
+        for forbidden in ("extraction", "parsed", "derived", "rulebook"):
+            assert forbidden not in content.lower()
 
 
 class TestAddingAPriceTheModelMissed:
