@@ -7,11 +7,14 @@ is small enough to be read properly, and it makes plain which file gave
 what, which a merged prompt never could.
 
 A file that fails costs that file. Four reports already read are never
-thrown away because the fifth timed out.
+thrown away because the fifth timed out -- and a file that failed says so on
+the screen, because a silent failure and a report with no prices in it look
+identical otherwise.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date
 from urllib.parse import quote, urlencode
@@ -25,10 +28,34 @@ from ..editorial.reading import parse_reading, reading_prompt
 from .routes import tone_for
 from .routes_editorial import MAX_DOCUMENTS, MAX_DOCUMENT_BYTES
 
-# Same shape parse_reading holds a model's own reports to (app/editorial/reading.py).
-# A hand-typed correction is held to it too -- a garbled date is a screenful, not a
-# 500 from the database's DATE column.
-_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# The shape the screen and the prompt both ask for. It is only the shape:
+# "2026-13-01" and "2026-02-31" match it and are not days, so the calendar
+# itself has the last word below.
+_ISO_SHAPE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+IMAGE_PROMPT = (
+    "Transcribe every price table and price figure in these images as "
+    "plain text. Keep all company names, grades, viscosities and numbers "
+    "exactly as shown, one line per row, with column labels."
+)
+
+
+def _is_a_day(text: str) -> bool:
+    """YYYY-MM-DD, and a day that exists.
+
+    A shape check alone let a hand-typed "2026-02-31" through to a DATE
+    column, where psycopg raised and the whole row edit became a 500 --
+    losing every other correction in that row.
+    """
+    if not _ISO_SHAPE.fullmatch(text):
+        return False
+
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+
+    return True
 
 
 def create_reading_routes(
@@ -97,6 +124,15 @@ def create_reading_routes(
 
         return templates.TemplateResponse(request, "reading.html", context, status_code=status)
 
+    def back_to_upload(slug: str, message: str) -> RedirectResponse:
+        """A rejected upload belongs on the screen that carries the upload
+        form. Rendering reading.html with no reading gave a page headed
+        "Check what was read" saying "Nothing has been read yet", with
+        nothing on it to try again with."""
+        return RedirectResponse(
+            f"/console/sites/{slug}/editorial?err={quote(message)}", status_code=303
+        )
+
     @router.post("/console/sites/{slug}/reading")
     async def read_files(request: Request, slug: str):
         user, site, response = guard(request, slug)
@@ -112,13 +148,10 @@ def create_reading_routes(
         pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
 
         if not uploads:
-            return screen(request, user, site, {"error": "Choose at least one report."}, 422)
+            return back_to_upload(slug, "Choose at least one report.")
 
         if len(uploads) > MAX_DOCUMENTS:
-            return screen(
-                request, user, site,
-                {"error": f"At most {MAX_DOCUMENTS} reports at a time."}, 422,
-            )
+            return back_to_upload(slug, f"At most {MAX_DOCUMENTS} reports at a time.")
 
         bodies = []
 
@@ -126,10 +159,7 @@ def create_reading_routes(
             raw = await upload.read()
 
             if len(raw) > MAX_DOCUMENT_BYTES:
-                return screen(
-                    request, user, site,
-                    {"error": f"{upload.filename} is larger than 10 MB."}, 422,
-                )
+                return back_to_upload(slug, f"{upload.filename} is larger than 10 MB.")
 
             bodies.append((upload.filename or "report", raw))
 
@@ -148,15 +178,26 @@ def create_reading_routes(
             # Reports embed whole price tables as pictures -- the USA posted
             # prices are one -- so each file's own pictures are transcribed
             # into its own text before it is read. A provider without vision
-            # costs the pictures, never the file.
-            if images and hasattr(active, "generate_with_images"):
+            # costs the pictures, never the file. Every way that can fail is
+            # said out loud: a picture silently unread is 40 plausible rows
+            # with the USA prices quietly missing from them.
+            if images and not hasattr(active, "generate_with_images"):
+                failures.append(
+                    f"{filename}: {len(images)} image(s) in it could not be read — "
+                    "pick a vision-capable provider on the AI settings screen."
+                )
+            elif images:
                 try:
-                    seen = active.generate_with_images(
-                        "Transcribe every price table and price figure in these images as "
-                        "plain text. Keep all company names, grades, viscosities and numbers "
-                        "exactly as shown, one line per row, with column labels.",
-                        images[:6],
-                    )
+                    # The editor's note is usually about the pictures themselves
+                    # ("the USA prices are in the picture"), so it rides here too.
+                    image_prompt = IMAGE_PROMPT
+
+                    if instructions:
+                        image_prompt += (
+                            "\nEditor's instructions (guidance only): " + instructions
+                        )
+
+                    seen = active.generate_with_images(image_prompt, images[:6])
                     note_usage(
                         kind="extract_file_images", provider=provider_name, model=model,
                         status=seen.status, prompt_tokens=seen.prompt_tokens,
@@ -165,11 +206,17 @@ def create_reading_routes(
 
                     if seen.status == "complete" and (seen.text or "").strip():
                         text += "\n\nFigures transcribed from pictures in this report:\n" + seen.text
-                except Exception:  # noqa: BLE001 - pictures are optional
+                    else:
+                        failures.append(
+                            f"{filename}: the pictures in it were not read — "
+                            + (seen.error or "the model declined to read them.")
+                        )
+                except Exception as error:  # noqa: BLE001 - pictures are optional
                     note_usage(
                         kind="extract_file_images", provider=provider_name, model=model,
                         status="failed", site_slug=site.slug,
                     )
+                    failures.append(f"{filename}: the pictures in it were not read — {error}")
 
             if not text.strip():
                 extractions.add_rows(reading.id, filename, [])
@@ -203,13 +250,21 @@ def create_reading_routes(
                 parse_reading(answer.text) if answer.status == "complete" else [],
             )
 
+            # A length cap, a refusal or a safety stop is not a report with no
+            # prices in it, and the screen said the same thing for both.
+            if answer.status != "complete":
+                failures.append(
+                    f"{filename} was not read to the end — "
+                    + (answer.error or f"the model stopped ({answer.status}).")
+                )
+
         store.record(
             user.email, "read reports", site.slug, f"{len(bodies)} file(s), reading #{reading.id}"
         )
         query = {"pricedate": pricedate}
 
         if failures:
-            query["err"] = "; ".join(failures)[:400]
+            query["err"] = "; ".join(failures)[:1000]
 
         target = f"/console/sites/{slug}/reading/{reading.id}?{urlencode(query)}"
 
@@ -232,15 +287,30 @@ def create_reading_routes(
         )
 
     def grouped_files(reading, rows) -> list[dict]:
-        rows_by_file: dict[str, list] = {filename: [] for filename in reading.files}
+        """One panel per file that was read -- per row of the files table, not
+        per filename. Two reports both called report.docx are two uploads and
+        two panels; keying on the name merged them into one."""
+        panels: dict[object, dict] = {}
+
+        for entry in reading.files:
+            file_id = getattr(entry, "id", None)
+            filename = getattr(entry, "filename", entry)
+            panels[file_id if file_id is not None else ("name", filename)] = {
+                "id": file_id, "filename": filename, "rows": [],
+            }
 
         for row in rows:
-            rows_by_file.setdefault(row.filename, []).append(row)
+            key = getattr(row, "file_id", None)
 
-        return [
-            {"filename": filename, "rows": file_rows}
-            for filename, file_rows in rows_by_file.items()
-        ]
+            if key is None or key not in panels:
+                key = ("name", row.filename)
+
+            panel = panels.setdefault(
+                key, {"id": getattr(row, "file_id", None), "filename": row.filename, "rows": []}
+            )
+            panel["rows"].append(row)
+
+        return list(panels.values())
 
     @router.get("/console/sites/{slug}/reading/{set_id}", response_class=HTMLResponse)
     def check(request: Request, slug: str, set_id: int):
@@ -267,6 +337,78 @@ def create_reading_routes(
         return screen(
             request, user, site,
             {"set": reading, "files": files, "flash": flash, "pricedate": pricedate},
+        )
+
+    def checked_fields(form_data) -> tuple[dict | None, str | None]:
+        """One row's worth of hand-typed figures, or the reason to refuse them.
+
+        Shared by the correction form and the add-a-row form, so a row the
+        editor types is held to exactly what a row the editor corrects is.
+        """
+
+        def numeric(field: str) -> float | None:
+            raw = form_data.get(field)
+            raw = raw.strip() if isinstance(raw, str) else raw
+
+            if not raw:
+                return None
+
+            number = float(raw)
+
+            # float("nan") <= 0 is False, so nan walked straight past a
+            # positivity check and into a NUMERIC column. Same rule as
+            # review.py's _positive_number.
+            if not math.isfinite(number):
+                raise ValueError("not a finite number")
+
+            return number
+
+        def optional(field: str) -> str | None:
+            value = form_data.get(field)
+            value = value.strip() if isinstance(value, str) else value
+
+            return value or None
+
+        try:
+            price = numeric("price")
+            price_min = numeric("price_min")
+            price_max = numeric("price_max")
+        except (TypeError, ValueError):
+            return None, "That price is not a number."
+
+        if price is None:
+            return None, "That row needs a price."
+
+        if price <= 0:
+            return None, "A price has to be more than zero."
+
+        name = str(form_data.get("name") or "").strip()
+
+        # TEXT NOT NULL takes the empty string happily. A nameless row stays
+        # ticked, reaches the analysis as {"name": ""}, cannot be placed
+        # against any location, and the price simply disappears.
+        if not name:
+            return None, "That row needs a name — a price with no name cannot be used."
+
+        date_text = optional("price_date")
+
+        if date_text and not _is_a_day(date_text):
+            return None, "That date is not a real day in YYYY-MM-DD form."
+
+        return (
+            {
+                "name": name,
+                "price": price,
+                "price_min": price_min,
+                "price_max": price_max,
+                "currency": optional("currency"),
+                "unit": optional("unit"),
+                "basis": optional("basis"),
+                "price_date": date_text,
+                "note": optional("note"),
+                "kept": "kept" in form_data,
+            },
+            None,
         )
 
     @router.post("/console/sites/{slug}/reading/{set_id}/rows/{row_id}")
@@ -296,64 +438,75 @@ def create_reading_routes(
         # a row correction never resets the date chosen on the foot form back
         # to today.
         pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
+        fields, complaint = checked_fields(form_data)
 
-        def invalid(message: str) -> HTMLResponse:
+        if complaint is not None:
             return screen(
                 request, user, site,
                 {
-                    "set": reading, "files": grouped_files(reading, rows), "error": message,
+                    "set": reading, "files": grouped_files(reading, rows), "error": complaint,
                     "pricedate": pricedate,
                 },
                 422,
             )
 
-        def numeric(field: str) -> float | None:
-            raw = form_data.get(field)
-            raw = raw.strip() if isinstance(raw, str) else raw
-
-            if not raw:
-                return None
-
-            return float(raw)
-
-        try:
-            price = numeric("price")
-
-            if price is None or price <= 0:
-                raise ValueError("price must be a positive number")
-
-            price_min = numeric("price_min")
-            price_max = numeric("price_max")
-        except (TypeError, ValueError):
-            return invalid("That price is not a number.")
-
-        date_text = form_data.get("price_date")
-        date_text = date_text.strip() if isinstance(date_text, str) else date_text
-        date_text = date_text or None
-
-        if date_text and not _ISO_DATE.fullmatch(date_text):
-            return invalid("That date is not in YYYY-MM-DD form.")
-
-        def optional(field: str) -> str | None:
-            value = form_data.get(field)
-            value = value.strip() if isinstance(value, str) else value
-
-            return value or None
-
-        fields = {
-            "name": (form_data.get("name") or "").strip(),
-            "price": price,
-            "price_min": price_min,
-            "price_max": price_max,
-            "currency": optional("currency"),
-            "unit": optional("unit"),
-            "basis": optional("basis"),
-            "price_date": date_text,
-            "note": optional("note"),
-            "kept": "kept" in form_data,
-        }
-
         extractions.update_row(row_id, **fields)
+
+        return RedirectResponse(
+            f"/console/sites/{slug}/reading/{set_id}?{urlencode({'pricedate': pricedate})}",
+            status_code=303,
+        )
+
+    @router.post("/console/sites/{slug}/reading/{set_id}/rows")
+    async def add_row(request: Request, slug: str, set_id: int):
+        """The spec's fourth verb: "change a figure, fix a name, drop a row, or
+        add one the model missed". When the model skips a whole table the
+        editor can now see the gap -- this is what lets them fill it."""
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        reading = extractions.set_by_id(set_id)
+
+        if reading is None or reading.site_slug != site.slug:
+            return not_found(request, user, site)
+
+        rows = extractions.rows_for(set_id)
+        form_data = await request.form()
+        pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
+        panels = grouped_files(reading, rows)
+
+        raw_file_id = str(form_data.get("file_id") or "").strip()
+        file_id = int(raw_file_id) if raw_file_id.isdigit() else None
+        panel = next(
+            (entry for entry in panels if file_id is not None and entry.get("id") == file_id),
+            None,
+        )
+        filename = (
+            panel["filename"] if panel is not None
+            else str(form_data.get("filename") or "").strip()
+        )
+
+        def refuse(message: str) -> HTMLResponse:
+            return screen(
+                request, user, site,
+                {"set": reading, "files": panels, "error": message, "pricedate": pricedate},
+                422,
+            )
+
+        # The new row has to land under a file of this reading, or it would
+        # show up in no panel at all and be invisible the moment it was typed.
+        if panel is None and filename not in {entry["filename"] for entry in panels}:
+            return refuse("That price could not be added to any of these reports.")
+
+        fields, complaint = checked_fields(form_data)
+
+        if complaint is not None:
+            return refuse(complaint)
+
+        extractions.add_row(set_id, filename, fields, file_id=file_id)
+        store.record(user.email, "added a price", site.slug, f"{fields['name']} in {filename}")
 
         return RedirectResponse(
             f"/console/sites/{slug}/reading/{set_id}?{urlencode({'pricedate': pricedate})}",

@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.ai.providers import AiCompletion, AiProviderError
 from app.console.routes_reading import create_reading_routes
-from app.db.store import ReadingSet, ReadRow, StoredSite
+from app.db.store import ReadFile, ReadingSet, ReadRow, StoredSite
 
 SITE = StoredSite(
     db_id=1, slug="baseoil", name="Base Oil Report",
@@ -24,50 +24,88 @@ SITE = StoredSite(
 )
 
 ANSWER = json.dumps([{"name": "FOB Asia SN 150", "price": 1260, "currency": "USD"}])
+RANGE_ANSWER = json.dumps(
+    [
+        {
+            "name": "FOB Asia SN 150", "price": 1550, "price_min": 1540,
+            "price_max": 1560, "currency": "USD",
+        }
+    ]
+)
 
 
 class FakeStore:
+    def __init__(self, site=SITE):
+        self.site = site
+        self.recorded = []
+
     def site_by_slug(self, slug):
-        return SITE if slug == SITE.slug else None
+        return self.site if slug == self.site.slug else None
 
     def record(self, *args, **kwargs):
-        pass
+        self.recorded.append(args)
 
 
 class FakeExtractions:
+    """Keeps what it is given, the way the real store does: a file is a row
+    of its own (two uploads can share a name), and every price row remembers
+    which file row it came out of."""
+
     def __init__(self):
         self.sets = {}
         self.added = []
         self.updated = []
-        self._next = 1
+        self.inserted = []
+        self._rows = {}
+        self._next_set = 1
+        self._next_file = 1
+        self._next_row = 1
 
     def open_set(self, site_slug, created_by):
         made = ReadingSet(
-            id=self._next, site_slug=site_slug, created_by=created_by,
+            id=self._next_set, site_slug=site_slug, created_by=created_by,
             created_at=None, files=[],
         )
-        self.sets[self._next] = made
-        self._next += 1
+        self.sets[self._next_set] = made
+        self._rows[self._next_set] = []
+        self._next_set += 1
 
         return made
 
     def add_rows(self, set_id, filename, rows):
         self.added.append((filename, rows))
+        file_id = self._next_file
+        self._next_file += 1
+        held = self.sets[set_id]
+        self.sets[set_id] = dataclasses.replace(
+            held, files=[*held.files, ReadFile(id=file_id, filename=filename)]
+        )
+
+        for row in rows:
+            self._keep(set_id, file_id, filename, row)
+
+    def add_row(self, set_id, filename, row, file_id=None):
+        self.inserted.append((set_id, filename, row, file_id))
+        self._keep(set_id, file_id, filename, row)
+
+    def _keep(self, set_id, file_id, filename, row):
+        self._rows.setdefault(set_id, []).append(
+            ReadRow(
+                id=self._next_row, set_id=set_id, filename=filename, name=row["name"],
+                price=row["price"], price_min=row.get("price_min"),
+                price_max=row.get("price_max"), currency=row.get("currency"),
+                unit=row.get("unit"), basis=row.get("basis"),
+                price_date=row.get("price_date"), note=row.get("note"),
+                kept=row.get("kept", True), file_id=file_id,
+            )
+        )
+        self._next_row += 1
 
     def set_by_id(self, set_id):
         return self.sets.get(set_id)
 
     def rows_for(self, set_id):
-        return [
-            ReadRow(
-                id=index + 1, set_id=set_id, filename=filename, name=row["name"],
-                price=row["price"], price_min=None, price_max=None,
-                currency=row.get("currency"), unit=None, basis=None,
-                price_date=None, note=None, kept=True,
-            )
-            for index, (filename, rows) in enumerate(self.added)
-            for row in rows
-        ]
+        return list(self._rows.get(set_id, []))
 
     def update_row(self, row_id, **fields):
         self.updated.append((row_id, fields))
@@ -95,12 +133,12 @@ class StubDriver:
         )
 
 
-def build(driver=None, extractions=None):
+def build(driver=None, extractions=None, store=None):
     extractions = extractions or FakeExtractions()
     app = FastAPI()
     app.include_router(
         create_reading_routes(
-            store=FakeStore(),
+            store=store or FakeStore(),
             extractions=extractions,
             templates=Jinja2Templates(directory="app/templates"),
             current_user=lambda request: type(
@@ -173,7 +211,7 @@ class TestReadingEachFileOnItsOwn:
 
         response = upload(client, [(f"{n}.txt", b"x") for n in range(6)])
 
-        assert response.status_code == 422
+        assert response.status_code == 303
         assert extractions.added == []
 
     def test_no_file_at_all_is_refused(self):
@@ -181,8 +219,36 @@ class TestReadingEachFileOnItsOwn:
 
         response = client.post("/console/sites/baseoil/reading", follow_redirects=False)
 
-        assert response.status_code == 422
+        assert response.status_code == 303
         assert extractions.added == []
+
+
+class TestARefusedUploadLandsWhereTheUploadFormIs:
+    """Rendering reading.html with no reading gave a page headed "Check what
+    was read" saying "Nothing has been read yet" -- and no upload form, which
+    lives on the editorial screen. The refusal now goes back there, the way
+    `stage` already reports its errors."""
+
+    def test_no_file_redirects_to_the_upload_screen_with_the_reason(self):
+        client, extractions = build()
+
+        response = client.post("/console/sites/baseoil/reading", follow_redirects=False)
+
+        assert response.status_code == 303
+        location = response.headers["location"]
+        assert location.startswith("/console/sites/baseoil/editorial?err=")
+        assert "Choose%20at%20least%20one%20report." in location
+
+    def test_too_many_files_redirects_to_the_upload_screen_with_the_reason(self):
+        client, extractions = build()
+
+        response = upload(client, [(f"{n}.txt", b"x") for n in range(6)])
+
+        assert response.status_code == 303
+        assert response.headers["location"].startswith(
+            "/console/sites/baseoil/editorial?err="
+        )
+        assert "At%20most%205%20reports" in response.headers["location"]
 
 
 class TestCheckingWhatWasRead:
@@ -455,3 +521,328 @@ class TestThePriceDateCarriesThrough:
 
         page = client.get(response.headers["location"]).text
         assert 'name="pricedate" value="2026-08-12"' in page
+
+        # The foot form carries the date too, so the assertions above stay
+        # green if the per-row hidden field is deleted -- and the date then
+        # silently resets to today on the next correction, which silently
+        # picks today's ECB rate. Pin the hidden field itself.
+        assert 'type="hidden" name="pricedate" value="2026-08-12"' in page
+
+
+class TestTheWholeRangeIsVisibleAndCorrectable:
+    """The range used to ride each row as two hidden inputs: never shown,
+    never editable, stored, and handed to the analysis -- which turns them
+    back into the staged midpoint. A report printing 1,450-1,500 misread as
+    1,540-1,560 showed a single Price box saying 1540; correcting it to 1450
+    left 1540/1560 untouched, and 1550 was staged. The correction changed
+    nothing, and nothing said so."""
+
+    def test_min_and_max_are_editable_boxes_not_hidden_fields(self):
+        client, extractions = build(StubDriver(answers=[RANGE_ANSWER]))
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1540-1560")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert '<th>Min</th>' in page
+        assert '<th>Max</th>' in page
+        assert 'type="hidden" name="price_min"' not in page
+        assert 'type="hidden" name="price_max"' not in page
+        assert 'type="number" step="any" name="price_min" value="1540.0"' in page
+        assert 'type="number" step="any" name="price_max" value="1560.0"' in page
+
+    def test_a_corrected_range_is_what_gets_saved(self):
+        client, extractions = build(StubDriver(answers=[RANGE_ANSWER]))
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1540-1560")])
+
+        client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1475", "price_min": "1450",
+                "price_max": "1500", "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        saved = extractions.updated[0][1]
+        assert (saved["price_min"], saved["price_max"]) == (1450.0, 1500.0)
+
+
+class TestACorrectionIsHeldToRealValues:
+    def test_a_shape_valid_impossible_date_is_a_422_not_a_500(self):
+        # "2026-02-31" matched the old YYYY-MM-DD pattern, reached the DATE
+        # column, and psycopg raised -- a 500 that lost every other edit in
+        # the row.
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "price_date": "2026-02-31",
+                "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.updated == []
+
+    def test_a_thirteenth_month_is_a_422_too(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={
+                "name": "FOB Asia SN 150", "price": "1300", "price_date": "2026-13-01",
+                "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.updated == []
+
+    def test_a_blank_name_is_refused_rather_than_silently_voiding_the_row(self):
+        # name is TEXT NOT NULL and "" is legal, so the row stayed ticked,
+        # reached the analysis as {"name": ""}, matched nothing, and the
+        # price vanished from the draft with no message anywhere.
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={"name": "   ", "price": "1300", "kept": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert "needs a name" in response.text
+        assert extractions.updated == []
+
+    def test_nan_never_reaches_the_price_column(self):
+        # float("nan") <= 0 is False, so nan walked past the positivity check.
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={"name": "FOB Asia SN 150", "price": "nan", "kept": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.updated == []
+
+    def test_a_zero_price_is_not_reported_as_not_a_number(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows/1",
+            data={"name": "FOB Asia SN 150", "price": "0", "kept": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert "more than zero" in response.text
+        assert "not a number" not in response.text
+
+
+class TestAFailureSaysWhatItWas:
+    """"No prices found in this report" was printed for a genuinely empty
+    report, a length cap, a refusal and a safety stop alike."""
+
+    def test_a_model_that_stopped_short_says_so_instead_of_reading_as_empty(self):
+        class Capped(StubDriver):
+            def generate(self, prompt):
+                self.prompts.append(prompt)
+
+                return AiCompletion(
+                    status="length", text=None, prompt_tokens=1, completion_tokens=1,
+                    error="The answer hit the length limit.",
+                )
+
+        client, extractions = build(Capped())
+
+        response = upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        assert response.status_code == 303
+        assert "err=" in response.headers["location"]
+
+        page = client.get(response.headers["location"]).text
+        assert "length limit" in page
+        assert "was not read to the end" in page
+
+
+class TestPicturesThatCouldNotBeRead:
+    """Three ways the picture call fails, all of them silent until now. This
+    is the USA-posted-prices case: the editor sees 40 plausible rows and the
+    USA locations come back with no evidence two screens later."""
+
+    @staticmethod
+    def _with_pictures(monkeypatch):
+        monkeypatch.setattr(
+            "app.console.routes_reading.document_images",
+            lambda filename, raw: [("image/png", b"not-really-a-png")],
+        )
+
+    def test_a_provider_that_cannot_see_says_so(self, monkeypatch):
+        self._with_pictures(monkeypatch)
+        # StubDriver has no generate_with_images at all.
+        client, extractions = build()
+
+        response = upload(client, [("lube.docx", b"FOB Asia SN 150 1260")])
+        page = client.get(response.headers["location"]).text
+
+        assert "vision-capable provider" in page
+
+    def test_a_declined_transcription_surfaces_the_reason(self, monkeypatch):
+        self._with_pictures(monkeypatch)
+
+        class Blind(StubDriver):
+            def generate_with_images(self, prompt, images):
+                return AiCompletion(
+                    status="declined", text=None, prompt_tokens=1, completion_tokens=1,
+                    error="The model would not read the picture.",
+                )
+
+        client, extractions = build(Blind())
+
+        response = upload(client, [("lube.docx", b"FOB Asia SN 150 1260")])
+        page = client.get(response.headers["location"]).text
+
+        assert "would not read the picture" in page
+
+    def test_a_transcription_that_raises_surfaces_the_error(self, monkeypatch):
+        self._with_pictures(monkeypatch)
+
+        class Exploding(StubDriver):
+            def generate_with_images(self, prompt, images):
+                raise AiProviderError("the vision endpoint is down")
+
+        client, extractions = build(Exploding())
+
+        response = upload(client, [("lube.docx", b"FOB Asia SN 150 1260")])
+        page = client.get(response.headers["location"]).text
+
+        assert "the vision endpoint is down" in page
+
+    def test_the_saved_instructions_ride_on_the_picture_call_too(self, monkeypatch):
+        # "The USA prices are in the picture" is the literal placeholder on
+        # the instructions box; a fixed prompt threw it away.
+        self._with_pictures(monkeypatch)
+        seen = {}
+
+        class Seeing(StubDriver):
+            def generate_with_images(self, prompt, images):
+                seen["prompt"] = prompt
+
+                return AiCompletion(
+                    status="complete", text="USA posted prices 1500",
+                    prompt_tokens=1, completion_tokens=1, error=None,
+                )
+
+        store = FakeStore(
+            dataclasses.replace(
+                SITE, editorial_instructions="The USA prices are in the picture."
+            )
+        )
+        client, extractions = build(Seeing(), store=store)
+
+        upload(client, [("lube.docx", b"FOB Asia SN 150 1260")])
+
+        assert "The USA prices are in the picture." in seen["prompt"]
+
+
+class TestTwoUploadsWithTheSameName:
+    def test_they_are_two_panels_not_one(self):
+        # Keyed on the filename, report.docx and report.docx merged into one
+        # panel with both files' prices in it.
+        client, extractions = build(StubDriver(answers=[ANSWER, ANSWER]))
+        upload(
+            client,
+            [("report.docx", b"FOB Asia SN 150 1260"), ("report.docx", b"Izmir 81212")],
+        )
+
+        reading = extractions.set_by_id(1)
+        assert [entry.filename for entry in reading.files] == ["report.docx", "report.docx"]
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+        assert page.count("<h2>report.docx</h2>") == 2
+
+
+class TestAddingAPriceTheModelMissed:
+    """The spec's fourth verb: "change a figure, fix a name, drop a row, or
+    add one the model missed". Seeing a skipped table and still not being
+    able to type its prices is the measured failure only half fixed."""
+
+    def test_the_form_is_on_every_file_panel(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert 'action="/console/sites/baseoil/reading/1/rows"' in page
+        assert "Add a price from this report" in page
+
+    def test_a_typed_price_is_kept_under_that_file(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+        file_id = extractions.set_by_id(1).files[0].id
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows",
+            data={
+                "file_id": str(file_id), "filename": "lube.txt",
+                "name": "Ex-tank Singapore SN 500", "price": "1480",
+                "price_min": "1460", "price_max": "1500", "currency": "usd",
+                "unit": "MT", "basis": "ex-tank", "price_date": "2026-08-19", "kept": "1",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        set_id, filename, row, stored_file_id = extractions.inserted[0]
+        assert (set_id, filename, stored_file_id) == (1, "lube.txt", file_id)
+        assert row["name"] == "Ex-tank Singapore SN 500"
+        assert (row["price"], row["price_min"], row["price_max"]) == (1480.0, 1460.0, 1500.0)
+        assert row["price_date"] == "2026-08-19"
+        assert row["kept"] is True
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+        assert "Ex-tank Singapore SN 500" in page
+
+    def test_a_typed_row_is_held_to_the_same_rules_as_a_correction(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+        file_id = extractions.set_by_id(1).files[0].id
+
+        for bad in (
+            {"name": "", "price": "1480"},
+            {"name": "SN 500", "price": "-5"},
+            {"name": "SN 500", "price": "about 1480"},
+            {"name": "SN 500", "price": "1480", "price_date": "2026-02-31"},
+        ):
+            response = client.post(
+                "/console/sites/baseoil/reading/1/rows",
+                data={"file_id": str(file_id), "filename": "lube.txt", **bad},
+                follow_redirects=False,
+            )
+
+            assert response.status_code == 422, bad
+            assert extractions.inserted == []
+
+    def test_a_price_cannot_be_added_to_a_file_of_another_reading(self):
+        client, extractions = build()
+        upload(client, [("lube.txt", b"FOB Asia SN 150 1260")])
+
+        response = client.post(
+            "/console/sites/baseoil/reading/1/rows",
+            data={"file_id": "999", "filename": "somebody-elses.txt",
+                  "name": "SN 500", "price": "1480"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        assert extractions.inserted == []
