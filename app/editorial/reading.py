@@ -17,6 +17,32 @@ import json
 import re
 from datetime import date
 
+# The model is asked for currency "as printed", and reports print symbols
+# and abbreviations as often as ISO codes -- a rupee sign, "Rs.", a euro
+# sign. FX conversion downstream keys off the ISO code, so a row that says
+# "₹" instead of "INR" is a row the conversion cannot act on: it never
+# matches a rate table keyed by ISO code. This is a deterministic lookup,
+# not arithmetic and not a judgement about the price itself -- code, never
+# the model, computes every number that reaches a price, and this touches
+# no number. A symbol this table does not know is left exactly as printed
+# rather than guessed at.
+_CURRENCY_SYMBOLS = {
+    "₹": "INR",
+    "RS": "INR",
+    "RS.": "INR",
+    "$": "USD",
+    "€": "EUR",
+    "£": "GBP",
+}
+
+
+def _normalise_currency(value: str) -> str:
+    """An ISO code as printed passes straight through; a known symbol maps
+    to its ISO code; anything else -- an unknown symbol or abbreviation --
+    is left exactly as printed rather than guessed at."""
+    return _CURRENCY_SYMBOLS.get(value, value)
+
+
 READING_PREAMBLE = """You are reading one market report and listing the prices it publishes.
 
 Return ONLY a JSON array. No prose, no code fence. One object per price the
@@ -38,6 +64,19 @@ Rules:
 - Keep every figure exactly as printed. Do NOT convert a currency, do not
   convert a unit, and do not average a range -- give a range as price_min
   and price_max.
+- basis is not optional. Carry the delivery basis in basis exactly as the
+  report prints it -- "Ex Mumbai Refinery", "Ex Sewree Installation, Mumbai",
+  "Ex Koyali Installation / Baroda Bitumen COD", "FOB", "CFR", "ex-rack".
+  Some reports price the very same item at several depots or on several
+  terms -- the same product name priced five different ways is a real,
+  measured case -- and basis together with note is the ONLY thing that
+  tells those rows apart. Leaving basis empty on a row like that makes the
+  figure unusable: nothing downstream can say which price belongs to which
+  place. If the report truly states no basis for a price, leave basis null
+  rather than guessing one -- but check first, because a delivery term or
+  place printed anywhere near the figure belongs there.
+- currency is not optional either. Copy it exactly as printed (a symbol,
+  an abbreviation, an ISO code -- whatever the report uses).
 - A percentage, a volume, a freight rate and a change-on-the-week are not
   prices. Leave them out.
 - Some reports print more than one figure for the same item: pre-tax and
@@ -48,6 +87,11 @@ Rules:
   example "BASIC", "TOTAL incl. GST", "PREVIOUS"). The name stays exactly
   as the report writes it either way; the qualifier belongs in note, never
   folded into the name.
+- basis and note answer different questions and BOTH must be filled when
+  the report supports them: basis says WHERE or on WHAT TERMS a price
+  applies, note says WHICH COLUMN of a multi-column table it came from.
+  A report can need one, the other, or both on the same row. Filling one
+  is never a reason to leave the other empty.
 - If the report prints no price at all, return []."""
 
 
@@ -109,12 +153,14 @@ def _row(entry) -> dict | None:
     if not name or price is None:
         return None
 
+    currency = (_text(entry.get("currency")) or "").upper() or None
+
     return {
         "name": name,
         "price": price,
         "price_min": low,
         "price_max": high,
-        "currency": (_text(entry.get("currency")) or "").upper() or None,
+        "currency": _normalise_currency(currency) if currency else None,
         "unit": _text(entry.get("unit")),
         "basis": _text(entry.get("basis")),
         "price_date": _iso_date(entry.get("price_date")),

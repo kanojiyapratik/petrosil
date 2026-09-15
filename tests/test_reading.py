@@ -52,6 +52,37 @@ class TestWhatOneReportIsAsked:
         assert "TOTAL incl. GST" in prompt
         assert "in note" in prompt
 
+    def test_basis_is_told_to_carry_the_delivery_location_exactly_as_printed(self):
+        # A real regression: on a later run of the same BPCL circular, basis
+        # came back empty on every row, and the same product priced at five
+        # different depots became indistinguishable.
+        prompt = reading_prompt("text", "a.docx")
+
+        assert "Ex Mumbai Refinery" in prompt
+        assert "Ex Sewree Installation, Mumbai" in prompt
+        assert "Ex Koyali Installation / Baroda Bitumen COD" in prompt
+
+    def test_basis_is_told_it_is_not_optional_and_why(self):
+        prompt = reading_prompt("text", "a.docx")
+
+        assert "basis is not optional" in prompt
+        assert "currency is not optional" in prompt
+
+    def test_the_note_instruction_survives_alongside_the_basis_instruction(self):
+        # The failure this guards: the model dropped basis while still
+        # obeying the note instruction. Both have to be present together,
+        # and the prompt must say neither excuses dropping the other.
+        prompt = reading_prompt("text", "a.docx")
+
+        assert "one row PER figure" in prompt
+        assert "basis is not optional" in prompt
+        assert "is never a reason to leave the other empty" in prompt
+
+    def test_the_name_contract_is_unchanged(self):
+        prompt = reading_prompt("text", "a.docx")
+
+        assert "exactly as the report writes it" in prompt
+
 
 class TestReadingTheAnswer:
     def test_a_plain_answer_becomes_rows(self):
@@ -115,6 +146,46 @@ class TestReadingTheAnswer:
         rows = parse_reading(json.dumps([{"name": "Izmir", "price": 81212, "currency": "try"}]))
 
         assert rows[0]["currency"] == "TRY"
+
+    def test_a_rupee_symbol_is_mapped_to_the_iso_code(self):
+        # HPCL circular regression: the model printed the symbol it read
+        # rather than the ISO code, and FX conversion downstream keys off
+        # the ISO code -- a row that says the symbol is a row the
+        # conversion cannot act on.
+        rows = parse_reading(
+            json.dumps([{"name": "HP Tuffbit VG40", "price": 70060, "currency": "₹"}])
+        )
+
+        assert rows[0]["currency"] == "INR"
+
+    def test_common_printed_symbols_map_to_iso_codes(self):
+        cases = [("$", "USD"), ("€", "EUR"), ("£", "GBP")]
+
+        for symbol, iso in cases:
+            rows = parse_reading(json.dumps([{"name": "A", "price": 10, "currency": symbol}]))
+
+            assert rows[0]["currency"] == iso, symbol
+
+    def test_rs_abbreviations_map_to_inr(self):
+        for spelling in ("Rs", "Rs.", "rs", "rs."):
+            rows = parse_reading(
+                json.dumps([{"name": "A", "price": 10, "currency": spelling}])
+            )
+
+            assert rows[0]["currency"] == "INR", spelling
+
+    def test_an_iso_code_passes_through_untouched(self):
+        rows = parse_reading(json.dumps([{"name": "A", "price": 10, "currency": "usd"}]))
+
+        assert rows[0]["currency"] == "USD"
+
+    def test_an_unknown_symbol_is_left_as_printed(self):
+        # The table maps only what it knows; it never guesses, since a wrong
+        # guess about currency is worse than an untouched symbol that at
+        # least tells the editor something is unmapped.
+        rows = parse_reading(json.dumps([{"name": "A", "price": 10, "currency": "₺"}]))
+
+        assert rows[0]["currency"] == "₺"
 
     def test_a_date_that_is_not_a_date_is_dropped_not_guessed(self):
         rows = parse_reading(
