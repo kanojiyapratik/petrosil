@@ -23,6 +23,17 @@ import requests
 
 MAX_ATTEMPTS = 3
 
+# A production read of a 705 KB full-page scan (HPCLPriceList010926.pdf) blew
+# past the 120s text timeout: transcribing that one image ran to 5,143
+# completion tokens, versus 202 and 10,806 for ordinary text reads made from
+# far smaller prompts. A vision call is doing real work a text completion
+# never does, and MAX_IMAGES (see app/editorial/extract.py) allows up to six
+# images in a single call, so the worst case is several such transcriptions
+# back to back. This is generous enough to cover that batch on a slow
+# provider without being so long that a wedged connection ties up the
+# editor's browser for the whole request.
+IMAGE_TIMEOUT_SECONDS = 300
+
 
 class AiQuotaExhausted(RuntimeError):
     """The key is out of quota.
@@ -195,6 +206,7 @@ class _Driver:
         model: str,
         session: requests.Session | None = None,
         timeout_seconds: int = 120,
+        image_timeout_seconds: int = IMAGE_TIMEOUT_SECONDS,
         backoff_seconds: float = 1.0,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -202,27 +214,34 @@ class _Driver:
         self.model = model
         self._session = session or requests.Session()
         self._timeout = timeout_seconds
+        self._image_timeout = image_timeout_seconds
         self._backoff = backoff_seconds
         self._sleep = sleep
 
     def generate(self, prompt: str) -> AiCompletion:
-        return self._send(self._body(prompt))
+        return self._send(self._body(prompt), timeout=self._timeout)
 
     def generate_with_images(
         self, prompt: str, images: list[tuple[str, bytes]]
     ) -> AiCompletion:
         """The prompt plus pictures -- how a posted-price table embedded as a
-        PNG gets read. images is a list of (mime_type, raw bytes)."""
-        return self._send(self._image_body(prompt, images))
+        PNG gets read. images is a list of (mime_type, raw bytes).
 
-    def _send(self, body: dict) -> AiCompletion:
+        A vision call over a full-page scan runs long -- see
+        IMAGE_TIMEOUT_SECONDS -- so it gets its own, longer timeout rather
+        than the one sized for a plain text completion. A timeout here still
+        raises the same AiProviderError as any other failed request: it is
+        not retried and it is not swallowed."""
+        return self._send(self._image_body(prompt, images), timeout=self._image_timeout)
+
+    def _send(self, body: dict, timeout: int) -> AiCompletion:
         last_error: Exception | None = None
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = self._session.post(
                     self._url(), json=body, headers=self._headers(),
-                    timeout=self._timeout,
+                    timeout=timeout,
                 )
             except requests.RequestException as error:
                 last_error = error

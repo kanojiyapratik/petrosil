@@ -47,6 +47,10 @@ html,body { height:100%; overflow:hidden; }
 .spacer { flex:1; }
 .who { color:var(--muted); font-size:.85rem; }
 .content { padding:1.6rem 1.5rem 3.5rem; max-width:72rem; width:100%; flex:1; overflow-y:auto; }
+/* Opt-in per screen (the "check what was read" table needs it; nothing
+   else does) -- the content pane fills the window instead of stopping at
+   the shared 72rem column. */
+.content.wide { max-width:none; }
 
 h1 { font-size:1.45rem; letter-spacing:-.015em; margin:0 0 .3rem; }
 h2 { font-size:1rem; margin:0 0 .9rem; letter-spacing:-.005em; }
@@ -235,7 +239,7 @@ ul.steps li { margin-bottom:.25rem; }
         <button class="ghost" type="submit">Sign out</button>
       </form>
     </header>
-    <div class="content">
+    <div class="content{% block content_class %}{% endblock %}">
       {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.text }}</div>{% endif %}
       {% block content %}{% endblock %}
     </div>

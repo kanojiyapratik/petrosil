@@ -3,31 +3,101 @@
 <h1>AI editorial update</h1>
 <p class="lede">
   Upload market reports (Word, Excel, PDF or plain text — e.g. the weekly Lube Report). The AI
-  fetches a suggested price for every location, checked against the latest price
-  {{ site.name }} holds. You review the fetched prices here, keep the rows you agree with, and save
-  them from the review page. Nothing reaches {{ site.name }} until you press Save.
+  <strong>reads</strong> each report on its own; you <strong>check</strong> what it read on the
+  next screen and correct anything wrong; then the checked prices are <strong>used</strong> to
+  work out a price for every location {{ site.name }} tracks. Nothing reaches {{ site.name }}
+  until you press Save.
 </p>
 
 {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
-{% if image_note %}<div class="flash bad">{{ image_note }}</div>{% endif %}
+{% if waiting %}
+  <div class="flash ok">
+    A reading is waiting to be checked —
+    {{ waiting.files|length }} report{{ "" if waiting.files|length == 1 else "s" }} already read.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ waiting.id }}">Check what was read</a>
+  </div>
+{% endif %}
+{% if spent %}
+  <div class="flash ok">
+    The last reading was already used once &mdash;
+    {{ spent.files|length }} report{{ "" if spent.files|length == 1 else "s" }} read. If its
+    prices never reached {{ site.name }}, open it and use them again rather than uploading the
+    reports afresh.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ spent.id }}">Open what was read</a>
+  </div>
+{% endif %}
+{% if reuse %}
+  <div class="panel">
+    <div class="head"><h2>Use these prices again</h2></div>
+    <div class="body">
+      <p class="hint" style="margin-top:0">
+        These checked prices were used once already. If that run was lost — the page was closed,
+        or saving to {{ site.name }} failed — use them again here rather than uploading and
+        checking the reports a second time. It is another AI reading.
+      </p>
+      <form method="post" action="/console/sites/{{ site.slug }}/editorial/analyse"
+            data-working-title="Working out the prices&hellip;">
+        <input type="hidden" name="set_id" value="{{ reuse.set_id }}">
+        <input type="hidden" name="pricedate" value="{{ reuse.pricedate }}">
+        <input type="hidden" name="again" value="1">
+        {#- The used_at this button was drawn with. Using these prices moves it,
+            so a refresh or a back-forward re-POST of this same form arrives
+            holding a value that is no longer there and is refused rather than
+            buying a second draft. #}
+        <input type="hidden" name="used_at" value="{{ reuse.used_at }}">
+        <div class="actions"><button type="submit">Use these prices again</button></div>
+      </form>
+    </div>
+  </div>
+{% endif %}
 {% if benchmark_note %}<div class="flash bad">The second reading of the report figures failed, so only the first reading was used: {{ benchmark_note }}</div>{% endif %}
 
 <div class="panel">
   <div class="head"><h2>Upload market reports</h2></div>
   <div class="body">
-    <form method="post" action="/console/sites/{{ site.slug }}/editorial" enctype="multipart/form-data"
+    {#- Two separate forms, deliberately not nested (nesting a form inside a
+        form is invalid HTML): this one posts to /reading, the instructions
+        form below it posts to /console/sites/{slug}/editorial. Its submit
+        button is moved out to sit after the instructions form via the
+        form="reading-form" attribute, so the reading order on screen is
+        reports -> price date -> hint -> instructions -> Read the reports,
+        while both forms keep exactly the fields and action they always had. #}
+    <form id="reading-form" method="post" action="/console/sites/{{ site.slug }}/reading" enctype="multipart/form-data"
       data-working-title="Reading the reports&hellip;"
-      data-working-hint="The AI is reading the reports and drafting prices for every location — this can take a few minutes. Please keep this page open.">
+      data-working-hint="The AI is reading each report on its own — this can take a few minutes. Please keep this page open. You'll check what it found on the next screen before anything is used.">
       <div class="fields">
         <div class="field">
-          <label for="documents">Reports (up to 5, 10 MB each)</label>
-          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required>
+          <label for="documents">Reports (up to {{ max_documents }}, {{ max_document_mb }} MB each)</label>
+          {#- The one control that actually posts, with or without the script
+              below: a plain multiple-select file input works on its own, and
+              stays the source the form submits. Without the script this input
+              is exactly what "up to {{ max_documents }} files" already
+              promises -- a picker that cannot be reopened without replacing
+              the first choice. With it, #doc-trigger takes over as the one
+              thing on screen: it opens the same picker, and once a report is
+              in the list it relabels itself "Add another report" so there is
+              never a second, separate control for that. #}
+          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required
+            data-max-documents="{{ max_documents }}" data-max-bytes="{{ max_document_bytes }}">
+          <button type="button" id="doc-trigger" class="ghost" style="margin-top:.5rem" hidden>Choose files</button>
+          <ul id="doc-list" class="doc-list" style="list-style:none;margin:.5rem 0 0;padding:0" hidden></ul>
+          <p id="doc-note" class="hint" style="margin:.35rem 0 0" hidden></p>
+          <p id="doc-file-error" class="flash bad" style="margin:.5rem 0 0" hidden></p>
         </div>
         <div class="field">
           <label for="pricedate">Price date</label>
           <input id="pricedate" type="date" name="pricedate" value="{{ pricedate or today }}">
         </div>
       </div>
+      <p class="hint">
+        Nothing changes on the website from this step &mdash; you'll check what was read on the next
+        screen before choosing what to use. The AI is given the instructions <em>as saved</em>: if
+        you have just typed something in the box below, press <strong>Save instructions</strong>
+        first.
+      </p>
+    </form>
+
+    <form method="post" action="/console/sites/{{ site.slug }}/editorial" data-no-overlay="1">
       <div class="field">
         <label for="instructions">Extra instructions for the AI (optional)</label>
         <textarea id="instructions" name="instructions" rows="3" maxlength="4000"
@@ -36,14 +106,162 @@
         <p class="hint">Anything you want the AI to know about these reports. Remembered for next
           time &mdash; clear the box to remove them.</p>
       </div>
-      <p class="hint">
-        Nothing changes on the website from this step &mdash; you first review the fetched prices below
-        and choose what to keep.
-      </p>
-      <div class="actions"><button type="submit">Fetch prices from these reports</button></div>
+      <div class="actions"><button type="submit">Save instructions</button></div>
     </form>
+
+    <div class="actions"><button type="submit" id="reading-submit" form="reading-form">Read the reports</button></div>
   </div>
 </div>
+
+<script>
+// A plain <input type=file multiple> only ever expresses "the files chosen
+// together in one dialog" -- reopen the picker and the second choice
+// replaces the first, so there was no way to add a second report to an
+// already-made selection. This turns "documents" into an accumulating list
+// while keeping that same input as the one thing that actually posts:
+// what the picker returns on each round is merged into a running list here,
+// then written straight back to the input via DataTransfer, so the POST
+// body is exactly what the list on screen shows.
+//
+// One control, not two: the real input is hidden once this runs and
+// #doc-trigger stands in for it -- same picker, opened via input.click(),
+// relabelled between "Choose files" and "Add another report" depending on
+// whether the list is empty. A hidden file input still submits normally and
+// still fires "change" from a script-triggered click, so nothing about the
+// POST changes.
+//
+// Progressive enhancement only: everything below stays hidden, and the
+// input behaves exactly as it always did -- visible, plain, multiple-select
+// -- until this runs.
+(function () {
+  var input = document.getElementById('documents');
+  var trigger = document.getElementById('doc-trigger');
+  var list = document.getElementById('doc-list');
+  var note = document.getElementById('doc-note');
+  var fileError = document.getElementById('doc-file-error');
+  var submitButton = document.getElementById('reading-submit');
+
+  if (!input || !trigger || !list || !submitButton || typeof DataTransfer === 'undefined') return;
+
+  var maxDocuments = parseInt(input.dataset.maxDocuments, 10) || 5;
+  var maxBytes = parseInt(input.dataset.maxBytes, 10) || 0;
+  var maxMb = Math.round(maxBytes / (1024 * 1024));
+  var chosen = [];
+
+  function sameFile(a, b) { return a.name === b.name && a.size === b.size; }
+
+  function formatSize(bytes) {
+    return bytes >= 1024 * 1024
+      ? (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  }
+
+  function render() {
+    list.innerHTML = '';
+    list.hidden = chosen.length === 0;
+
+    chosen.forEach(function (file, index) {
+      var row = document.createElement('li');
+      row.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.2rem 0';
+
+      var label = document.createElement('span');
+      label.className = 'small';
+      label.style.flex = '1';
+      label.textContent = file.name + ' (' + formatSize(file.size) + ')';
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ghost';
+      remove.style.cssText = 'padding:.15rem .55rem';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', function () {
+        chosen.splice(index, 1);
+        sync();
+      });
+
+      row.appendChild(label);
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+
+    var atLimit = chosen.length >= maxDocuments;
+
+    note.hidden = false;
+    note.textContent = atLimit
+      ? chosen.length + ' of ' + maxDocuments + ' reports selected — remove one to add another.'
+      : chosen.length + ' of ' + maxDocuments + ' reports selected.';
+
+    trigger.disabled = atLimit;
+    trigger.textContent = atLimit
+      ? 'Limit reached'
+      : (chosen.length === 0 ? 'Choose files' : 'Add another report');
+
+    submitButton.disabled = chosen.length === 0;
+  }
+
+  function sync() {
+    // The only way to make the browser accept a built-up-in-script file
+    // list: a DataTransfer's own files, assigned onto the real input.
+    var transfer = new DataTransfer();
+    chosen.forEach(function (file) { transfer.items.add(file); });
+    input.files = transfer.files;
+    render();
+  }
+
+  function merge(files) {
+    fileError.hidden = true;
+
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+
+      if (maxBytes && file.size > maxBytes) {
+        fileError.hidden = false;
+        fileError.textContent = file.name + ' is larger than ' + maxMb + ' MB and was not added.';
+        continue;
+      }
+
+      var existing = -1;
+
+      for (var j = 0; j < chosen.length; j++) {
+        if (sameFile(chosen[j], file)) { existing = j; break; }
+      }
+
+      if (existing >= 0) {
+        // Same name and size chosen again -- replaces its old copy rather
+        // than sitting next to it as a second entry of the same report.
+        chosen[existing] = file;
+      } else if (chosen.length < maxDocuments) {
+        chosen.push(file);
+      } else {
+        fileError.hidden = false;
+        fileError.textContent = 'Only ' + maxDocuments + ' reports can be read at a time — ' +
+          file.name + ' was not added.';
+      }
+    }
+
+    sync();
+  }
+
+  input.addEventListener('change', function () {
+    // input.files here is only what this one dialog just returned -- one
+    // file or several picked together -- never the running total. merge()
+    // folds it into `chosen`; sync() writes the result back onto the input.
+    if (input.files && input.files.length) merge(input.files);
+  });
+
+  trigger.addEventListener('click', function () {
+    if (!trigger.disabled) input.click();
+  });
+
+  // The swap that makes this one control: the real input drops out of view
+  // (it still submits, hidden or not) and #doc-trigger takes its place as
+  // the only thing on screen that opens the picker.
+  input.hidden = true;
+  trigger.hidden = false;
+
+  render();
+})();
+</script>
 
 {% if batches is not none %}
 <div class="panel">

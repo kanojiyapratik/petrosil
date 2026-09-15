@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from app.ai.providers import (
+    IMAGE_TIMEOUT_SECONDS,
     PROVIDERS,
     AiProviderError,
     AiQuotaExhausted,
@@ -39,7 +40,7 @@ class FakeSession:
         self.calls = []
 
     def post(self, url, json=None, headers=None, timeout=None):
-        self.calls.append({"url": url, "json": json, "headers": headers or {}})
+        self.calls.append({"url": url, "json": json, "headers": headers or {}, "timeout": timeout})
         result = self._responses.pop(0)
 
         if isinstance(result, Exception):
@@ -178,6 +179,34 @@ class TestReadingImages:
             driver("groq", FakeSession()).generate_with_images("read", [("image/png", b"x")])
 
         assert "Groq" in str(error.value)
+
+    def test_an_image_call_uses_the_longer_timeout(self):
+        # A full-page scan transcription legitimately runs past the plain
+        # text timeout (see IMAGE_TIMEOUT_SECONDS's own comment); the image
+        # path must be given the room to finish honestly rather than time
+        # out early.
+        session = FakeSession(FakeResponse(OPENAI_OK))
+        driver("openai", session).generate_with_images("read this", [("image/png", b"\x89PNG")])
+
+        assert session.calls[0]["timeout"] == IMAGE_TIMEOUT_SECONDS
+
+    def test_a_text_call_keeps_the_shorter_default_timeout(self):
+        session = FakeSession(FakeResponse(OPENAI_OK))
+        driver("openai", session).generate("hi")
+
+        assert session.calls[0]["timeout"] == 120
+        assert session.calls[0]["timeout"] != IMAGE_TIMEOUT_SECONDS
+
+    def test_the_image_timeout_is_still_overridable(self):
+        session = FakeSession(FakeResponse(OPENAI_OK))
+        custom = create_driver(
+            "openai", "secret-key", PROVIDERS["openai"]["models"][0],
+            session=session, backoff_seconds=0, sleep=lambda _s: None,
+            image_timeout_seconds=17,
+        )
+        custom.generate_with_images("read this", [("image/png", b"\x89PNG")])
+
+        assert session.calls[0]["timeout"] == 17
 
 
 class TestFailures:

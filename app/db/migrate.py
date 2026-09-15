@@ -189,6 +189,66 @@ MIGRATIONS: list[Migration] = [
             ADD COLUMN adjustment_kind TEXT NOT NULL DEFAULT 'percent';
         """,
     ),
+    Migration(
+        id="0009_reading_sets",
+        sql="""
+        -- Step one of the editorial update: what the AI read out of each
+        -- uploaded report, in the report's own words, waiting for the editor
+        -- to check it. Kept in the database rather than in the page so that
+        -- four reports read and a reload does not lose them, and so there is
+        -- a record of what each report actually said.
+        CREATE TABLE console_reading_sets (
+          id         BIGSERIAL PRIMARY KEY,
+          site_slug  TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          used_at    TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE console_reading_rows (
+          id         BIGSERIAL PRIMARY KEY,
+          set_id     BIGINT NOT NULL REFERENCES console_reading_sets(id) ON DELETE CASCADE,
+          filename   TEXT NOT NULL,
+          name       TEXT NOT NULL,
+          price      NUMERIC NOT NULL,
+          price_min  NUMERIC,
+          price_max  NUMERIC,
+          currency   TEXT,
+          unit       TEXT,
+          basis      TEXT,
+          price_date DATE,
+          note       TEXT,
+          kept       BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- A file that yielded no prices still has to appear on the screen as
+        -- read, so the file list cannot be derived from the rows alone.
+        CREATE TABLE console_reading_files (
+          id       BIGSERIAL PRIMARY KEY,
+          set_id   BIGINT NOT NULL REFERENCES console_reading_sets(id) ON DELETE CASCADE,
+          filename TEXT NOT NULL,
+          read_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX console_reading_rows_set ON console_reading_rows (set_id);
+        CREATE INDEX console_reading_sets_open ON console_reading_sets (site_slug)
+            WHERE used_at IS NULL;
+        """,
+    ),
+    Migration(
+        id="0010_reading_rows_know_their_file",
+        sql="""
+        -- A row knew only the NAME of the file it came from, so two reports
+        -- uploaded together and both called report.docx were one panel on
+        -- the check screen with both files' prices in it. The file is the
+        -- row of console_reading_files, not the name on it.
+        ALTER TABLE console_reading_rows
+            ADD COLUMN file_id BIGINT REFERENCES console_reading_files(id) ON DELETE CASCADE;
+
+        CREATE INDEX console_reading_rows_file ON console_reading_rows (file_id);
+        """,
+    ),
 ]
 
 
