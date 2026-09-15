@@ -55,7 +55,14 @@
 <div class="panel">
   <div class="head"><h2>Upload market reports</h2></div>
   <div class="body">
-    <form method="post" action="/console/sites/{{ site.slug }}/reading" enctype="multipart/form-data"
+    {#- Two separate forms, deliberately not nested (nesting a form inside a
+        form is invalid HTML): this one posts to /reading, the instructions
+        form below it posts to /console/sites/{slug}/editorial. Its submit
+        button is moved out to sit after the instructions form via the
+        form="reading-form" attribute, so the reading order on screen is
+        reports -> price date -> hint -> instructions -> Read the reports,
+        while both forms keep exactly the fields and action they always had. #}
+    <form id="reading-form" method="post" action="/console/sites/{{ site.slug }}/reading" enctype="multipart/form-data"
       data-working-title="Reading the reports&hellip;"
       data-working-hint="The AI is reading each report on its own — this can take a few minutes. Please keep this page open. You'll check what it found on the next screen before anything is used.">
       <div class="fields">
@@ -74,7 +81,6 @@
         you have just typed something in the box below, press <strong>Save instructions</strong>
         first.
       </p>
-      <div class="actions"><button type="submit">Read the reports</button></div>
     </form>
 
     <form method="post" action="/console/sites/{{ site.slug }}/editorial" data-no-overlay="1">
@@ -88,6 +94,8 @@
       </div>
       <div class="actions"><button type="submit">Save instructions</button></div>
     </form>
+
+    <div class="actions"><button type="submit" form="reading-form">Read the reports</button></div>
   </div>
 </div>
 
