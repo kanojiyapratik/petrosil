@@ -23,10 +23,11 @@ from .console.routes import create_console, datefmt, label_for
 from .console.routes_ai import create_ai_routes
 from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
+from .console.routes_reading import create_reading_routes
 from .console.routes_rules import create_rules_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
-from .db.store import FxStore, ProviderStore, RulesStore, Store, UsageStore, seed
+from .db.store import ExtractionStore, FxStore, ProviderStore, RulesStore, Store, UsageStore, seed
 from .editorial.fx import CachedRates, FrankfurterRates
 
 logger = logging.getLogger("module")
@@ -238,6 +239,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
 
         provider_store = ProviderStore(pool)
         rules = RulesStore(pool)
+        extractions = ExtractionStore(pool)
         app.state.fx = CachedRates(FrankfurterRates(), FxStore(pool))
 
         app.include_router(console)
@@ -264,6 +266,18 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 usage=usage,
                 rules=rules,
                 fx=app.state.fx,
+            )
+        )
+        app.include_router(
+            create_reading_routes(
+                store=store,
+                extractions=extractions,
+                templates=TEMPLATES,
+                current_user=current_user,
+                driver=driver,
+                default_model=default_model,
+                driver_for=driver_for,
+                usage=usage,
             )
         )
         app.include_router(

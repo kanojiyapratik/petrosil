@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Check what was read</h1>
+<p class="lede">
+  Each report was read on its own, in its own words &mdash; no site locations matched, no
+  currency converted, nothing worked out yet. Check the figures below, correct anything wrong,
+  and untick anything that should not be used before they are worked out together.
+</p>
+
+{% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+
+{% if set %}
+  {% for file in files %}
+    <div class="panel">
+      <div class="head">
+        <h2>{{ file.filename }}</h2>
+        <span class="spacer"></span>
+        <span class="small muted">
+          {{ file.rows|length }} price{{ "" if file.rows|length == 1 else "s" }} read
+        </span>
+      </div>
+      {% if file.rows %}
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Price</th><th>Currency</th><th>Unit</th><th>Basis</th>
+              <th>Date</th><th>Use this</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in file.rows %}
+              <form method="post"
+                    action="/console/sites/{{ site.slug }}/reading/{{ set.id }}/rows/{{ row.id }}"
+                    data-no-overlay="1" style="display:contents">
+                <tr>
+                  <input type="hidden" name="price_min" value="{{ row.price_min if row.price_min is not none else '' }}">
+                  <input type="hidden" name="price_max" value="{{ row.price_max if row.price_max is not none else '' }}">
+                  <input type="hidden" name="note" value="{{ row.note or '' }}">
+                  <td><input type="text" name="name" value="{{ row.name }}" style="width:100%"></td>
+                  <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:7rem"></td>
+                  <td><input type="text" name="currency" value="{{ row.currency or '' }}" style="width:5rem"></td>
+                  <td><input type="text" name="unit" value="{{ row.unit or '' }}" style="width:5rem"></td>
+                  <td><input type="text" name="basis" value="{{ row.basis or '' }}" style="width:6rem"></td>
+                  <td><input type="text" name="price_date" value="{{ row.price_date or '' }}" style="width:7rem"></td>
+                  <td style="text-align:center">
+                    <input type="checkbox" name="kept" value="1" {% if row.kept %}checked{% endif %}>
+                  </td>
+                  <td><button class="ghost" type="submit">Save</button></td>
+                </tr>
+              </form>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="body empty">No prices found in this report.</div>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  <form method="post" action="/console/sites/{{ site.slug }}/editorial/analyse"
+        data-working-title="Working out the prices&hellip;">
+    <input type="hidden" name="set_id" value="{{ set.id }}">
+    <div class="actions"><button type="submit">Use these prices</button></div>
+  </form>
+{% else %}
+  <div class="panel"><div class="body empty">Nothing has been read yet.</div></div>
+{% endif %}
+{% endblock %}
