@@ -200,6 +200,37 @@ def create_ai_routes(
 
         return back("ok", f"{created.name} added.")
 
+    @router.post("/console/settings/ai/{provider_id}/reveal")
+    def reveal_key(request: Request, provider_id: int):
+        """The stored key in full, for an administrator who asks for it.
+
+        The screen masks a key everywhere else, and that is still right: a key
+        readable off a screen leaks through a screenshot. But masking made one
+        question unanswerable -- "is the key here the same one that works over
+        there?" -- because the mask shows four characters at each end, which
+        every key of a given provider shares. An afternoon went into a key that
+        looked identical and was not.
+
+        So: never in the page as rendered, only on a deliberate request, only
+        for an administrator, and always written to the audit trail. Someone
+        reading the trail can see who looked and when.
+        """
+        user, response = guard(request)
+
+        if response is not None:
+            return response
+
+        existing = providers.get(provider_id)
+
+        if existing is None:
+            return JSONResponse({"ok": False, "error": "No such provider."}, status_code=404)
+
+        # Looking at a credential is an event worth recording, even when the
+        # person is entitled to it.
+        store.record(user.email, "revealed an AI provider key", None, existing.name)
+
+        return JSONResponse({"ok": True, "api_key": existing.api_key})
+
     @router.post("/console/settings/ai/{provider_id}")
     async def update_provider(request: Request, provider_id: int):
         user, response = guard(request)

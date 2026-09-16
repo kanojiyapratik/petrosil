@@ -65,11 +65,16 @@
       <tbody>
         {% for p in providers %}
           <tr>
-            <td><strong>{{ p.name }}</strong></td>
+            <td>
+              {# The name is edited in the row's own form, beside the model and
+                 the key, so one Save covers everything about this provider. #}
+              <input form="provider-{{ p.id }}" name="name" value="{{ p.name }}"
+                style="width:8rem;padding:.25rem .4rem;font-weight:600">
+            </td>
             <td class="small">{{ catalogue.get(p.provider, {}).get("label", p.provider) }}</td>
             <td class="small">
-              <form method="post" action="/console/settings/ai/{{ p.id }}" style="margin:0;display:flex;gap:.3rem">
-                <input type="hidden" name="name" value="{{ p.name }}">
+              <form method="post" action="/console/settings/ai/{{ p.id }}" id="provider-{{ p.id }}"
+                style="margin:0;display:flex;gap:.3rem">
                 <input type="hidden" name="enabled" value="{{ '1' if p.enabled else '0' }}">
                 <select name="model" style="min-width:11rem;padding:.25rem .4rem">
                   {# What this key can actually run, asked of the provider itself. #}
@@ -77,12 +82,24 @@
                     <option value="{{ m }}" {% if m == p.model %}selected{% endif %}>{{ m }}</option>
                   {% endfor %}
                 </select>
-                <input type="password" name="api_key" placeholder="new key (optional)"
-                  style="width:9rem;padding:.25rem .4rem" autocomplete="off">
+                {# Left blank the stored key is kept, so this row can be saved
+                   to change only the name or the model. Paste here to replace
+                   the key without removing and re-adding the provider. #}
+                <input type="text" name="api_key" placeholder="paste a new key to replace it"
+                  style="width:15rem;padding:.25rem .4rem" autocomplete="off" spellcheck="false">
                 <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
               </form>
             </td>
-            <td class="small muted">{{ p.masked_key }}</td>
+            <td class="small muted">
+              {# Masked as rendered; the full key only ever arrives from a
+                 deliberate click, and that click is written to the audit
+                 trail. It exists because two keys that differ in the middle
+                 look identical masked. #}
+              <span class="key-shown" data-id="{{ p.id }}">{{ p.masked_key }}</span>
+              <button type="button" class="ghost key-eye" data-id="{{ p.id }}"
+                title="Show the whole key" aria-label="Show the whole key"
+                style="padding:.1rem .35rem;margin-left:.25rem">&#128065;</button>
+            </td>
             <td>
               {% if p.is_default %}<span class="badge ok">default</span>
               {% elif p.enabled %}<span class="badge mute">enabled</span>
@@ -287,4 +304,41 @@ function showModels(provider) {
     <div class="body empty">No AI calls recorded yet — usage appears here from now on.</div>
   {% endif %}
 </div>
+
+<script>
+// Showing a key is a request, never something the page already holds: the
+// rendered HTML only ever carries the mask, so a screenshot of this screen
+// leaks nothing until someone deliberately asks.
+document.querySelectorAll('.key-eye').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var id = button.getAttribute('data-id');
+    var cell = document.querySelector('.key-shown[data-id="' + id + '"]');
+
+    if (!cell) return;
+
+    // A second click puts the mask back, so a key is never left on screen.
+    if (cell.dataset.revealed === '1') {
+      cell.textContent = cell.dataset.masked;
+      cell.dataset.revealed = '';
+      button.title = 'Show the whole key';
+      return;
+    }
+
+    cell.dataset.masked = cell.dataset.masked || cell.textContent.trim();
+    button.disabled = true;
+
+    fetch('/console/settings/ai/' + id + '/reveal', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { cell.textContent = 'Could not be shown.'; return; }
+
+        cell.textContent = data.api_key;
+        cell.dataset.revealed = '1';
+        button.title = 'Hide the key again';
+      })
+      .catch(function () { cell.textContent = 'Could not be shown.'; })
+      .finally(function () { button.disabled = false; });
+  });
+});
+</script>
 {% endblock %}

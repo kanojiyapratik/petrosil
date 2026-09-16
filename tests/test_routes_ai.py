@@ -189,3 +189,60 @@ class TestAKeyPastedOutOfAChatMessage:
         from app.console.routes_ai import clean_key
 
         assert clean_key(None) == ""
+
+
+
+
+class FakeProvidersWithRow(FakeProviders):
+    def __init__(self, row):
+        super().__init__([row])
+        self._row = row
+
+    def get(self, provider_id):
+        return self._row if provider_id == self._row.id else None
+
+
+def a_provider():
+    return type(
+        "P", (), {
+            "id": 1, "name": "AI1", "provider": "openai", "api_key": "sk-proj-REAL-KEY-VALUE",
+            "model": "gpt-4.1", "enabled": True, "is_default": True,
+            "masked_key": "sk-p••••ALUE",
+        },
+    )()
+
+
+def plain_user(request=None):
+    return type("U", (), {"email": "ed@local.test", "name": "Ed", "is_admin": False})()
+
+
+class TestSeeingAStoredKey:
+    """A mask shows four characters at each end, which every key of a provider
+    shares -- so "is this the same key that works elsewhere?" was unanswerable,
+    and a production key differing only in the middle cost a real afternoon."""
+
+    def test_an_administrator_can_ask_for_the_whole_key(self):
+        client = build(providers=FakeProvidersWithRow(a_provider()))
+
+        answer = client.post("/console/settings/ai/1/reveal").json()
+
+        assert answer["ok"] is True
+        assert answer["api_key"] == "sk-proj-REAL-KEY-VALUE"
+
+    def test_looking_at_a_key_is_written_to_the_audit_trail(self):
+        store = FakeStore()
+        client = build(providers=FakeProvidersWithRow(a_provider()), store=store)
+
+        client.post("/console/settings/ai/1/reveal")
+
+        assert any("revealed an AI provider key" in str(entry) for entry in store.recorded)
+
+    def test_someone_who_is_not_an_administrator_is_refused(self):
+        client = build(current_user=plain_user, providers=FakeProvidersWithRow(a_provider()))
+
+        assert client.post("/console/settings/ai/1/reveal").status_code == 403
+
+    def test_an_unknown_provider_is_a_clean_404(self):
+        client = build(providers=FakeProvidersWithRow(a_provider()))
+
+        assert client.post("/console/settings/ai/999/reveal").status_code == 404
