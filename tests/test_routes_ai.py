@@ -159,3 +159,33 @@ class TestTheFormStillRendersTheFallback:
                 assert f'value="{model}"' in html and f'data-fallback="1"' in html
 
         assert "check-key" in html
+
+
+class TestAKeyPastedOutOfAChatMessage:
+    """A long key wrapped by the app it was copied from arrives broken.
+
+    .strip() only trims the ends, so a newline in the middle saved cleanly,
+    masked identically on screen (four characters at each end) and was
+    rejected by the provider with nothing on screen to explain it. This cost
+    a real afternoon on the production console.
+    """
+
+    def test_a_newline_in_the_middle_is_taken_out(self):
+        from app.console.routes_ai import clean_key
+
+        assert clean_key("sk-proj-abc\ndef") == "sk-proj-abcdef"
+
+    def test_spaces_anywhere_are_taken_out(self):
+        from app.console.routes_ai import clean_key
+
+        assert clean_key("  sk-proj abc \r\n def  ") == "sk-projabcdef"
+
+    def test_a_clean_key_is_left_exactly_as_it_is(self):
+        from app.console.routes_ai import clean_key
+
+        assert clean_key("sk-proj-Abc_123-xyz") == "sk-proj-Abc_123-xyz"
+
+    def test_nothing_at_all_is_an_empty_key_not_a_crash(self):
+        from app.console.routes_ai import clean_key
+
+        assert clean_key(None) == ""

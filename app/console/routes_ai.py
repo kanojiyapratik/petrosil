@@ -25,6 +25,19 @@ from ..db.store import ProviderStore, Store
 from .routes import tone_for
 
 
+def clean_key(raw) -> str:
+    """An API key with every space and line break taken out.
+
+    A key pasted out of a chat message or a wrapped email arrives with a
+    newline or a space in the middle of it. .strip() only trims the ends, so
+    the broken key saved cleanly, masked identically on screen -- the mask
+    shows four characters at each end -- and was rejected by the provider with
+    no clue as to why. No provider issues keys containing whitespace, so
+    removing all of it can only repair a paste, never damage a real key.
+    """
+    return "".join(str(raw or "").split())
+
+
 def create_ai_routes(
     *,
     store: Store,
@@ -134,7 +147,7 @@ def create_ai_routes(
 
         form = await request.form()
         provider = str(form.get("provider") or "").lower()
-        api_key = str(form.get("api_key") or "").strip()
+        api_key = clean_key(form.get("api_key"))
 
         if provider not in PROVIDERS or api_key == "":
             return JSONResponse({"ok": False, "error": "That key was not accepted."})
@@ -156,7 +169,7 @@ def create_ai_routes(
 
         form = await request.form()
         provider = str(form.get("provider") or "").lower()
-        api_key = str(form.get("api_key") or "").strip()
+        api_key = clean_key(form.get("api_key"))
         model = str(form.get("model") or "").strip()
 
         if provider not in PROVIDERS:
@@ -202,7 +215,7 @@ def create_ai_routes(
 
         model = str(form.get("model") or existing.model)
         allowed = (
-            available_models(existing.provider, str(form.get("api_key") or "").strip() or existing.api_key)
+            available_models(existing.provider, clean_key(form.get("api_key")) or existing.api_key)
             or PROVIDERS.get(existing.provider, {}).get("models", [])
             or [model]
         )
@@ -217,7 +230,7 @@ def create_ai_routes(
             # Blank means keep the stored key: the screen only ever shows a
             # masked version, so submitting the form must not overwrite the
             # real key with dots.
-            api_key=str(form.get("api_key") or "").strip(),
+            api_key=clean_key(form.get("api_key")),
             enabled=str(form.get("enabled") or "1") == "1",
         )
         store.record(user.email, "updated an AI provider", None, existing.name)
