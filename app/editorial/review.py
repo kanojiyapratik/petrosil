@@ -46,7 +46,13 @@ For each location the reports give evidence about, propose a suggested
 price range in USD per metric ton. Use only evidence found in the
 reports; skip any location the reports say nothing about rather than
 guessing. Never invent a location: every "location" value must be
-copied exactly, character for character, from the list given.
+copied exactly, character for character, from the list given -- the
+identical characters, nothing added before, inside or after them. Do
+not prefix it with "Table" or "Image", do not repeat or re-punctuate
+"Report:", and do not otherwise decorate it. These names are matched
+literally by code once you answer, not read by a person: a single word
+added around an otherwise correct name breaks that match silently, and
+a figure you read correctly is then reported as missing.
 
 Reports write the same location many ways: word order differs, "Group
 3" means "Group III", "FOB" may be missing. When the region and grade
@@ -208,10 +214,33 @@ def _json_candidates(text: str):
 # name really is something the site does not track.
 NEAR_MATCH_THRESHOLD = 0.6
 
-FILLER_TOKENS = {"fob", "cfr", "cif", "fca"}
+# "report" and "table"/"image" are the boilerplate a model wraps around a
+# "Report: ..." benchmark name ("Report - Table: ...", "Report: Image
+# Table: ...") rather than copying it verbatim -- structural filler, the
+# same idea as "FOB" on a location, never part of what the name means.
+FILLER_TOKENS = {"fob", "cfr", "cif", "fca", "report", "table", "image"}
 
 # "Group 3" and "Group III" are the same thing in different reports.
 ROMAN_DIGITS = {"1": "i", "2": "ii", "3": "iii"}
+
+
+def _stripped_name(name: str) -> tuple[str, ...]:
+    """`name`, lower-cased, de-punctuated and stripped of FILLER_TOKENS,
+    keeping the remaining words in their original order.
+
+    This is deliberately not `_tokens()`: `_tokens()` also folds spelling
+    variants together ("4cst" / "4 CST", "3" / "III") and drops word order,
+    which is exactly the fuzziness that makes two DIFFERENT names look
+    alike enough for a near-match. Here the question is narrower and must
+    stay strict -- is this THE SAME name, just with filler words added
+    around it? -- so no other normalisation is applied, and order still
+    matters: "Singapore Group I SN 150" is a reordering of "Singapore SN
+    150 FOB Group I" (a near-match, still needing confirmation), not the
+    same name with filler added.
+    """
+    text = re.sub(r"[^a-z0-9]+", " ", (name or "").lower())
+
+    return tuple(token for token in text.split() if token not in FILLER_TOKENS)
 
 
 def build_rows(
@@ -221,20 +250,49 @@ def build_rows(
 ) -> list[dict]:
     """One row per tracked location, in the site's order.
 
-    Exact suggestions land first; each unmatched row is then paired with the
-    closest tracked location and shown as a `near_match` for the editor to
-    confirm -- an exact suggestion always beats a near one.
+    Exact suggestions land first. Before the fuzzy pairing below gets a
+    chance to call it a guess, an unmatched row that is the asked name
+    itself -- once case, punctuation, whitespace and the filler words above
+    are stripped -- is reclaimed as an ordinary suggestion for that name: it
+    is not a guess, it is the asked name dressed differently, and a rule may
+    derive from it like any other suggested row. A normalised form that
+    matches more than one asked name reclaims none of them -- ambiguity is
+    not a match, and a wrong reclamation stages a wrong price with no one
+    asked. Whatever is left is then paired with the closest tracked location
+    and shown as a `near_match` for the editor to confirm, exactly as
+    before -- an exact suggestion (reclaimed or not) always beats a near one.
     """
+    suggestions = dict(parsed.suggestions)
+    by_normalised: dict[tuple[str, ...], list[str]] = {}
+
+    for location in locations:
+        by_normalised.setdefault(_stripped_name(location), []).append(location)
+
+    still_unmatched = []
+
+    for candidate in parsed.unmatched:
+        reported = str(candidate.get("location") or "").strip()
+        normalised = _stripped_name(reported)
+        matches = [
+            location for location in by_normalised.get(normalised, ())
+            if location not in suggestions
+        ]
+
+        if normalised and len(matches) == 1:
+            suggestions.setdefault(matches[0], candidate)
+        else:
+            still_unmatched.append(candidate)
+
     rows = {
         location: _build_row(
-            location, current_prices.get(location), parsed.suggestions.get(location)
+            location, current_prices.get(location), suggestions.get(location)
         )
         for location in locations
     }
-    taken = set(parsed.suggestions)
+    taken = set(suggestions)
     location_tokens = {location: _tokens(location) for location in locations}
 
-    for candidate in parsed.unmatched:
+    for candidate in still_unmatched:
         reported = str(candidate.get("location") or "").strip()
         best, score = None, 0.0
 

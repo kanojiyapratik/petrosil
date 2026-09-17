@@ -204,6 +204,36 @@ class TestBenchmarks:
         assert row["suggested_price"] == 1584
         assert row["derived_from"] == BENCHMARK
 
+    def test_a_boilerplate_wrapped_benchmark_answer_still_feeds_its_rule(self):
+        # The client's real defect: 23 USA rules derive from a "Report: ..."
+        # benchmark; the model answered "Report - Table: ..." instead of
+        # copying the name verbatim, so parse_suggestions filed it as
+        # unmatched and build_rows used to leave it a near_match, which
+        # apply_rules correctly refuses to derive from. The reclamation in
+        # build_rows must turn this into a `suggested` row so the rule fires.
+        usa_benchmark = "Report: Group I 70 Holly Frontier Midwest $/MT"
+        usa_location = "USA Domestic SN 150 FOB Group I"
+        rule = PriceRule(
+            id=9, derived_location=usa_location, reference_location=usa_benchmark,
+            adjustment_value=2.0,
+        )
+        names = LOCATIONS + [usa_location]
+        asked = names + [usa_benchmark]
+        parsed = parse_suggestions(
+            json.dumps(
+                [suggestion("Report - Table: Group I 70 Holly Frontier Midwest $/MT", 3076, 3076)]
+            ),
+            asked,
+        )
+        rows = apply_rules(build_rows(asked, {}, parsed), [rule])
+
+        benchmark_row = next(r for r in rows if r["location"] == usa_benchmark)
+        assert benchmark_row["status"] == "suggested"
+
+        usa_row = next(r for r in rows if r["location"] == usa_location)
+        assert usa_row["status"] == "derived"
+        assert usa_row["suggested_price"] == 3138  # 3076 * 1.02, rounded
+
     def test_a_benchmark_can_feed_a_whole_chain(self):
         # Report figure -> Singapore -1% -> South Korea -10%.
         rules = [

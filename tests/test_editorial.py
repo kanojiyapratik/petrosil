@@ -322,6 +322,16 @@ class TestEditorialPrompt:
         assert "JSON" in prompt
         assert "exactly" in prompt.lower()
 
+    def test_forbids_decorating_a_copied_name_with_added_words(self):
+        # A model that answers "Report - Table: X" for asked name "Report: X"
+        # is matched literally downstream; the prompt must say plainly not to
+        # add words like "Table" or "Image" around a name it copies.
+        prompt = editorial_prompt(LOCATIONS, ["text"])
+
+        assert "nothing added" in prompt.lower()
+        assert '"Table"' in prompt
+        assert '"Image"' in prompt
+
     def test_asks_for_unlisted_evidence_under_the_reports_own_name(self):
         # This is what feeds the "close to X — is this correct?" rows.
         prompt = editorial_prompt(LOCATIONS, ["text"])
@@ -492,6 +502,77 @@ class TestBuildRows:
         rows = self.build([suggestion("Brent Crude Futures September")])
 
         assert all(row["status"] in ("no_evidence",) for row in rows)
+
+    def test_boilerplate_wrapped_around_a_benchmark_name_is_reclaimed_as_suggested(self):
+        # Measured on the client's real data: the model answered "Report -
+        # Table: ..." for an asked name of "Report: ..." -- same figure, same
+        # report line, but the added "- Table" made parse_suggestions file it
+        # under unmatched. It must land as `suggested`, not `near_match`, so
+        # a rule can derive from it.
+        asked = LOCATIONS + ["Report: Group I 70 Holly Frontier Midwest $/MT"]
+        parsed = parse_suggestions(
+            json.dumps(
+                [
+                    suggestion(
+                        "Report - Table: Group I 70 Holly Frontier Midwest $/MT",
+                        low=3050, high=3100,
+                    )
+                ]
+            ),
+            asked,
+        )
+        rows = build_rows(asked, {}, parsed)
+        row = next(
+            r for r in rows
+            if r["location"] == "Report: Group I 70 Holly Frontier Midwest $/MT"
+        )
+
+        assert row["status"] == "suggested"
+        assert row["reported_as"] is None
+        assert row["suggested_price"] == 3075
+
+    def test_a_genuinely_different_grade_does_not_reclaim(self):
+        asked = LOCATIONS + ["Report: Group I 150"]
+        parsed = parse_suggestions(
+            json.dumps([suggestion("Report: Group I 500", low=1000, high=1000)]), asked,
+        )
+        rows = build_rows(asked, {}, parsed)
+        row = next(r for r in rows if r["location"] == "Report: Group I 150")
+
+        assert row["status"] == "no_evidence"
+
+    def test_an_ambiguous_normalised_form_reclaims_neither_asked_name(self):
+        # Two asked names that collapse to the same normalised form once
+        # filler is stripped -- reclaiming either would be a guess.
+        asked = LOCATIONS + [
+            "Report: Group I 150",
+            "Report - Table: Group I 150",
+        ]
+        parsed = parse_suggestions(
+            json.dumps([suggestion("Report - Image: Group I 150", low=1000, high=1000)]),
+            asked,
+        )
+        rows = build_rows(asked, {}, parsed)
+
+        assert next(r for r in rows if r["location"] == "Report: Group I 150")["status"] in (
+            "no_evidence", "near_match",
+        )
+        assert next(
+            r for r in rows if r["location"] == "Report - Table: Group I 150"
+        )["status"] in ("no_evidence", "near_match")
+        assert not any(
+            r["status"] == "suggested"
+            for r in rows
+            if r["location"] in ("Report: Group I 150", "Report - Table: Group I 150")
+        )
+
+    def test_a_real_near_match_still_needs_confirmation_not_reclaimed(self):
+        # Word order and spelling differ, unlike the boilerplate case above --
+        # this must still land as near_match.
+        rows = self.build([suggestion("Singapore Group I SN 150", low=1540, high=1580)])
+        row = next(r for r in rows if r["location"] == "Singapore SN 150 FOB Group I")
+
+        assert row["status"] == "near_match"
 
     def test_a_location_without_a_current_price_still_gets_a_suggestion(self):
         rows = build_rows(
