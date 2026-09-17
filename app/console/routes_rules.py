@@ -13,8 +13,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ..db.store import RulesStore, Store, StoredSite
+from ..db.store import RoundingStore, RulesStore, Store, StoredSite
 from ..editorial.rules import PERCENT, USD, PriceRule, _adjusted, adjustment_label
+from .config import ConsoleConfigError
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
@@ -173,6 +174,7 @@ def create_rules_routes(
     templates: Jinja2Templates,
     current_user,
     client_factory=None,
+    rounding: RoundingStore | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -269,6 +271,8 @@ def create_rules_routes(
                 "benchmarks": benchmarks,
                 "prices": prices,
                 "rule_notes": build_rule_notes(site_rules, locations),
+                "round_to_nearest": site.round_to_nearest,
+                "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
             },
         )
 
@@ -388,5 +392,112 @@ def create_rules_routes(
         store.record(user.email, "removed a price rule", site.slug, f"rule #{rule_id}")
 
         return back(site.slug, "ok", "Rule removed.")
+
+    def _parse_step(raw: str) -> float | None:
+        """Blank clears the step; anything else must be a plain positive
+        number -- the same "0 or blank means no rounding" rule rounding.py
+        itself applies, so a bad value here is refused rather than silently
+        turning rounding off."""
+        raw = raw.strip()
+
+        if raw == "":
+            return None
+
+        try:
+            value = float(raw)
+        except ValueError as error:
+            raise ConsoleConfigError(
+                "Type a plain number to round to — for example 5 — or leave it blank for no "
+                "rounding."
+            ) from error
+
+        if value <= 0:
+            raise ConsoleConfigError("A rounding step must be greater than zero.")
+
+        return value
+
+    if rounding is not None:
+
+        @router.post("/console/sites/{slug}/rounding")
+        async def set_default_rounding(request: Request, slug: str):
+            """The site-wide step -- what bitumart sets to 5. Read/checked
+            prices, FX conversions and rule-derived prices all round to this
+            once they reach the editorial screen; see
+            app/editorial/rounding.py."""
+            user, site, response = guard(request, slug)
+
+            if response is not None:
+                return response
+
+            form = await request.form()
+
+            try:
+                step = _parse_step(str(form.get("round_to_nearest") or ""))
+            except ConsoleConfigError as error:
+                return back(site.slug, "err", str(error))
+
+            store.set_round_to_nearest(site.slug, step)
+            store.record(
+                user.email,
+                "set the site's rounding step",
+                site.slug,
+                f"round to nearest {step}" if step else "no rounding",
+            )
+
+            return back(
+                site.slug, "ok",
+                f"Prices now round to the nearest {step}." if step
+                else "Rounding turned off — prices are used exactly as worked out.",
+            )
+
+        @router.post("/console/sites/{slug}/rounding/override")
+        async def add_rounding_override(request: Request, slug: str):
+            """A location that rounds differently from the site default --
+            Turkey's own-currency price, to the nearest 10."""
+            user, site, response = guard(request, slug)
+
+            if response is not None:
+                return response
+
+            form = await request.form()
+            location = str(form.get("location") or "").strip()
+
+            if not location:
+                return back(site.slug, "err", "Pick a location.")
+
+            try:
+                step = _parse_step(str(form.get("round_to_nearest") or ""))
+            except ConsoleConfigError as error:
+                return back(site.slug, "err", str(error))
+
+            if step is None:
+                return back(
+                    site.slug, "err",
+                    "Type a rounding step for this location, or remove it from the list below "
+                    "instead.",
+                )
+
+            rounding.set_override(site.slug, location, step)
+            store.record(
+                user.email, "set a location's rounding step", site.slug,
+                f"{location} rounds to the nearest {step}",
+            )
+
+            return back(site.slug, "ok", f"{location} now rounds to the nearest {step}.")
+
+        @router.post("/console/sites/{slug}/rounding/override/{override_id}/delete")
+        async def delete_rounding_override(request: Request, slug: str, override_id: int):
+            user, site, response = guard(request, slug)
+
+            if response is not None:
+                return response
+
+            rounding.delete(override_id)
+            store.record(
+                user.email, "removed a location's rounding step", site.slug,
+                f"override #{override_id}",
+            )
+
+            return back(site.slug, "ok", "Removed. This location now uses the site default.")
 
     return router

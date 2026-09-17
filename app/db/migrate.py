@@ -249,6 +249,33 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX console_reading_rows_file ON console_reading_rows (file_id);
         """,
     ),
+    Migration(
+        id="0011_price_rounding",
+        sql="""
+        -- The client's rulebook rounds nearly every price it derives from a
+        -- report ("round off closest multiple of 5"; Turkey's own-currency
+        -- price rounds to 10 instead). A site-wide step covers most
+        -- locations; NULL/0 means "do not round", today's behaviour.
+        ALTER TABLE console_sites ADD COLUMN round_to_nearest NUMERIC;
+
+        -- A location's own step, for the handful that differ from the
+        -- site's default. Its own table, not console_price_rules, because
+        -- most locations needing a step carry no price rule at all --
+        -- console_price_rules is keyed by site and DERIVED location, and
+        -- only ever exists for one.
+        CREATE TABLE console_location_rounding (
+          id               BIGSERIAL PRIMARY KEY,
+          site_slug        TEXT NOT NULL,
+          location         TEXT NOT NULL,
+          round_to_nearest NUMERIC NOT NULL,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX console_location_rounding_key
+            ON console_location_rounding (site_slug, location);
+        """,
+    ),
 ]
 
 

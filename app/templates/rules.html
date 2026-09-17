@@ -119,6 +119,68 @@
   {% endif %}
 </div>
 
+<div class="panel">
+  <div class="head"><h2>Rounding</h2></div>
+  <div class="body">
+    <p class="hint" style="margin-top:0">
+      Every price offered to you on the editorial screen — read straight from a report, converted
+      from another currency, or worked out above — rounds to this step before you see it. Leave it
+      blank for no rounding.
+    </p>
+    <form method="post" action="/console/sites/{{ site.slug }}/rounding" data-no-overlay="1">
+      <div class="field">
+        <label for="round_to_nearest">Round every price to the nearest</label>
+        <input id="round_to_nearest" type="number" step="any" min="0" name="round_to_nearest"
+               placeholder="5" value="{{ round_to_nearest if round_to_nearest is not none else '' }}"
+               style="width:8rem">
+      </div>
+      <div class="actions"><button type="submit">Save</button></div>
+    </form>
+
+    <h3 style="margin-top:1.5rem">Locations that round differently</h3>
+    <p class="hint">For the handful that don't follow the site default — for example a
+      local-currency price that rounds to 10 instead of 5.</p>
+    <form method="post" action="/console/sites/{{ site.slug }}/rounding/override" data-no-overlay="1">
+      <div class="fields">
+        <div class="field">
+          <label for="rounding-location">Location</label>
+          <select id="rounding-location" name="location">
+            {% for name in locations %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="rounding-step">Round to the nearest</label>
+          <input id="rounding-step" type="number" step="any" min="0" name="round_to_nearest"
+                 placeholder="10" required style="width:8rem">
+        </div>
+      </div>
+      <div class="actions"><button type="submit">Save override</button></div>
+    </form>
+
+    {% if rounding_overrides %}
+      <table style="margin-top:1rem">
+        <thead><tr><th>Location</th><th class="num">Rounds to the nearest</th><th></th></tr></thead>
+        <tbody>
+          {% for override in rounding_overrides %}
+            <tr>
+              <td>{{ override.location }}</td>
+              <td class="num">{{ override.round_to_nearest }}</td>
+              <td>
+                <form method="post"
+                      action="/console/sites/{{ site.slug }}/rounding/override/{{ override.id }}/delete"
+                      style="display:inline" data-no-overlay="1"
+                      onsubmit="return confirm('Remove this override?')">
+                  <button class="ghost" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+</div>
+
 <script>
 // One dropdown, built twice. Each row shows the location and, under it, what
 // the rulebook already does with that name -- which is the whole point of the

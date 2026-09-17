@@ -21,6 +21,7 @@ from ..db.store import Store, StoredSite
 from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks
 from ..editorial.fx import FrankfurterRates, convert_rows
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
+from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
@@ -92,6 +93,7 @@ def create_editorial_routes(
     rules=None,
     fx=None,
     extractions=None,
+    rounding=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -480,6 +482,17 @@ def create_editorial_routes(
             # The rulebook fills what the reports never mention -- code, not the
             # model, does this arithmetic. See app/editorial/rules.py.
             rows = apply_rules(rows, site_rules)
+
+            # The client's rulebook rounds nearly every price it derives from
+            # a report ("round off closest multiple of 5"). Applied last, so
+            # a direct price, a converted price and a derived price all land
+            # on the same grid before the editor sees them. See
+            # app/editorial/rounding.py.
+            rows = apply_rounding(
+                rows,
+                site.round_to_nearest,
+                rounding.for_site(site.slug) if rounding is not None else None,
+            )
 
             # Benchmarks fed the rules; they are not site prices and never stage.
             benchmark_set = set(benchmarks)

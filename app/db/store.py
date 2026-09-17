@@ -34,6 +34,10 @@ class StoredSite:
     enabled: bool
     # The editor's saved instructions to the AI on the editorial screen.
     editorial_instructions: str | None = None
+    # The site-wide rounding step ("round off closest multiple of 5").
+    # None or 0 means no rounding -- today's behaviour. A location may
+    # override this; see RoundingStore below.
+    round_to_nearest: float | None = None
 
 
 @dataclass(frozen=True)
@@ -72,11 +76,14 @@ def _to_site(row) -> StoredSite:
         token=row[4],
         enabled=bool(row[5]),
         editorial_instructions=row[6],
+        round_to_nearest=float(row[7]) if row[7] is not None else None,
     )
 
 
 USER_COLUMNS = "id, email, name, password_hash, is_admin, disabled_at"
-SITE_COLUMNS = "id, slug, name, api_url, api_token, enabled, editorial_instructions"
+SITE_COLUMNS = (
+    "id, slug, name, api_url, api_token, enabled, editorial_instructions, round_to_nearest"
+)
 
 
 class Store:
@@ -192,6 +199,17 @@ class Store:
                 "UPDATE console_sites SET editorial_instructions = %s, updated_at = now() "
                 "WHERE slug = %s",
                 (text.strip() or None, slug),
+            )
+            connection.commit()
+
+    def set_round_to_nearest(self, slug: str, step: float | None) -> None:
+        """The site-wide rounding step. None or 0 clears it -- no rounding,
+        today's behaviour -- rather than being refused as invalid."""
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_sites SET round_to_nearest = %s, updated_at = now() "
+                "WHERE slug = %s",
+                (step if step else None, slug),
             )
             connection.commit()
 
@@ -553,6 +571,68 @@ class RulesStore:
     def delete(self, rule_id: int) -> None:
         with self._pool.connection() as connection:
             connection.execute("DELETE FROM console_price_rules WHERE id = %s", (rule_id,))
+            connection.commit()
+
+
+@dataclass(frozen=True)
+class LocationRounding:
+    id: int
+    location: str
+    round_to_nearest: float
+
+
+class RoundingStore:
+    """Per-location overrides of a site's rounding step -- Turkey's own-
+    currency price rounds to 10 where everything else on the site rounds to
+    5. Its own table rather than a column on console_price_rules: most
+    locations that need a step (nearly all of them) carry no price rule at
+    all, so a rule row is the wrong place to hang it. See
+    app/editorial/rounding.py for how these are applied."""
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def for_site(self, site_slug: str) -> dict[str, float]:
+        """`{location: step}`, the shape apply_rounding wants."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT location, round_to_nearest FROM console_location_rounding "
+                "WHERE site_slug = %s",
+                (site_slug,),
+            ).fetchall()
+
+        return {row[0]: float(row[1]) for row in rows}
+
+    def list_for_site(self, site_slug: str) -> list[LocationRounding]:
+        """The same overrides, with their ids, for the settings screen."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT id, location, round_to_nearest FROM console_location_rounding "
+                "WHERE site_slug = %s ORDER BY location",
+                (site_slug,),
+            ).fetchall()
+
+        return [
+            LocationRounding(id=int(row[0]), location=row[1], round_to_nearest=float(row[2]))
+            for row in rows
+        ]
+
+    def set_override(self, site_slug: str, location: str, step: float) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "INSERT INTO console_location_rounding "
+                "(site_slug, location, round_to_nearest) VALUES (%s, %s, %s) "
+                "ON CONFLICT (site_slug, location) DO UPDATE SET "
+                "round_to_nearest = EXCLUDED.round_to_nearest, updated_at = now()",
+                (site_slug, location, step),
+            )
+            connection.commit()
+
+    def delete(self, override_id: int) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "DELETE FROM console_location_rounding WHERE id = %s", (override_id,)
+            )
             connection.commit()
 
 

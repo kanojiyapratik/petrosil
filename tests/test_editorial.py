@@ -852,9 +852,17 @@ class RaisingReclaimExtractions(AnalyseFakeExtractions):
         return super().reclaim_set(set_id, used_at)
 
 
+class AnalyseFakeRounding:
+    def __init__(self, overrides):
+        self._overrides = overrides
+
+    def for_site(self, slug):
+        return self._overrides
+
+
 def build_analyse_client(
     rows, driver=None, rules_list=None, locations=None, store=None, fx=None,
-    set_id=7, reading_site_slug="baseoil", used_at=None,
+    set_id=7, reading_site_slug="baseoil", used_at=None, rounding_overrides=None,
 ):
     from app.console.routes import datefmt, label_for
 
@@ -882,6 +890,7 @@ def build_analyse_client(
             rules=AnalyseFakeRules(rules_list or []),
             extractions=extractions,
             fx=fx,
+            rounding=AnalyseFakeRounding(rounding_overrides or {}),
         )
     )
 
@@ -1029,6 +1038,19 @@ class RecordingFx:
         return None
 
 
+class FakeFxAtFixedRate:
+    """A rate always available, for tests that only care what comes out the
+    other side of the conversion, not which date it was asked for."""
+
+    def __init__(self, rate):
+        self._rate = rate
+
+    def get(self, currency, on_date):
+        from app.editorial.fx import FxRate
+
+        return FxRate(currency=currency, rate=self._rate, rate_date=on_date, source="ECB")
+
+
 class TestTheChosenPriceDateReachesFxConversion:
     def test_a_posted_pricedate_is_used_for_fx_not_todays_date(self):
         # The row's own price_date is null, so convert_rows falls back to the
@@ -1104,6 +1126,138 @@ class TestTheChosenPriceDateReachesFxConversion:
         client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
 
         assert fx.calls == [("TRY", date.today().isoformat())]
+
+
+class TestTheAnalyseRouteRoundsThePrice:
+    """The client's rulebook rounds nearly every price it derives from a
+    report; the wiring lives in the analyse route, not just in the
+    functions it calls -- see app/editorial/rounding.py."""
+
+    def test_a_direct_suggestion_lands_rounded_and_still_editable(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 1640,
+                    "suggested_max": 1655, "confidence": "high", "basis": "Argus, page 12",
+                    "source": "reading", "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=5)
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 1000.0}],
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        # Midpoint 1647.5 -> nearest 5 is 1650, and the price input still
+        # carries it as the value an editor can type over.
+        assert 'name="price_0"' in response.text
+        assert 'value="1650"' in response.text
+        assert "Rounded to the nearest 5" in response.text
+
+    def test_a_location_override_beats_the_site_default(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 1636,
+                    "suggested_max": 1636, "confidence": "high", "basis": "Argus, page 6",
+                    "source": "reading", "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=5)
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 1000.0}],
+            rounding_overrides={"Europe Domestic SN150": 10},
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        # 1636 rounds to 1635 on the site default, 1640 on the override --
+        # the override must be what actually reaches the screen.
+        assert 'value="1640"' in response.text
+        assert "Rounded to the nearest 10" in response.text
+
+    def test_an_fx_converted_price_lands_rounded_too(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 81225,
+                    "suggested_max": 81225, "confidence": "high", "basis": "ex-rack, excl VAT",
+                    "source": "reading", "rationale": "checked by the editor", "currency": "TRY",
+                    "price_date": "2026-08-19",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=None)
+        fx = FakeFxAtFixedRate(40.0)
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 2000.0}],
+            fx=fx, rounding_overrides={"Europe Domestic SN150": 10},
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        # 81225 / 40 = 2030.625 -> rounded (2030.63) -> nearest 10 is 2030.
+        assert 'value="2030"' in response.text
+        assert "Rounded to the nearest 10" in response.text
+
+    def test_a_rule_derived_price_lands_rounded_too(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Singapore Bulk FOB", "suggested_min": 1643,
+                    "suggested_max": 1643, "confidence": "high", "basis": "Argus, page 12",
+                    "source": "reading", "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=5)
+        rule = PriceRule(
+            id=1, derived_location="South Korea FOB", reference_location="Singapore Bulk FOB",
+            adjustment_value=-10.0,
+        )
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[
+                {"title": "Singapore Bulk FOB", "latest_price": 1600.0},
+                {"title": "South Korea FOB", "latest_price": 1400.0},
+            ],
+            rules_list=[rule],
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        # 1643 * 0.9 = 1478.7 -> _whole gives 1479 -> nearest 5 is 1480.
+        assert 'value="1480"' in response.text
+        assert "Rounded to the nearest 5" in response.text
+        # The derived price's own audit line survives alongside the new one.
+        assert "Calculated from Singapore Bulk FOB" in response.text
 
 
 class TestTheFocusedPassKeepsACurrencyLessCheckedRow:
