@@ -38,13 +38,17 @@
             overflow-x:auto }) scrolls sideways for it, never the page body. #}
         <table class="reading-table" style="table-layout:fixed;min-width:56rem">
           <colgroup>
-            <col style="width:24%"><col style="width:6%"><col style="width:5%">
+            {# A number per row, so a long list can be counted off against the
+               report rather than scrolled through twice. #}
+            <col style="width:3%">
+            <col style="width:22%"><col style="width:6%"><col style="width:5%">
             <col style="width:5%"><col style="width:5%"><col style="width:5%">
-            <col style="width:26%"><col style="width:7%"><col style="width:7%">
+            <col style="width:25%"><col style="width:6%"><col style="width:7%">
             <col style="width:4%"><col style="width:6%">
           </colgroup>
           <thead>
             <tr>
+              <th>&#8470;</th>
               <th>Name</th><th>Price</th><th>Min</th><th>Max</th><th>Currency</th>
               <th>Unit</th><th>Basis</th><th>Date</th><th>Note</th><th>Use this</th><th></th>
             </tr>
@@ -64,6 +68,7 @@
                     data-no-overlay="1" style="display:contents">
                 <tr>
                   <input type="hidden" name="pricedate" value="{{ pricedate }}">
+                  <td class="small muted" style="text-align:right">{{ loop.index }}</td>
                   <td><input type="text" name="name" value="{{ row.name }}" style="width:100%"></td>
                   <td><input type="number" step="any" name="price" value="{{ row.price }}" style="width:100%"></td>
                   <td><input type="number" step="any" name="price_min" value="{{ row.price_min if row.price_min is not none else '' }}" style="width:100%"></td>

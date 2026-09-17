@@ -999,12 +999,12 @@ class TestTheCheckScreenUsesTheFullWidth:
 
         assert "<colgroup>" in page
         # The two widest <col> shares in the group belong to Name and Basis
-        # (columns 1 and 7 of the header row: Name, Price, Min, Max,
+        # (columns 2 and 8 of the header row: No., Name, Price, Min, Max,
         # Currency, Unit, Basis, Date, Note, Use this, blank).
         widths = [int(pct) for pct in re.findall(r'width:(\d+)%', page.split("<colgroup>")[1].split("</colgroup>")[0])]
-        assert len(widths) == 11
-        name_width, basis_width = widths[0], widths[6]
-        others = widths[1:6] + widths[7:]
+        assert len(widths) == 12
+        name_width, basis_width = widths[1], widths[7]
+        others = widths[:1] + widths[2:7] + widths[8:]
         assert all(name_width > other for other in others)
         assert all(basis_width > other for other in others)
 
@@ -1142,3 +1142,39 @@ class TestAddingAPriceTheModelMissed:
 
         assert response.status_code == 422
         assert extractions.inserted == []
+
+
+class TestTheRowsAreNumbered:
+    """The client asked for it: a long list is counted off against the report,
+    not scrolled through twice."""
+
+    def test_each_read_row_carries_its_number(self):
+        answer = json.dumps(
+            [
+                {"name": "Bit Bulk VG10", "price": 69100, "currency": "INR"},
+                {"name": "Bit Bulk VG30", "price": 70060, "currency": "INR"},
+                {"name": "Bit Bulk VG40", "price": 75100, "currency": "INR"},
+            ]
+        )
+        client, _ = build(StubDriver(answers=[answer]))
+        upload(client, [("bpcl.txt", b"three prices")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        assert "&#8470;" in page or "No." in page
+
+        body = page.split("<tbody>")[1].split("</tbody>")[0]
+
+        for number in ("1", "2", "3"):
+            assert f">{number}</td>" in body
+
+    def test_the_numbering_starts_again_for_each_report(self):
+        answer = json.dumps([{"name": "A", "price": 10}])
+        client, _ = build(StubDriver(answers=[answer, answer]))
+        upload(client, [("one.txt", b"a"), ("two.txt", b"b")])
+
+        page = client.get("/console/sites/baseoil/reading/1").text
+
+        # Two panels, each starting at 1 -- a number is a position within its
+        # own report, which is what makes it checkable against that report.
+        assert page.count(">1</td>") == 2

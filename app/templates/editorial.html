@@ -341,6 +341,9 @@
       <table>
         <thead>
           <tr>
+            {# A number per location, so this list can be counted off rather
+               than scrolled through twice. #}
+            <th>&#8470;</th>
             <th>Keep</th><th>Location</th><th>Current</th><th>Suggested range</th>
             <th>Price to save</th><th>Change</th><th>Confidence</th>
             <th>Basis</th><th>Source</th><th>Rationale</th>
@@ -353,6 +356,7 @@
             {% set derived = row.status == "derived" %}
             {% set priced = suggested or near or derived %}
             <tr>
+              <td class="small muted" style="text-align:right">{{ loop.index }}</td>
               <td>
                 <input type="hidden" name="loc_{{ loop.index0 }}" value="{{ row.location }}">
                 {% if derived %}
