@@ -55,6 +55,13 @@
             {% else %}<span class="badge ok">active</span>{% endif %}
           </td>
           <td>
+            {#- An ordinary administrator is not offered these against the
+                superadmin: resetting that password or disabling that account
+                would hand them every website and every token. The routes
+                refuse it too -- this only keeps the screen honest. #}
+            {% if row.is_superadmin and not user.is_superadmin %}
+              <span class="small muted">Only the superadmin can change this account.</span>
+            {% else %}
             <form method="post" action="/console/settings/users/{{ row.id }}/password"
               style="margin:0 0 .4rem;display:flex;gap:.3rem">
               <input type="password" name="password" minlength="10" placeholder="new password"
@@ -67,6 +74,7 @@
                 {{ "Enable" if row.disabled_at else "Disable" }}
               </button>
             </form>
+            {% endif %}
           </td>
         </tr>
       {% endfor %}

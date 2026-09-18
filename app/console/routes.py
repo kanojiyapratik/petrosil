@@ -806,6 +806,12 @@ def create_console(
         if target is None:
             return back(path, "err", "No such user.")
 
+        if target.is_superadmin and not is_superadmin(user):
+            # Otherwise the whole tier is decoration: an administrator resets
+            # the superadmin's password, signs in as them, and gives
+            # themselves every site and the form that holds every token.
+            return back(path, "err", SUPERADMIN_ONLY)
+
         if len(new) < 10:
             return back(path, "err", "Use a password of at least 10 characters.")
 
@@ -833,17 +839,44 @@ def create_console(
         if target is None:
             return back(path, "err", "No such user.")
 
+        if target.is_superadmin and not is_superadmin(user):
+            # The same hole as resetting their password: an administrator who
+            # could disable the superadmin could stop anyone changing who uses
+            # which website, and no screen can make a new superadmin.
+            return back(path, "err", SUPERADMIN_ONLY)
+
         # Locking every administrator out of a console whose settings only an
-        # administrator can reach would need a database edit to undo.
+        # administrator can reach would need a database edit to undo. A
+        # superadmin counts as an administrator here, which is why this asks
+        # may_change_settings rather than reading is_admin.
         other_admins = [
-            row for row in users if row.is_admin and row.disabled_at is None and row.id != user_id
+            row
+            for row in users
+            if may_change_settings(row) and row.disabled_at is None and row.id != user_id
         ]
 
-        if disabled and target.is_admin and not other_admins:
+        if disabled and may_change_settings(target) and not other_admins:
             return back(
                 path,
                 "err",
                 "That is the last administrator — disabling it would lock everyone out.",
+            )
+
+        # And the superadmin is its own last-one-out case: is_admin is on
+        # every administrator, so counting administrators would happily let
+        # the only superadmin go. Nothing on any screen can make another.
+        other_superadmins = [
+            row
+            for row in users
+            if row.is_superadmin and row.disabled_at is None and row.id != user_id
+        ]
+
+        if disabled and target.is_superadmin and not other_superadmins:
+            return back(
+                path,
+                "err",
+                "That is the last superadmin — disabling it would leave nobody who can say "
+                "who uses which website.",
             )
 
         store.set_user_disabled(user_id, disabled)
