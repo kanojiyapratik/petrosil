@@ -73,9 +73,13 @@ class FakeRounding:
             LocationRounding(id=len(self._overrides) + 1, location=location, round_to_nearest=step)
         )
 
-    def delete(self, override_id):
+    def delete(self, site_slug, override_id):
+        # Scoped by site now: an override id on its own is not enough, or one
+        # site's screen could remove another site's rounding step.
         self.deleted.append(override_id)
         self._overrides = [row for row in self._overrides if row.id != override_id]
+
+        return True
 
 
 def default_field_value(page: str) -> str:

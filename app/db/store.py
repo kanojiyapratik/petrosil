@@ -673,18 +673,33 @@ class RulesStore:
             )
             connection.commit()
 
-    def set_enabled(self, rule_id: int, enabled: bool) -> None:
+    # The site is in the WHERE clause, not only in the URL the screen was
+    # reached by. A rule id is a small sequential integer, so without it
+    # anyone who may use one site could turn off or delete another site's
+    # rules by posting a number -- and the audit row would name the wrong
+    # site. Both return whether a row was actually theirs to change, so the
+    # screen refuses rather than reporting work it did not do.
+
+    def set_enabled(self, site_slug: str, rule_id: int, enabled: bool) -> bool:
         with self._pool.connection() as connection:
-            connection.execute(
-                "UPDATE console_price_rules SET enabled = %s, updated_at = now() WHERE id = %s",
-                (enabled, rule_id),
-            )
+            row = connection.execute(
+                "UPDATE console_price_rules SET enabled = %s, updated_at = now() "
+                "WHERE id = %s AND site_slug = %s RETURNING id",
+                (enabled, rule_id, site_slug),
+            ).fetchone()
             connection.commit()
 
-    def delete(self, rule_id: int) -> None:
+        return row is not None
+
+    def delete(self, site_slug: str, rule_id: int) -> bool:
         with self._pool.connection() as connection:
-            connection.execute("DELETE FROM console_price_rules WHERE id = %s", (rule_id,))
+            row = connection.execute(
+                "DELETE FROM console_price_rules WHERE id = %s AND site_slug = %s RETURNING id",
+                (rule_id, site_slug),
+            ).fetchone()
             connection.commit()
+
+        return row is not None
 
 
 @dataclass(frozen=True)
@@ -741,12 +756,17 @@ class RoundingStore:
             )
             connection.commit()
 
-    def delete(self, override_id: int) -> None:
+    def delete(self, site_slug: str, override_id: int) -> bool:
+        """Scoped by site for the same reason the rules are: see RulesStore."""
         with self._pool.connection() as connection:
-            connection.execute(
-                "DELETE FROM console_location_rounding WHERE id = %s", (override_id,)
-            )
+            row = connection.execute(
+                "DELETE FROM console_location_rounding WHERE id = %s AND site_slug = %s "
+                "RETURNING id",
+                (override_id, site_slug),
+            ).fetchone()
             connection.commit()
+
+        return row is not None
 
 
 class FxStore:

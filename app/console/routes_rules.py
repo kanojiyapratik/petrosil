@@ -351,7 +351,14 @@ def create_rules_routes(
 
         form = await request.form()
         enabled = str(form.get("enabled") or "") == "1"
-        rules.set_enabled(rule_id, enabled)
+
+        # The rule has to be this site's own. The id comes off the address
+        # bar and the ids are small and sequential, so being allowed to use
+        # one site would otherwise be enough to turn off another site's
+        # rules -- and the trail would name this site for it.
+        if not rules.set_enabled(site.slug, rule_id, enabled):
+            return back(site.slug, "err", "No such rule.")
+
         store.record(
             user.email,
             "turned a price rule " + ("on" if enabled else "off"),
@@ -368,7 +375,9 @@ def create_rules_routes(
         if response is not None:
             return response
 
-        rules.delete(rule_id)
+        if not rules.delete(site.slug, rule_id):
+            return back(site.slug, "err", "No such rule.")
+
         store.record(user.email, "removed a price rule", site.slug, f"rule #{rule_id}")
 
         return back(site.slug, "ok", "Rule removed.")
@@ -472,7 +481,9 @@ def create_rules_routes(
             if response is not None:
                 return response
 
-            rounding.delete(override_id)
+            if not rounding.delete(site.slug, override_id):
+                return back(site.slug, "err", "No such rounding step.")
+
             store.record(
                 user.email, "removed a location's rounding step", site.slug,
                 f"override #{override_id}",
