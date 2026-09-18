@@ -2,12 +2,18 @@
 {% block content %}
 <h1>Sites</h1>
 <p class="lede">
-  Each site is reached over its own API with its own token. Adding one here is all it takes — no redeploy.
+  Each site is reached over its own API with its own token.
   <strong>Show</strong> and <strong>Hide</strong> control who can use a site: a hidden site is missing from
   the site list and its screens answer “no such site”, so a site being set up cannot be reached by anyone
   who guesses the address. Every change is recorded against your name.
+  {% if not user.is_superadmin %}You are shown the websites you have been given.{% endif %}
 </p>
 
+{#- Adding a site, or rewriting its address or token, is the superadmin's
+    job: this is the form that can point every screen of a site somewhere
+    else, or replace the token they all depend on. An ordinary administrator
+    looking at the list should not meet it. #}
+{% if user.is_superadmin %}
 <div class="panel">
   <div class="head"><h2>Add or update a site</h2></div>
   <div class="body">
@@ -38,6 +44,7 @@
     </form>
   </div>
 </div>
+{% endif %}
 
 <div class="panel">
   <div class="head"><h2>Configured sites</h2></div>
@@ -72,7 +79,10 @@
       </tbody>
     </table>
   {% else %}
-    <div class="body empty">None yet.</div>
+    <div class="body empty">
+      {% if user.is_superadmin %}None yet.
+      {% else %}You have not been given any websites yet. Ask the superadmin.{% endif %}
+    </div>
   {% endif %}
 </div>
 {% endblock %}

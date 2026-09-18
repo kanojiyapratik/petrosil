@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Users</h1>
-<p class="lede">Who can sign in to this console. Disabling keeps their history readable; there is no delete.</p>
+<p class="lede">
+  Who can sign in to this console. Disabling keeps their history readable; there is no delete.
+  Signing in is not the same as being able to use a website:
+  {% if user.is_superadmin %}say which websites each person can use on
+  <a href="/console/settings/access">Website access</a>.
+  {% else %}the superadmin says which websites each person can use.{% endif %}
+</p>
 
 <div class="panel">
   <div class="head"><h2>Add someone</h2></div>
@@ -40,7 +46,8 @@
           <td>{{ row.name }}</td>
           <td class="small">{{ row.email }}</td>
           <td>
-            {% if row.is_admin %}<span class="badge ok">admin</span>
+            {% if row.is_superadmin %}<span class="badge ok">superadmin</span>
+            {% elif row.is_admin %}<span class="badge ok">admin</span>
             {% else %}<span class="badge mute">member</span>{% endif %}
           </td>
           <td>

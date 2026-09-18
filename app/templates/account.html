@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Your account</h1>
-<p class="lede">{{ user.name }} · {{ user.email }}{% if user.is_admin %} · administrator{% endif %}</p>
+<p class="lede">{{ user.name }} · {{ user.email }}{% if user.is_superadmin %} · superadmin{% elif user.is_admin %} · administrator{% endif %}</p>
 
 <div class="panel">
   <div class="head"><h2>Change your password</h2></div>

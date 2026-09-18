@@ -13,8 +13,8 @@
   </div>
 {% else %}
   <div class="panel"><div class="body empty">
-    No sites yet.
-    {% if user.is_admin %}<a href="/console/settings/sites">Add the first one</a>.{% else %}Ask an administrator to add one.{% endif %}
+    {% if user.is_superadmin %}No sites yet. <a href="/console/settings/sites">Add the first one</a>.
+    {% else %}No websites yet. Ask the superadmin for the ones you should be using.{% endif %}
   </div></div>
 {% endif %}
 {% endblock %}

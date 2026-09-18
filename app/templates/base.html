@@ -216,10 +216,14 @@ ul.steps li { margin-bottom:.25rem; }
       <a class="nav {% if section == 'rules' %}on{% endif %}" href="/console/sites/{{ site.slug }}/rules">Price rules</a>
       <a class="nav {% if section == 'crawler' %}on{% endif %}" href="/console/sites/{{ site.slug }}/crawler">Crawler</a>
     {% endif %}
-    {% if user.is_admin %}
+    {% if user.is_admin or user.is_superadmin %}
       <div class="group">Settings</div>
       <a class="nav {% if section == 'sites' %}on{% endif %}" href="/console/settings/sites">Sites</a>
       <a class="nav {% if section == 'users' %}on{% endif %}" href="/console/settings/users">Users</a>
+      {#- Saying who may use which website is the superadmin's job alone. #}
+      {% if user.is_superadmin %}
+        <a class="nav {% if section == 'access' %}on{% endif %}" href="/console/settings/access">Website access</a>
+      {% endif %}
       <a class="nav {% if section == 'ai' %}on{% endif %}" href="/console/settings/ai">AI</a>
     {% endif %}
   </nav>
@@ -234,7 +238,7 @@ ul.steps li { margin-bottom:.25rem; }
         {% else %}<b>{{ title }}</b>{% endif %}
       </span>
       <span class="spacer"></span>
-      <a class="who" href="/console/account">{{ user.name }}{% if user.is_admin %} · admin{% endif %}</a>
+      <a class="who" href="/console/account">{{ user.name }}{% if user.is_superadmin %} · superadmin{% elif user.is_admin %} · admin{% endif %}</a>
       <form method="post" action="/console/logout" style="margin:0">
         <button class="ghost" type="submit">Sign out</button>
       </form>
