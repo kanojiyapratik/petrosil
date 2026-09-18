@@ -7,11 +7,14 @@
 # controllers, the Price service classes (minus PriceReviewGateway, which is
 # AI-editorial only and never leaves baseoil), the five price models, the
 # token-mint command, the sheet importer, nine migrations stamped with
-# today's date, ten feature tests, and it appends the price routes block to
-# routes/api.php. 42 files written per run.
+# today's date, ten feature tests, and a tests/bootstrap.php that registers
+# the Tests\ autoload mapping every site is missing (see CHECKLIST.md's test
+# infrastructure section for why), then it appends the price routes block to
+# routes/api.php. 43 files written per run.
 #
 # It deliberately does NOT touch: views, Authenticate/TrustProxies/Handler,
-# .htaccess, .gitignore, User.php's $hidden, or the price-trends null guard.
+# .htaccess, .gitignore, User.php's $hidden, the price-trends null guard, or
+# phpunit.xml (its DB_DATABASE value is site-specific -- see CHECKLIST.md).
 # Those differ per site or need judgement -- see CHECKLIST.md next to this
 # script.
 #
@@ -180,6 +183,19 @@ PriceSummaryTest.php
 PriceTrendsPageTest.php
 "
 
+# --- Test bootstrap (from templates/) ---------------------------------------
+# Every site checked so far (baseoil, bitumart, waxreport, titaniumdioxide-
+# report) ships vendor/ without dev dependencies and has no Composer in its
+# container, so the "Tests\" => "tests/" autoload mapping composer.json's
+# autoload-dev declares was never generated. Without it, no test in the
+# suite runs -- not even the stock ExampleTest.php the site shipped with.
+# The file is identical on every site (it registers the mapping by hand, and
+# names nothing site-specific), so it is written here instead of being
+# hand-rebuilt per site. It does NOT make vendor/bin/phpunit exist -- see
+# CHECKLIST.md's test infrastructure section for the phar + test-database
+# steps that are still per-site and still manual.
+TEST_BOOTSTRAP="tests-bootstrap.php"
+
 # ---------------------------------------------------------------------------
 # Pre-flight: verify every source file exists BEFORE writing anything.
 # A partial port that looks successful is the worst outcome here.
@@ -214,8 +230,10 @@ for f in $TEST_FILES; do
     [ -f "$TEMPLATES_DIR/tests-Feature-Price/$f" ] || MISSING="$MISSING\n  template test:$f"
 done
 
+[ -f "$TEMPLATES_DIR/$TEST_BOOTSTRAP" ] || MISSING="$MISSING\n  template:$TEST_BOOTSTRAP"
+
 # The routes/api.php block is extracted here, in pre-flight, not during the
-# write phase. Extracting it last (after 40+ other files are already
+# write phase. Extracting it last (after 42 other files are already
 # written) means a reworded marker line in baseoil -- which has already
 # happened once, see task-1-report.md -- kills the run on the last step with
 # every other file already in place: a partial port that looks like it
@@ -296,10 +314,17 @@ for f in $TEST_FILES; do
     WRITTEN=$((WRITTEN + 1))
 done
 
+# --- Test bootstrap (Tests\ autoload mapping) --------------------------------
+# Same file on every site -- see the TEST_BOOTSTRAP comment above.
+
+cp "$TEMPLATES_DIR/$TEST_BOOTSTRAP" "$TARGET_APP/tests/bootstrap.php"
+echo "wrote: $INNER_DIR/application/tests/bootstrap.php"
+WRITTEN=$((WRITTEN + 1))
+
 # --- Append the price routes block to routes/api.php ------------------------
 # $ROUTES_BLOCK was extracted and validated in the pre-flight pass above, so
 # a reworded marker line in baseoil fails before anything is written, not
-# after 41 other files already are.
+# after 42 other files already are.
 
 {
     printf '\n'
@@ -316,16 +341,23 @@ WRITTEN=$((WRITTEN + 1))
 echo ""
 echo "Port complete: $WRITTEN files written to $INNER_DIR/application/"
 echo ""
-echo "Not done by this script -- work tools/site-port/CHECKLIST.md next:"
+echo "Not done by this script -- work tools/site-port/CHECKLIST.md next, IN ORDER:"
+echo "  - the users zero-date trap, BEFORE 'php artisan migrate' (checklist item 1)"
 echo "  - the AI Market Insights view + nav/home/price-trends links (site-specific markup)"
 echo "  - Authenticate::redirectTo, Handler::unauthenticated(), TrustProxies::\$proxies"
 echo "  - .htaccess (/api/ exemption, dotted-hostname https redirect)"
 echo "  - .gitignore (**/storage/framework/, **/storage/logs/)"
 echo "  - app/User.php: add api_token to \$hidden"
 echo "  - the /price-trends globalPrices[0] guard"
+echo "  - phpunit.xml: point DB_DATABASE at a real <db>_test database (checklist:"
+echo "    test infrastructure) -- tests/bootstrap.php was already written above"
 echo ""
 echo "NOTE: the ported tests hardcode a real, always-priced location name"
 echo "      ('India Paraffin Wax Full Refined CFR', wax's own fixture)."
 echo "      Update the KNOWN_LOCATION / PRICED_LOCATION / LIVE_LOCATION"
 echo "      constants in tests/Feature/Price/*.php to a location that exists"
 echo "      and carries a price on THIS site before expecting the suite green."
+echo "      LocationResolverTest::testItIgnoresCaseAndUntidySpacing ALSO hardcodes"
+echo "      a second, hand-mangled copy of that same location name -- a plain"
+echo "      constant find-and-replace misses it. See CHECKLIST.md's 'Additional"
+echo "      note' section for the exact search command."

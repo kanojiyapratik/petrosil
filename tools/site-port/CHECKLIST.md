@@ -2,20 +2,80 @@
 
 `port-price-module.sh` copies the mechanical, verbatim part of the recipe:
 controllers, services, models, the token command, the sheet importer, nine
-migrations, ten tests, and the price routes appended to `routes/api.php`.
+migrations, ten tests, a `tests/bootstrap.php` (identical on every site, so
+the script writes it instead of it being rebuilt by hand each time), and the
+price routes appended to `routes/api.php`.
 
 Everything below is what it deliberately leaves for a human, because none of
 it can be copied byte-for-byte from baseoil without breaking the target site
 or missing something baseoil itself doesn't need. Every item here caused a
-real failure on at least one of the three completed sites (baseoil,
-bitumart, waxreport) — none of these are hypothetical.
+real failure on at least one of the four completed sites (baseoil, bitumart,
+waxreport, titaniumdioxidereport) — none of these are hypothetical.
 
 Work through them in order. The verification commands at the end tell you
 whether you actually got there, not just whether the code looks right.
 
 ---
 
-## 1. The views
+## 1. Zero-date `users` rows block the migration
+
+**Do this before running `php artisan migrate`.**
+
+**Why it can't be skipped:** `add_api_token_to_users_table` runs a plain
+`ALTER TABLE users ADD COLUMN api_token ...`. Under MySQL's
+`STRICT_TRANS_TABLES`, adding a column rebuilds the table, and the rebuild
+re-validates every existing row against the current column types — including
+columns the migration never touches. Any row with a legacy zero date
+(`'0000-00-00 00:00:00'`) in a datetime/timestamp column is rejected outright:
+`SQLSTATE[22007]: Invalid datetime value: '0000-00-00 00:00:00'`. This has
+stopped the port on both sites tried so far — titaniumdioxidereport (8 rows,
+`created_at`) and waxreport (2 rows, `email_verified_at` — a *different*
+column, same trap). Two for two is enough to expect it on every site, not
+rediscover it.
+
+**Detect it first, and read the count** — it will differ per site:
+
+```bash
+docker exec petrosil-db mysql -uroot -proot -N -e \
+  "SELECT COUNT(*) FROM <db>.users WHERE created_at = '0000-00-00 00:00:00'
+     OR updated_at = '0000-00-00 00:00:00'
+     OR email_verified_at = '0000-00-00 00:00:00';"
+```
+
+Zero is a valid, clean answer — if you get it, skip straight to `php artisan
+migrate`.
+
+**The repair, if the count is non-zero.** Say plainly what this is: a real
+data change to a real table, not a script tweak or a migration change. Point
+the affected column at another real timestamp already on the same row —
+`updated_at` was always populated on both sites so far, so it was the target
+both times:
+
+```sql
+UPDATE <db>.users SET created_at = updated_at
+  WHERE created_at = '0000-00-00 00:00:00';
+
+-- repeat for any other column the detection query found affected, e.g.:
+UPDATE <db>.users SET email_verified_at = updated_at
+  WHERE email_verified_at = '0000-00-00 00:00:00';
+```
+
+**Count again after the repair**, and keep both numbers (before and after) in
+whatever record you're keeping of this port — titaniumdioxidereport's was "8
+rows, `created_at`, fixed; 0 after":
+
+```bash
+docker exec petrosil-db mysql -uroot -proot -N -e \
+  "SELECT COUNT(*) FROM <db>.users WHERE created_at = '0000-00-00 00:00:00'
+     OR updated_at = '0000-00-00 00:00:00'
+     OR email_verified_at = '0000-00-00 00:00:00';"
+```
+
+Expected: 0. Only then run `php artisan migrate`.
+
+---
+
+## 2. The views
 
 **Why it can't be scripted:** each site's `home.blade.php`,
 `layouts/nav.blade.php`, `layouts/front.blade.php` and
@@ -67,7 +127,7 @@ equivalent) cleanly with zero summaries — this is every site's day-one state.
 
 ---
 
-## 2. `app/Http/Middleware/Authenticate.php`
+## 3. `app/Http/Middleware/Authenticate.php`
 
 **Why it can't be scripted:** `expectsJson()` alone is not enough. Both curl
 and a browser typing the API URL directly send **no `Accept` header**, so
@@ -102,13 +162,13 @@ class Authenticate extends Middleware
 
 ---
 
-## 3. `app/Exceptions/Handler.php` — `unauthenticated()` override
+## 4. `app/Exceptions/Handler.php` — `unauthenticated()` override
 
 **Why it can't be scripted:** Laravel's default `unauthenticated()` calls
 `redirect()->guest($exception->redirectTo() ?? route('login'))` for any
 request that doesn't `expectsJson()`, **regardless of what
 `Authenticate::redirectTo()` returns**. Fixing `Authenticate.php` alone (item
-2) is not sufficient — a token-less curl request to `/api/*` still gets a 302
+3) is not sufficient — a token-less curl request to `/api/*` still gets a 302
 to `/login` without this override.
 
 **Add to `Handler.php`** (inside the `Handler` class):
@@ -126,7 +186,7 @@ protected function unauthenticated($request, \Illuminate\Auth\AuthenticationExce
 
 ---
 
-## 4. `app/Http/Middleware/TrustProxies.php`
+## 5. `app/Http/Middleware/TrustProxies.php`
 
 **Why it can't be scripted:** whatever terminates TLS in front of the app
 (Docker's port mapping locally, Railway's edge in production) forwards plain
@@ -146,7 +206,7 @@ actual addresses.)
 
 ---
 
-## 5. `.htaccess`
+## 6. `.htaccess`
 
 **Why it can't be scripted:** two independent problems live in the same
 file, and both were hit for real:
@@ -185,7 +245,7 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 ---
 
-## 6. `.gitignore`
+## 7. `.gitignore`
 
 **Why it can't be scripted:** a pattern with a middle slash
 (`storage/framework/`) is anchored to the **repo root** in git's
@@ -207,7 +267,7 @@ them, but the `**/`-prefixed lines are the ones that matter.)
 
 ---
 
-## 7. `app/User.php` — hide `api_token`
+## 8. `app/User.php` — hide `api_token`
 
 **Why it can't be scripted:** `api_token` is added to `$fillable` by the
 ported migration, but nothing hides it from serialization. Any endpoint that
@@ -224,7 +284,7 @@ protected $hidden = [
 
 ---
 
-## 8. The `/price-trends` guard
+## 9. The `/price-trends` guard
 
 **Why it can't be scripted:** `resources/views/globalprice/locations.blade.php`
 and (unfixed) `front/location/index.blade.php` reach directly into
@@ -262,7 +322,7 @@ and methanolreport** — they deploy with locations and no prices at all.
 
 ## Additional note: test fixtures name a real location
 
-Not one of the eight items above, but it will block "run the tests" if
+Not one of the nine items above, but it will block "run the tests" if
 skipped: five of the ten ported test files (`tests/Feature/Price/*.php`) hardcode
 `'India Paraffin Wax Full Refined CFR'` — wax's own always-priced location —
 as `KNOWN_LOCATION` / `PRICED_LOCATION` / `LIVE_LOCATION` in
@@ -274,6 +334,96 @@ carries a price** on that site. On fertilizerreport/glycerinereport/
 methanolreport (currently zero prices), use `PriceApiTestCase::makeLocation()`
 and manually insert a `globalprices` row for it in the test's `setUp()`
 instead — there is no real priced location to point at yet.
+
+**Retargeting the constants alone is incomplete — check for every occurrence,
+not just one substitution.** `LocationResolverTest::testItIgnoresCaseAndUntidySpacing`
+hardcodes a *second*, independent copy of the same location name, typed by
+hand rather than built from the constant: `'  india   paraffin wax full refined cfr '` — deliberately
+lowercased and re-spaced, because the test exists to prove the resolver
+tolerates exactly that kind of untidiness. A find-and-replace on the tidy
+`KNOWN_LOCATION`/`PRICED_LOCATION`/`LIVE_LOCATION` string leaves this one
+behind, and titaniumdioxidereport's port hit it for real: the suite fails
+with `'unmatched'` where it expects `'matched'` (or vice versa) — a real,
+confusing diff that looks like a resolver bug, not a leftover fixture. Recognise
+that failure mode: if a resolver test fails on `MATCHED`/`AMBIGUOUS`/`UNMATCHED`
+status *after* the constants have already been retargeted, this is almost
+certainly it.
+
+Don't rely on the constant names to find every copy. Run this across the
+whole test directory instead — it matches the tidy name and any hand-mangled
+casing/spacing of it in one pass, so nothing is left behind:
+
+```bash
+grep -rniE "india\s+paraffin\s+wax\s+full\s+refined\s+cfr" tests/Feature/Price/
+```
+
+Every line it returns must be changed to the target site's own location
+before the suite is trusted green — including the untidy-spacing literal
+above, once it's rewritten to match a location that actually exists on this
+site (untidied the same way: different case, extra/odd spacing) so the test
+still proves what it's meant to prove.
+
+---
+
+## Test infrastructure: `vendor/bin/phpunit` doesn't exist
+
+Not one of the nine items above either, but every site checked so far —
+baseoil, bitumart, waxreport, titaniumdioxidereport — ships `vendor/`
+pre-committed **without** dev dependencies, and none of these containers has
+Composer to fix it. That means `vendor/bin/phpunit` is absent and the
+`Tests\` → `tests/` autoload mapping `composer.json`'s `autoload-dev` declares
+was never generated — not even the site's own stock `tests/Feature/ExampleTest.php`
+runs without it. Waxreport and titaniumdioxidereport each rebuilt the same
+four things by hand; this section is that procedure, folded into the kit so
+the third site doesn't rebuild it a third time.
+
+1. **The `Tests\` autoload mapping.** `port-price-module.sh` now writes
+   `tests/bootstrap.php` for you (from `tools/site-port/templates/tests-bootstrap.php`
+   — see "wrote: .../tests/bootstrap.php" in the script's own output). Nothing
+   to do here unless that line is missing from the run, in which case treat
+   it as a broken port, not a skippable step.
+
+2. **A standalone phpunit**, fetched straight into the container and kept out
+   of the repo, the same way both earlier sites did it:
+   ```bash
+   docker exec site-<site> sh -c 'curl -sL -o /tmp/phpunit-8.5.phar https://phar.phpunit.de/phpunit-8.5.phar'
+   ```
+   (8.5 is the line already pinned in these sites' `composer.lock`; it has run
+   clean on both PHP 7.3 and PHP 8 containers so far.)
+
+3. **`phpunit.xml`**: confirm `bootstrap="tests/bootstrap.php"` (the stock
+   file already points there — check, don't assume it wasn't changed), and
+   repoint the `<php>` block's `DB_*` server vars at a real MySQL test
+   database instead of the stock sqlite `:memory:`:
+   ```xml
+   <server name="DB_CONNECTION" value="mysql"/>
+   <server name="DB_HOST" value="db"/>
+   <server name="DB_PORT" value="3306"/>
+   <server name="DB_DATABASE" value="<db>_test"/>
+   <server name="DB_USERNAME" value="root"/>
+   <server name="DB_PASSWORD" value="root"/>
+   ```
+   Use the site's **actual** database name for `<db>` — check with
+   `SHOW DATABASES;` rather than assuming it matches the folder name.
+   Waxreport's folder is `waxreport` but its database is `waxreports`
+   (plural); pointing at the wrong one produces a test database that imports
+   cleanly and is simply empty.
+
+4. **The test database itself** — a real copy of the live schema and data,
+   not an empty one, because the price code this suite covers depends on
+   actual tables and real MySQL behaviour:
+   ```bash
+   docker exec petrosil-db sh -c 'mysqldump -uroot -proot <db> | mysql -uroot -proot <db>_test'
+   ```
+   Rebuild it the same way after any schema change (a fresh `php artisan
+   migrate` on the live `<db>` included).
+
+Run with:
+```bash
+docker exec site-<site> sh -c 'cd /var/www/html/application && php /tmp/phpunit-8.5.phar --filter Price'
+```
+Expected: green, once the fixture retargeting above (including the
+untidy-spacing literal) is done.
 
 ---
 
@@ -316,7 +466,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 curl -s -o /dev/null -w "%{http_code}\n" \
   http://localhost:<port>/api/locations
 # Expected: 401 (no Accept header at all -- the curl/browser-address-bar case
-# that items 2 and 3 above exist to fix; a 302 here means Handler.php's
+# that items 3 and 4 above exist to fix; a 302 here means Handler.php's
 # override is missing, a 500 means Authenticate.php's hasSession() guard is
 # missing)
 ```
@@ -336,11 +486,12 @@ Expected: 4 rows (`price-batch-view`, `price-batch-create`,
 ```bash
 docker exec site-<site> sh -c 'cd /var/www/html/application && vendor/bin/phpunit --filter Price'
 ```
-Expected: green, after the location-fixture edit above. If
-`vendor/bin/phpunit` doesn't exist, see wax's `PORT-REPORT.md` for the
-`phpunit-8.5.phar` + `tests/bootstrap.php` workaround.
+Expected: green, after the location-fixture edit above. `vendor/bin/phpunit`
+has not existed on any site ported so far — see "Test infrastructure" above
+for the procedure (a standalone phar in place of this exact command), folded
+into the kit rather than left as a pointer to another site's report.
 
-**No mixed content / correct scheme on assets** (TrustProxies, item 4):
+**No mixed content / correct scheme on assets** (TrustProxies, item 5):
 
 ```bash
 curl -s http://localhost:<port>/ | grep -o 'src="http://[^"]*"' | head -5
@@ -348,7 +499,7 @@ curl -s http://localhost:<port>/ | grep -o 'src="http://[^"]*"' | head -5
 Expected: no output (no asset is written as a bare `http://` URL while the
 proxy forwards `X-Forwarded-Proto: https`).
 
-**`/price-trends` doesn't crash on an unpriced location** (item 8) —
+**`/price-trends` doesn't crash on an unpriced location** (item 9) —
 required for fertilizerreport/glycerinereport/methanolreport before anything
 else is checked:
 
