@@ -12,6 +12,7 @@ guessed at does exist, which is the one thing a missing grant is meant to
 keep quiet about: an ungranted site answers exactly what a hidden one does.
 """
 
+import dataclasses
 import re
 
 import pytest
@@ -321,9 +322,20 @@ class TestEveryAddressThatNamesASite:
 
         response = ask(granted, RAKESH, method, address)
 
-        refused = response.status_code == 404 or "err=" in (
-            response.headers.get("location") or ""
-        )
+        # 404 is the refusal. Two routes answer with a redirect carrying an
+        # error instead, and they are named here rather than allowed by shape:
+        # the walk posts an empty body, so "redirect with err=" is also what a
+        # route that merely failed form validation would emit -- accepting it
+        # everywhere would let a genuinely unguarded POST pass this test.
+        redirects_instead = {
+            ("POST", "/console/settings/sites/{slug}/enabled"),
+            ("POST", "/console/settings/ai/site/{slug}"),
+        }
+
+        if (method, path) in redirects_instead:
+            refused = "err=" in (response.headers.get("location") or "")
+        else:
+            refused = response.status_code == 404
 
         assert refused, f"{method} {path} answered {response.status_code} for a site nobody gave"
 
@@ -691,17 +703,26 @@ class TestAnAdministratorCannotBecomeTheSuperadmin:
         assert "last%20superadmin" in (response.headers.get("location") or "")
 
     def test_the_last_administrator_check_counts_the_superadmin_as_one(self):
-        """is_admin is on every administrator, so the count has to ask the
-        question rather than read the column."""
-        store = FakeStore(grants={}, users=[SUPER, EDITOR])
+        """A superadmin is an administrator whether or not the column says so.
 
-        console_client(store, SUPER).post(
-            f"/console/settings/users/{EDITOR.id}/disabled",
+        The check has to ask may_change_settings rather than read is_admin,
+        and the difference only shows on a superadmin whose own is_admin is
+        unset: counting the column would see no administrator left and refuse
+        to disable the last one, locking the screen against a console that
+        still has a superadmin running it.
+        """
+        bare_super = dataclasses.replace(SUPER, is_admin=False)
+        only_admin = dataclasses.replace(RAKESH, is_superadmin=False)
+        store = FakeStore(grants={}, users=[bare_super, only_admin])
+
+        console_client(store, bare_super).post(
+            f"/console/settings/users/{only_admin.id}/disabled",
             data={"disabled": "1"},
             follow_redirects=False,
         )
 
-        assert store.disabled_set == [(EDITOR.id, True)]
+        # Allowed, because the superadmin is still an administrator.
+        assert store.disabled_set == [(only_admin.id, True)]
 
 
 class ScopedRules:
