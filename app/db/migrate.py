@@ -276,6 +276,50 @@ MIGRATIONS: list[Migration] = [
             ON console_location_rounding (site_slug, location);
         """,
     ),
+    Migration(
+        id="0012_site_access",
+        sql="""
+        -- The tier above administrator. is_admin still answers "may change
+        -- settings" and is left exactly as it was; this answers the separate
+        -- question of who may see every website and say who else can.
+        ALTER TABLE console_users
+            ADD COLUMN is_superadmin BOOLEAN NOT NULL DEFAULT FALSE;
+
+        -- Superadmin implies administrator, so the flag is set here rather
+        -- than left to be remembered at every check.
+        UPDATE console_users
+           SET is_superadmin = TRUE, is_admin = TRUE, updated_at = now()
+         WHERE lower(email) = 'superadmin@petrocil.in';
+
+        -- Which user may use which website. A superadmin is never given rows
+        -- here -- they see everything by being a superadmin -- so there is
+        -- one source of truth rather than two to keep in step.
+        CREATE TABLE console_site_access (
+          id         BIGSERIAL PRIMARY KEY,
+          user_id    BIGINT NOT NULL REFERENCES console_users(id) ON DELETE CASCADE,
+          site_slug  TEXT NOT NULL,
+          granted_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX console_site_access_key
+            ON console_site_access (user_id, site_slug);
+        CREATE INDEX console_site_access_user_idx ON console_site_access (user_id);
+
+        -- MIGRATION SAFETY. Until this migration every signed-in user could
+        -- use every enabled website. Landing with an empty grants table would
+        -- silently lock every existing user out of all nine sites on a live
+        -- console, with nothing on screen to say why. So every existing
+        -- non-superadmin user is granted every existing site right here: the
+        -- change is invisible until a superadmin deliberately revokes
+        -- something, which is the only way it should ever become visible.
+        INSERT INTO console_site_access (user_id, site_slug, granted_by)
+        SELECT u.id, s.slug, 'migration 0012_site_access'
+          FROM console_users u
+         CROSS JOIN console_sites s
+         WHERE NOT u.is_superadmin;
+        """,
+    ),
 ]
 
 

@@ -14,6 +14,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
+# The one account that sees every website without being granted any of them,
+# and the only one that can say who else sees what. Named here rather than in
+# a screen because both the migration and the boot-time seeding have to agree
+# on it.
+SUPERADMIN_EMAIL = "superadmin@petrocil.in"
+
+
 @dataclass(frozen=True)
 class StoredUser:
     id: int
@@ -22,6 +29,10 @@ class StoredUser:
     password_hash: str
     is_admin: bool
     disabled_at: str | None
+    # The tier above administrator: sees and manages every site. is_admin is
+    # left meaning what it always meant -- may change settings -- because
+    # "may change settings" and "may see every site" are different questions.
+    is_superadmin: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,7 @@ def _to_user(row) -> StoredUser:
         password_hash=row[3],
         is_admin=bool(row[4]),
         disabled_at=_iso(row[5]),
+        is_superadmin=bool(row[6]) if len(row) > 6 else False,
     )
 
 
@@ -80,7 +92,7 @@ def _to_site(row) -> StoredSite:
     )
 
 
-USER_COLUMNS = "id, email, name, password_hash, is_admin, disabled_at"
+USER_COLUMNS = "id, email, name, password_hash, is_admin, disabled_at, is_superadmin"
 SITE_COLUMNS = (
     "id, slug, name, api_url, api_token, enabled, editorial_instructions, round_to_nearest"
 )
@@ -139,6 +151,69 @@ class Store:
                 "UPDATE console_users SET disabled_at = CASE WHEN %s THEN now() ELSE NULL END, "
                 "updated_at = now() WHERE id = %s",
                 (disabled, user_id),
+            )
+            connection.commit()
+
+    def ensure_superadmin(self, email: str = SUPERADMIN_EMAIL) -> None:
+        """Makes the named account the superadmin, if it exists.
+
+        Idempotent, and a no-op on a database that has no such account yet --
+        the migration marks the account this console already has, and this
+        catches the install where the account arrives afterwards, from the
+        seeding environment variables.
+        """
+        with self._pool.connection() as connection:
+            connection.execute(
+                "UPDATE console_users SET is_superadmin = TRUE, is_admin = TRUE, "
+                "updated_at = now() WHERE lower(email) = %s AND NOT is_superadmin",
+                (email.strip().lower(),),
+            )
+            connection.commit()
+
+    # ---- who may use which site -------------------------------------------
+
+    def granted_slugs(self, user_id: int) -> set[str]:
+        """The sites this user has been given. A superadmin never reaches
+        here: they see everything without a row, see app/console/access.py."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT site_slug FROM console_site_access WHERE user_id = %s",
+                (user_id,),
+            ).fetchall()
+
+        return {row[0] for row in rows}
+
+    def all_grants(self) -> dict[int, set[str]]:
+        """Every grant, for the screen that shows the whole grid at once."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT user_id, site_slug FROM console_site_access"
+            ).fetchall()
+
+        grants: dict[int, set[str]] = {}
+
+        for row in rows:
+            grants.setdefault(int(row[0]), set()).add(row[1])
+
+        return grants
+
+    def grant_site(self, user_id: int, slug: str, granted_by: str) -> None:
+        # WHERE NOT EXISTS rather than ON CONFLICT: granting twice must be
+        # harmless, and this stays correct whatever indexes the table carries.
+        with self._pool.connection() as connection:
+            connection.execute(
+                "INSERT INTO console_site_access (user_id, site_slug, granted_by) "
+                "SELECT %s, %s, %s WHERE NOT EXISTS ("
+                "  SELECT 1 FROM console_site_access WHERE user_id = %s AND site_slug = %s)",
+                (user_id, slug, granted_by, user_id, slug),
+            )
+            connection.commit()
+
+    def revoke_site(self, user_id: int, slug: str) -> None:
+        with self._pool.connection() as connection:
+            connection.execute(
+                "DELETE FROM console_site_access WHERE user_id = %s AND site_slug = %s",
+                (user_id, slug),
             )
             connection.commit()
 
@@ -283,6 +358,7 @@ def seed(store: Store, users: list[dict], sites: list[dict]) -> dict[str, int]:
     existing_sites = {site.slug for site in store.sites()}
     added_users = 0
     added_sites = 0
+    seeded_emails = set()
 
     for user in users:
         if user["email"] in existing_users:
@@ -290,6 +366,7 @@ def seed(store: Store, users: list[dict], sites: list[dict]) -> dict[str, int]:
 
         # The first account in has to be able to add the others.
         store.create_user(user["email"], user["name"], user["password_hash"], True)
+        seeded_emails.add(user["email"])
         added_users += 1
 
     for site in sites:
@@ -298,6 +375,23 @@ def seed(store: Store, users: list[dict], sites: list[dict]) -> dict[str, int]:
 
         store.upsert_site(site["slug"], site["name"], site["api_url"], site["token"], True)
         added_sites += 1
+
+    store.ensure_superadmin()
+
+    # Accounts seeded from the environment could use every site before the
+    # grants table existed, so a freshly seeded account is given every site
+    # here for the same reason migration 0012 gives one to every account that
+    # was already there: nobody should be locked out by a change they cannot
+    # see. The superadmin is skipped -- it needs no grant.
+    if seeded_emails:
+        slugs = [site.slug for site in store.sites()]
+
+        for row in store.users():
+            if row.is_superadmin or row.email not in seeded_emails:
+                continue
+
+            for slug in slugs:
+                store.grant_site(row.id, slug, "seed")
 
     return {"users": added_users, "sites": added_sites}
 
