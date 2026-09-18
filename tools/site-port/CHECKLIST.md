@@ -2,7 +2,7 @@
 
 `port-price-module.sh` copies the mechanical, verbatim part of the recipe:
 controllers, services, models, the token command, the sheet importer, nine
-migrations, nine tests, and the price routes appended to `routes/api.php`.
+migrations, ten tests, and the price routes appended to `routes/api.php`.
 
 Everything below is what it deliberately leaves for a human, because none of
 it can be copied byte-for-byte from baseoil without breaking the target site
@@ -49,6 +49,17 @@ insights page and the nav/home/price-trends links to match.
 5. Link the page from the homepage, `layouts/nav.blade.php`, and
    `front/location/index.blade.php`, matching how the site already links its
    other secondary pages.
+
+**Wording constraint.** This is the one place in the whole port where an
+executor writes new copy a site visitor actually reads, so it is the one
+place the plan's screen-wording rule applies: **follow the owner's
+vocabulary — read / check / use** for labels, links and headings on the
+insights page and its nav/home links. Never write "extraction", "parsed",
+"derived", "benchmark" or "rulebook" in anything a person reads (internal
+code comments are fine — this is about visible copy only). If the site's
+own existing pages already use different plain-English verbs for the same
+action, match the site over this list; the point is owner-vocabulary,
+plain-English wording, not this exact set of words.
 
 **Verify:** visit `/ai-market-insights` on the target site. It should render
 with the site's own header/footer/styling, and show "no notes yet" (or
@@ -252,7 +263,7 @@ and methanolreport** — they deploy with locations and no prices at all.
 ## Additional note: test fixtures name a real location
 
 Not one of the eight items above, but it will block "run the tests" if
-skipped: the nine ported test files (`tests/Feature/Price/*.php`) hardcode
+skipped: five of the ten ported test files (`tests/Feature/Price/*.php`) hardcode
 `'India Paraffin Wax Full Refined CFR'` — wax's own always-priced location —
 as `KNOWN_LOCATION` / `PRICED_LOCATION` / `LIVE_LOCATION` in
 `LocationResolverTest.php`, `LocationsApiTest.php`, `PriceBatchApiTest.php`,

@@ -7,8 +7,8 @@
 # controllers, the Price service classes (minus PriceReviewGateway, which is
 # AI-editorial only and never leaves baseoil), the five price models, the
 # token-mint command, the sheet importer, nine migrations stamped with
-# today's date, nine feature tests, and it appends the price routes block to
-# routes/api.php.
+# today's date, ten feature tests, and it appends the price routes block to
+# routes/api.php. 42 files written per run.
 #
 # It deliberately does NOT touch: views, Authenticate/TrustProxies/Handler,
 # .htaccess, .gitignore, User.php's $hidden, or the price-trends null guard.
@@ -98,7 +98,7 @@ fi
 #      wax by API-level Feature tests that exercise the actual ported
 #      endpoints and auth. wax's PORT-REPORT.md records this as a deliberate
 #      departure from baseoil's tree, not an oversight. This script installs
-#      wax's 9 feature tests (from templates/), not baseoil's 8 unit tests.
+#      wax's 10 feature tests (from templates/), not baseoil's 8 unit tests.
 #
 # Everything else below is copied verbatim from baseoil's live working tree,
 # so a baseoil fix made after this script was written is picked up
@@ -163,11 +163,16 @@ create_price_summaries_table|baseoil:2026_09_03_000001_create_price_summaries_ta
 "
 
 # --- Feature tests (from templates/, sourced from wax e7bcd93 -- see note above) ---
+# Ten files, not nine: PriceApiTokenCommandTest.php was present in e7bcd93's
+# diffstat (46 insertions) but missed on the first pass of this script --
+# it is the only test that exercises `php artisan price-api:token` itself,
+# the command PriceApiTokenCommand.php ports, so it stays in.
 TEST_FILES="
 HttpsBehindProxyTest.php
 LocationResolverTest.php
 LocationsApiTest.php
 PriceApiTestCase.php
+PriceApiTokenCommandTest.php
 PriceBatchApiTest.php
 PriceBatchCommitTest.php
 PriceCrawlApiTest.php
@@ -208,6 +213,18 @@ for f in $TEST_FILES; do
     [ -n "$f" ] || continue
     [ -f "$TEMPLATES_DIR/tests-Feature-Price/$f" ] || MISSING="$MISSING\n  template test:$f"
 done
+
+# The routes/api.php block is extracted here, in pre-flight, not during the
+# write phase. Extracting it last (after 40+ other files are already
+# written) means a reworded marker line in baseoil -- which has already
+# happened once, see task-1-report.md -- kills the run on the last step with
+# every other file already in place: a partial port that looks like it
+# almost finished. Failing here means nothing has been written yet.
+ROUTES_BLOCK=$(sed -n '/^\/\/ Price-batch API:/,$p' "$BASEOIL_APP/routes/api.php")
+
+if [ -z "$ROUTES_BLOCK" ]; then
+    MISSING="$MISSING\n  baseoil routes/api.php: no line starting '// Price-batch API:' found (has the comment been reworded?)"
+fi
 
 if [ -n "$MISSING" ]; then
     echo "ERROR: missing source file(s), refusing to write a partial port:" >&2
@@ -280,17 +297,9 @@ for f in $TEST_FILES; do
 done
 
 # --- Append the price routes block to routes/api.php ------------------------
-# Extracted live from baseoil's own routes/api.php, from the first price
-# comment to end of file, so a change baseoil makes to route wiring is
-# picked up the next time this script runs.
-
-ROUTES_BLOCK=$(sed -n '/^\/\/ Price-batch API:/,$p' "$BASEOIL_APP/routes/api.php")
-
-if [ -z "$ROUTES_BLOCK" ]; then
-    echo "ERROR: could not find the price routes block in $BASEOIL_APP/routes/api.php" >&2
-    echo "       (looked for a line starting '// Price-batch API:')" >&2
-    exit 1
-fi
+# $ROUTES_BLOCK was extracted and validated in the pre-flight pass above, so
+# a reworded marker line in baseoil fails before anything is written, not
+# after 41 other files already are.
 
 {
     printf '\n'
