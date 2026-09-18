@@ -938,3 +938,45 @@ class TestSeedingAFreshInstall:
         )
 
         assert store.granted_slugs(7) == {"baseoil"}
+
+
+class TestTheSuperadminSeesHiddenSitesToo:
+    """The Show/Hide switch is the superadmin's own control.
+
+    Applying it to their own view meant the one person who can turn a site
+    back on could not see it to do so: with seven of nine sites hidden, the
+    All sites screen offered two.
+    """
+
+    def test_all_sites_lists_the_hidden_ones_for_a_superadmin(self):
+        store = FakeStore(grants={})
+
+        page = console_client(store, SUPER).get("/console").text
+
+        # BASEOIL and WAX are shown; HIDDEN ("Bitumen Report") is not.
+        assert "Base Oil Report" in page
+        assert "Wax Report" in page
+        assert "Bitumen Report" in page
+
+    def test_an_ordinary_user_still_does_not_see_a_hidden_site(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil", "waxreport", "bitumen"}})
+
+        page = console_client(store, RAKESH).get("/console").text
+
+        assert "Base Oil Report" in page
+        assert "Bitumen Report" not in page
+
+    def test_a_superadmin_can_open_a_hidden_site(self):
+        # Listing it and then refusing to open it would be worse than hiding it.
+        store = FakeStore(grants={})
+
+        response = console_client(store, SUPER).get("/console/sites/bitumen")
+
+        assert response.status_code == 200
+
+    def test_an_ordinary_user_cannot_open_a_hidden_site_even_if_granted(self):
+        store = FakeStore(grants={RAKESH.id: {"bitumen"}})
+
+        response = console_client(store, RAKESH).get("/console/sites/bitumen")
+
+        assert response.status_code == 404

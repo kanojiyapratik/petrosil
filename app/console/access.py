@@ -52,10 +52,18 @@ def visible_site(store, user, slug: str):
 
     One None covers all three reasons -- no such site, hidden, not granted --
     because from outside they have to look identical.
+
+    Hidden does not apply to the superadmin. The switch exists so they can
+    keep a site from everyone else while it is being set up; applying it to
+    them as well would mean the one person who can turn it back on cannot
+    open it to check on it first.
     """
     site = store.site_by_slug(slug)
 
-    if site is None or not site.enabled:
+    if site is None:
+        return None
+
+    if not site.enabled and not is_superadmin(user):
         return None
 
     return site if may_use_slug(store, user, site.slug) else None
@@ -83,6 +91,21 @@ def visible_sites(store, user, sites):
     allowed = store.granted_slugs(user.id)
 
     return [site for site in sites if site.slug in allowed]
+
+
+def sites_for(store, user):
+    """Every site this user should be offered, hidden ones included or not.
+
+    The superadmin gets the whole list, hidden sites among them: they decide
+    what everyone else sees, so filtering their own view by that same switch
+    would hide the sites they most need to look at. Everyone else gets the
+    sites they were granted, and only the ones that are shown.
+
+    Callers should reach for this rather than choosing between sites() and
+    enabled_sites() themselves -- picking the wrong one is how the superadmin
+    ended up seeing two sites out of nine.
+    """
+    return visible_sites(store, user, store.sites() if is_superadmin(user) else store.enabled_sites())
 
 
 def _page(templates, request: Request, user, title: str, message: str, status: int):

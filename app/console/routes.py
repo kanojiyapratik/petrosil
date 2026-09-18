@@ -21,6 +21,7 @@ from .access import (
     make_site_guard,
     managed_site,
     may_change_settings,
+    sites_for,
     visible_sites,
 )
 from .auth import (
@@ -257,7 +258,7 @@ def create_console(
             request,
             user,
             title="Sites",
-            sites=visible_sites(store, user, store.enabled_sites()),
+            sites=sites_for(store, user),
         )
 
     @router.get("/console/sites/{slug}", response_class=HTMLResponse)
