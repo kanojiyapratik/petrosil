@@ -312,8 +312,10 @@ site checked so far.
 
 Apply the same `isset($location->globalPrices[0])` guard pattern anywhere
 else in the site's views that indexes into `globalPrices[0]` directly
-(`resources/views/globalprice/locations.blade.php` is the other place this
-was found on both baseoil and waxreport).
+(`resources/views/globalprice/locations.blade.php` was the other place on
+baseoil and waxreport — but it was already fully guarded on petrosilicon, so
+treat it as a place to look rather than a second hit you are guaranteed to
+find. Grep for `globalPrices[0]` across the site's views and judge each one).
 
 **This item is the first thing to check on fertilizerreport, glycerinereport
 and methanolreport** — they deploy with locations and no prices at all.
@@ -391,8 +393,10 @@ the third site doesn't rebuild it a third time.
    (8.5 is the line already pinned in these sites' `composer.lock`; it has run
    clean on both PHP 7.3 and PHP 8 containers so far.)
 
-3. **`phpunit.xml`**: confirm `bootstrap="tests/bootstrap.php"` (the stock
-   file already points there — check, don't assume it wasn't changed), and
+3. **`phpunit.xml`**: set `bootstrap="tests/bootstrap.php"`. Expect to change
+   this, not merely confirm it — on both sites ported so far the stock file
+   still pointed at `vendor/autoload.php`, which has no `Tests\` mapping and
+   fails every test with a class-not-found. Then
    repoint the `<php>` block's `DB_*` server vars at a real MySQL test
    database instead of the stock sqlite `:memory:`:
    ```xml
