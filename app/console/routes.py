@@ -680,6 +680,44 @@ def create_console(
 
         return back(path, "ok", f"{site.name} saved.")
 
+    @router.post("/console/settings/sites/{slug}/enabled")
+    async def set_site_enabled(request: Request, slug: str):
+        """Show or hide one site, without touching the rest of its settings.
+
+        A hidden site is not merely unlinked: it is absent from the site list
+        and its screens answer 404, so a half-finished site cannot be reached
+        by anyone who guesses the address. That is why this is one switch and
+        not a note on a page -- and why every flip is written to the trail,
+        since it changes what the whole team can see.
+        """
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        if not user.is_admin:
+            return error_page(
+                request, user, "Not allowed",
+                "Only an administrator can change these settings.", 403,
+            )
+
+        path = "/console/settings/sites"
+        form = await request.form()
+        wanted = str(form.get("enabled") or "") == "1"
+        site = store.set_site_enabled(slug, wanted)
+
+        if site is None:
+            return back(path, "err", "No such site.")
+
+        store.record(
+            user.email, "showed a site" if wanted else "hid a site", site.slug, site.name
+        )
+
+        return back(
+            path, "ok",
+            f"{site.name} is now {'visible to everyone' if wanted else 'hidden'}.",
+        )
+
     @router.get("/console/settings/users", response_class=HTMLResponse)
     def settings_users(request: Request):
         user = current_user(request)

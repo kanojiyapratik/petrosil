@@ -3,6 +3,9 @@
 <h1>Sites</h1>
 <p class="lede">
   Each site is reached over its own API with its own token. Adding one here is all it takes — no redeploy.
+  <strong>Show</strong> and <strong>Hide</strong> control who can use a site: a hidden site is missing from
+  the site list and its screens answer “no such site”, so a site being set up cannot be reached by anyone
+  who guesses the address. Every change is recorded against your name.
 </p>
 
 <div class="panel">
@@ -40,7 +43,7 @@
   <div class="head"><h2>Configured sites</h2></div>
   {% if sites %}
     <table>
-      <thead><tr><th>Name</th><th>Short name</th><th>API address</th><th>Status</th></tr></thead>
+      <thead><tr><th>Name</th><th>Short name</th><th>API address</th><th>Shown to the team</th><th></th></tr></thead>
       <tbody>
         {% for entry in sites %}
           <tr>
@@ -48,8 +51,21 @@
             <td class="small muted">{{ entry.slug }}</td>
             <td class="wrap small">{{ entry.api_url }}</td>
             <td>
-              {% if entry.enabled %}<span class="badge ok">enabled</span>
-              {% else %}<span class="badge mute">off</span>{% endif %}
+              {% if entry.enabled %}<span class="badge ok">shown</span>
+              {% else %}<span class="badge mute">hidden</span>{% endif %}
+            </td>
+            <td>
+              {#- One switch, so showing a site cannot become an accidental
+                  edit of its address or token -- which is what re-saving it
+                  through the form above would risk. #}
+              <form method="post" action="/console/settings/sites/{{ entry.slug }}/enabled"
+                    style="margin:0" data-no-overlay="1">
+                <input type="hidden" name="enabled" value="{{ '0' if entry.enabled else '1' }}">
+                <button class="{{ 'ghost' if entry.enabled else '' }}" type="submit"
+                        style="padding:.25rem .6rem">
+                  {{ 'Hide' if entry.enabled else 'Show' }}
+                </button>
+              </form>
             </td>
           </tr>
         {% endfor %}

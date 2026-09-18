@@ -192,6 +192,25 @@ class Store:
 
         return _to_site(row)
 
+    def set_site_enabled(self, slug: str, enabled: bool) -> StoredSite | None:
+        """Turn one site on or off, touching nothing else about it.
+
+        upsert_site can do this too, but only by being handed the site's whole
+        configuration again -- name, address and token -- which makes flipping
+        a switch a chance to overwrite the credential every screen depends on.
+        A site is hidden and shown far more often than it is reconfigured, so
+        that deserves its own door.
+        """
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                f"UPDATE console_sites SET enabled = %s, updated_at = now() "
+                f"WHERE slug = %s RETURNING {SITE_COLUMNS}",
+                (enabled, slug),
+            ).fetchone()
+            connection.commit()
+
+        return _to_site(row) if row else None
+
     def set_editorial_instructions(self, slug: str, text: str) -> None:
         """Saved on every draft, so they are written once and remembered."""
         with self._pool.connection() as connection:
