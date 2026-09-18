@@ -12,6 +12,8 @@ guessed at does exist, which is the one thing a missing grant is meant to
 keep quiet about: an ungranted site answers exactly what a hidden one does.
 """
 
+import re
+
 import pytest
 
 from fastapi import FastAPI
@@ -26,7 +28,7 @@ from app.console.routes_prices import create_price_routes
 from app.console.routes_reading import create_reading_routes
 from app.console.routes_rules import create_rules_routes
 from app.db.migrate import MIGRATIONS
-from app.db.store import StoredSite, StoredUser, seed
+from app.db.store import RoundingStore, RulesStore, StoredSite, StoredUser, seed
 
 SECRET = "s" * 40
 TEMPLATES = Jinja2Templates(directory="app/templates")
@@ -64,6 +66,8 @@ class FakeStore:
         self._sites = list(sites if sites is not None else [BASEOIL, WAX, HIDDEN])
         self.grants = {user_id: set(slugs) for user_id, slugs in (grants or {}).items()}
         self.records = []
+        self.passwords_set = []
+        self.disabled_set = []
 
     # users
     def users(self):
@@ -112,6 +116,12 @@ class FakeStore:
 
     def audit(self, limit=100, site_slug=None):
         return []
+
+    def set_user_password(self, user_id, password_hash):
+        self.passwords_set.append(user_id)
+
+    def set_user_disabled(self, user_id, disabled):
+        self.disabled_set.append((user_id, disabled))
 
 
 class FakeSiteClient:
@@ -190,9 +200,10 @@ def prices_client(store, user):
                          client_factory=lambda site: FakeSiteClient())
 
 
-def rules_client(store, user):
-    return router_client(create_rules_routes, store, user, rules=FakeRules(),
-                         rounding=FakeRounding(),
+def rules_client(store, user, rules=None, rounding=None):
+    return router_client(create_rules_routes, store, user,
+                         rules=rules if rules is not None else FakeRules(),
+                         rounding=rounding if rounding is not None else FakeRounding(),
                          client_factory=lambda site: FakeSiteClient())
 
 
@@ -218,9 +229,122 @@ def ai_client(store, user):
     return TestClient(app)
 
 
-# One address per guard. A guard added later without the access check shows up
-# as a missing entry here, which is why they are listed rather than tested one
-# screen at a time.
+def whole_console(store, user):
+    """Every router the module mounts, on one app, so the routes can be asked
+    what they are rather than listed by hand."""
+    app = FastAPI()
+    app.include_router(
+        create_console(
+            store=store, secret=SECRET, templates=TEMPLATES,
+            secure_cookies=False, client_factory=lambda site: FakeSiteClient(),
+        )
+    )
+    app.include_router(
+        create_price_routes(store=store, templates=TEMPLATES,
+                            current_user=lambda request: user,
+                            client_factory=lambda site: FakeSiteClient())
+    )
+    app.include_router(
+        create_editorial_routes(store=store, templates=TEMPLATES,
+                                current_user=lambda request: user, driver=None,
+                                default_model="m", extractions=FakeExtractions(),
+                                rules=FakeRules(), rounding=FakeRounding(),
+                                client_factory=lambda site: FakeSiteClient())
+    )
+    app.include_router(
+        create_reading_routes(store=store, templates=TEMPLATES,
+                              current_user=lambda request: user, driver=None,
+                              default_model="m", extractions=FakeExtractions())
+    )
+    app.include_router(
+        create_rules_routes(store=store, templates=TEMPLATES,
+                            current_user=lambda request: user, rules=FakeRules(),
+                            rounding=FakeRounding(),
+                            client_factory=lambda site: FakeSiteClient())
+    )
+    app.include_router(
+        create_ai_routes(store=store, providers=FakeProviders(), templates=TEMPLATES,
+                         current_user=lambda request: user)
+    )
+
+    return app
+
+
+def every_route_carrying_a_site():
+    """Every address the module serves that names a site.
+
+    Asked of the application rather than written down here. A list someone
+    has to remember to update is not a guard rail: a route added later
+    without the check has to fail a test, and it can only do that if the
+    tests find the route themselves.
+    """
+    found = set()
+
+    for route in whole_console(FakeStore(), RAKESH).routes:
+        path = getattr(route, "path", "")
+
+        if "{slug}" not in path:
+            continue
+
+        for method in getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}:
+            found.add((method, path))
+
+    return sorted(found)
+
+
+SITE_ROUTES = every_route_carrying_a_site()
+SITE_ROUTE_IDS = [f"{method} {path}" for method, path in SITE_ROUTES]
+
+
+def address_of(path: str) -> str:
+    """The route's pattern with a site that exists and 1 for every other id."""
+    return re.sub(r"\{[^}]+\}", "1", path.replace("{slug}", "waxreport"))
+
+
+def ask(store, user, method: str, address: str):
+    client = TestClient(whole_console(store, user))
+    client.cookies.set(SESSION_COOKIE, sign_session(new_session(user.email), SECRET))
+
+    return client.request(method, address, follow_redirects=False)
+
+
+class TestEveryAddressThatNamesASite:
+    def test_there_are_some_to_check(self):
+        # A refactor that stopped the walk finding routes would make every
+        # test below pass by checking nothing.
+        assert len(SITE_ROUTES) >= 12
+
+    @pytest.mark.parametrize("method,path", SITE_ROUTES, ids=SITE_ROUTE_IDS)
+    def test_a_site_you_were_not_given_is_refused(self, method, path):
+        granted = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        address = address_of(path)
+
+        response = ask(granted, RAKESH, method, address)
+
+        refused = response.status_code == 404 or "err=" in (
+            response.headers.get("location") or ""
+        )
+
+        assert refused, f"{method} {path} answered {response.status_code} for a site nobody gave"
+
+    @pytest.mark.parametrize("method,path", SITE_ROUTES, ids=SITE_ROUTE_IDS)
+    def test_and_answers_exactly_what_a_site_that_does_not_exist_answers(self, method, path):
+        granted = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        missing = FakeStore(grants={RAKESH.id: {"baseoil", "waxreport"}},
+                            sites=[BASEOIL, HIDDEN])
+        address = address_of(path)
+
+        ungranted = ask(granted, RAKESH, method, address)
+        absent = ask(missing, RAKESH, method, address)
+
+        assert ungranted.status_code == absent.status_code
+        assert ungranted.text == absent.text
+        assert ungranted.headers.get("location") == absent.headers.get("location")
+
+
+# One address per guard, for the cases that need a screen to actually render.
+# The exhaustive negative check above is taken from the application's own
+# routes; these are the positives, which have to name a screen.
 GUARDS = [
     ("the console's own screens", console_client, "/console/sites/waxreport"),
     ("the crawler screen", console_client, "/console/sites/waxreport/crawler"),
@@ -488,6 +612,289 @@ class TestTheMigration:
 
         assert "Base Oil Report" in page and "Wax Report" in page
         assert client.get("/console/sites/waxreport").status_code == 200
+
+
+class TestAnAdministratorCannotBecomeTheSuperadmin:
+    """The tier is only above administrator if an administrator cannot take it.
+
+    An administrator who could reset the superadmin's password would sign in
+    as them, give themselves all nine sites and open the one form that holds
+    every site's address and token. Nothing on any screen can make a new
+    superadmin, so an administrator who could disable one could stop anybody
+    changing who uses what until somebody edited the database by hand.
+    """
+
+    def test_an_admin_cannot_reset_the_superadmins_password(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+
+        response = console_client(store, RAKESH).post(
+            f"/console/settings/users/{SUPER.id}/password",
+            data={"password": "a-long-enough-one"},
+            follow_redirects=False,
+        )
+
+        assert store.passwords_set == []
+        assert "err=" in (response.headers.get("location") or "")
+
+    def test_an_admin_cannot_disable_the_superadmin(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+
+        response = console_client(store, RAKESH).post(
+            f"/console/settings/users/{SUPER.id}/disabled",
+            data={"disabled": "1"},
+            follow_redirects=False,
+        )
+
+        assert store.disabled_set == []
+        assert "err=" in (response.headers.get("location") or "")
+
+    def test_an_admin_is_not_even_offered_the_buttons(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+
+        page = console_client(store, RAKESH).get("/console/settings/users").text
+
+        assert "Only the superadmin can change this account." in page
+
+    def test_the_superadmin_can_still_reset_their_own_password(self):
+        store = FakeStore(grants={})
+
+        console_client(store, SUPER).post(
+            f"/console/settings/users/{SUPER.id}/password",
+            data={"password": "a-long-enough-one"},
+            follow_redirects=False,
+        )
+
+        assert store.passwords_set == [SUPER.id]
+
+    def test_an_admin_can_still_reset_an_ordinary_users_password(self):
+        store = FakeStore(grants={})
+
+        console_client(store, RAKESH).post(
+            f"/console/settings/users/{EDITOR.id}/password",
+            data={"password": "a-long-enough-one"},
+            follow_redirects=False,
+        )
+
+        assert store.passwords_set == [EDITOR.id]
+
+    def test_the_last_superadmin_cannot_be_disabled_at_all(self):
+        # Not even by themselves: there is no screen that can make another.
+        store = FakeStore(grants={})
+
+        response = console_client(store, SUPER).post(
+            f"/console/settings/users/{SUPER.id}/disabled",
+            data={"disabled": "1"},
+            follow_redirects=False,
+        )
+
+        assert store.disabled_set == []
+        assert "last%20superadmin" in (response.headers.get("location") or "")
+
+    def test_the_last_administrator_check_counts_the_superadmin_as_one(self):
+        """is_admin is on every administrator, so the count has to ask the
+        question rather than read the column."""
+        store = FakeStore(grants={}, users=[SUPER, EDITOR])
+
+        console_client(store, SUPER).post(
+            f"/console/settings/users/{EDITOR.id}/disabled",
+            data={"disabled": "1"},
+            follow_redirects=False,
+        )
+
+        assert store.disabled_set == [(EDITOR.id, True)]
+
+
+class ScopedRules:
+    """Rules that know which site each of them belongs to -- what the store
+    now enforces in SQL."""
+
+    def __init__(self, owner):
+        self.owner = dict(owner)
+        self.toggled = []
+        self.deleted = []
+
+    def for_site(self, slug):
+        return []
+
+    def set_enabled(self, site_slug, rule_id, enabled):
+        if self.owner.get(rule_id) != site_slug:
+            return False
+
+        self.toggled.append((rule_id, enabled))
+
+        return True
+
+    def delete(self, site_slug, rule_id):
+        if self.owner.get(rule_id) != site_slug:
+            return False
+
+        self.deleted.append(rule_id)
+
+        return True
+
+
+class ScopedRounding(FakeRounding):
+    def __init__(self, owner):
+        self.owner = dict(owner)
+        self.deleted = []
+
+    def delete(self, site_slug, override_id):
+        if self.owner.get(override_id) != site_slug:
+            return False
+
+        self.deleted.append(override_id)
+
+        return True
+
+
+class TestAnIdOffTheAddressBarIsNeverEnoughOnItsOwn:
+    """Being allowed to use one site must not reach another site's rows.
+
+    The rule and rounding ids are small sequential numbers, so a user given
+    only baseoil could post waxreport's rule id to baseoil's own screen and
+    turn off or delete a rule that decides what that other site publishes
+    next -- while the trail recorded it against baseoil.
+    """
+
+    def test_another_sites_rule_cannot_be_turned_off(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        rules = ScopedRules({7: "waxreport"})
+
+        response = rules_client(store, RAKESH, rules=rules).post(
+            "/console/sites/baseoil/rules/7/toggle",
+            data={"enabled": "0"}, follow_redirects=False,
+        )
+
+        assert rules.toggled == []
+        assert store.records == []
+        assert "err=" in (response.headers.get("location") or "")
+
+    def test_another_sites_rule_cannot_be_deleted(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        rules = ScopedRules({7: "waxreport"})
+
+        response = rules_client(store, RAKESH, rules=rules).post(
+            "/console/sites/baseoil/rules/7/delete", follow_redirects=False
+        )
+
+        assert rules.deleted == []
+        assert store.records == []
+        assert "err=" in (response.headers.get("location") or "")
+
+    def test_another_sites_rounding_step_cannot_be_removed(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        rounding = ScopedRounding({9: "waxreport"})
+
+        response = rules_client(store, RAKESH, rounding=rounding).post(
+            "/console/sites/baseoil/rounding/override/9/delete", follow_redirects=False
+        )
+
+        assert rounding.deleted == []
+        assert store.records == []
+        assert "err=" in (response.headers.get("location") or "")
+
+    def test_the_sites_own_rule_still_works(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        rules = ScopedRules({3: "baseoil"})
+
+        rules_client(store, RAKESH, rules=rules).post(
+            "/console/sites/baseoil/rules/3/toggle",
+            data={"enabled": "0"}, follow_redirects=False,
+        )
+
+        assert rules.toggled == [(3, False)]
+        assert [row[1] for row in store.records] == ["turned a price rule off"]
+
+    def test_the_sites_own_rounding_step_still_goes(self):
+        store = FakeStore(grants={RAKESH.id: {"baseoil"}})
+        rounding = ScopedRounding({9: "baseoil"})
+
+        rules_client(store, RAKESH, rounding=rounding).post(
+            "/console/sites/baseoil/rounding/override/9/delete", follow_redirects=False
+        )
+
+        assert rounding.deleted == [9]
+
+
+class FakeConnection:
+    def __init__(self, log, row):
+        self._log = log
+        self._row = row
+
+    def execute(self, sql, params=None):
+        self._log.append((" ".join(sql.split()), params))
+
+        return self
+
+    def commit(self):
+        return None
+
+    def fetchone(self):
+        return self._row
+
+
+class FakePool:
+    def __init__(self, row=None):
+        self.statements = []
+        self._row = row
+
+    def connection(self):
+        log, row = self.statements, self._row
+
+        class Scope:
+            def __enter__(self):
+                return FakeConnection(log, row)
+
+            def __exit__(self, *args):
+                return False
+
+        return Scope()
+
+
+class TestTheStoreItselfRefusesAnIdFromAnotherSite:
+    """Where it cannot be forgotten: the site is in the WHERE clause, so a
+    route that forgot to check would still change nothing."""
+
+    def test_turning_a_rule_off_is_scoped_to_the_site(self):
+        pool = FakePool(row=(7,))
+
+        assert RulesStore(pool).set_enabled("baseoil", 7, False) is True
+
+        sql, params = pool.statements[0]
+
+        assert "WHERE id = %s AND site_slug = %s" in sql
+        assert params == (False, 7, "baseoil")
+
+    def test_a_rule_that_is_not_this_sites_changes_nothing(self):
+        pool = FakePool(row=None)
+
+        assert RulesStore(pool).set_enabled("baseoil", 7, False) is False
+
+    def test_deleting_a_rule_is_scoped_to_the_site(self):
+        pool = FakePool(row=(7,))
+
+        assert RulesStore(pool).delete("baseoil", 7) is True
+
+        sql, params = pool.statements[0]
+
+        assert "WHERE id = %s AND site_slug = %s" in sql
+        assert params == (7, "baseoil")
+
+    def test_a_rule_of_another_site_is_not_deleted(self):
+        assert RulesStore(FakePool(row=None)).delete("baseoil", 7) is False
+
+    def test_deleting_a_rounding_step_is_scoped_to_the_site(self):
+        pool = FakePool(row=(9,))
+
+        assert RoundingStore(pool).delete("baseoil", 9) is True
+
+        sql, params = pool.statements[0]
+
+        assert "WHERE id = %s AND site_slug = %s" in sql
+        assert params == (9, "baseoil")
+
+    def test_a_rounding_step_of_another_site_is_not_deleted(self):
+        assert RoundingStore(FakePool(row=None)).delete("baseoil", 9) is False
 
 
 class TestSeedingAFreshInstall:
