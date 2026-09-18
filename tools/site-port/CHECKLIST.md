@@ -39,8 +39,18 @@ rediscover it.
 docker exec petrosil-db mysql -uroot -proot -N -e \
   "SELECT COUNT(*) FROM <db>.users WHERE created_at = '0000-00-00 00:00:00'
      OR updated_at = '0000-00-00 00:00:00'
-     OR email_verified_at = '0000-00-00 00:00:00';"
+     OR email_verified_at = '0000-00-00 00:00:00';
+   SELECT COUNT(*) FROM <db>.globalprices WHERE pricedate = '0000-00-00'
+     OR created_at = '0000-00-00 00:00:00'
+     OR updated_at = '0000-00-00 00:00:00';"
 ```
+
+**It is not only `users`.** chemicalexplorer had two `globalprices` rows with
+a zero `pricedate`, which blocked migration `000004` (the index on
+`globalprices`) rather than the `users` one — the same failure at a different
+step, which is easy to misread as a different problem. The repair there was
+`pricedate = DATE(created_at)`. Check both tables before you start; any table
+a migration rewrites can carry this.
 
 Zero is a valid, clean answer — if you get it, skip straight to `php artisan
 migrate`.
@@ -109,6 +119,13 @@ insights page and the nav/home/price-trends links to match.
 5. Link the page from the homepage, `layouts/nav.blade.php`, and
    `front/location/index.blade.php`, matching how the site already links its
    other secondary pages.
+6. **Also pass the summary to the site's existing price-trends route.** The
+   ported `PriceSummaryTest` expects `/price-trends` itself to show the newest
+   note, so `HomeController::locations()` — a method the site already has, and
+   which the port otherwise leaves alone — must hand the view `priceSummary`
+   and `lastCommittedBatch` the same way `aiMarketInsights()` does. Miss it
+   and the test fails against a page you never intended to touch, which reads
+   as a broken port rather than a missing two-line change.
 
 **Wording constraint.** This is the one place in the whole port where an
 executor writes new copy a site visitor actually reads, so it is the one
