@@ -282,6 +282,22 @@ laravel-excel temp files on bitumart before anyone noticed.
 already present — do nothing useful in this layout; leave them or remove
 them, but the `**/`-prefixed lines are the ones that matter.)
 
+**The pattern only stops new files. Check what is already committed** — four
+of the six sites had the damage already done in their initial import, ranging
+from 121 files to 2,707 (compiled views, sessions, laravel-excel temp):
+
+```bash
+git -C /d/project2026/htdocs/<site> ls-files | grep -c "storage/framework\|storage/logs"
+```
+
+If that is non-zero, untrack them in the same commit. This removes them from
+the index only — the working tree is untouched, and the site keeps running:
+
+```bash
+git -C /d/project2026/htdocs/<site> rm -r --cached --ignore-unmatch \
+  "<site>/application/storage/framework" "<site>/application/storage/logs"
+```
+
 ---
 
 ## 8. `app/User.php` — hide `api_token`
@@ -353,6 +369,13 @@ carries a price** on that site. On fertilizerreport/glycerinereport/
 methanolreport (currently zero prices), use `PriceApiTestCase::makeLocation()`
 and manually insert a `globalprices` row for it in the test's `setUp()`
 instead — there is no real priced location to point at yet.
+
+**Pick that manufactured row's `pricedate` deliberately.** `PriceBatchApiTest`
+stages against a default date of `2026-07-01`; a fixture price on that exact
+date is treated as `STATUS_LOCKED` rather than new, changed or unchanged, and
+the test fails in a way that reads as a status bug rather than a fixture
+collision. Use a different past date — `2026-06-01` worked on all three
+zero-price sites.
 
 **Retargeting the constants alone is incomplete — check for every occurrence,
 not just one substitution.** `LocationResolverTest::testItIgnoresCaseAndUntidySpacing`
