@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Website access</h1>
+<p class="lede">
+  Which websites each person can use. Someone with no websites here signs in and sees nothing:
+  the sites they have not been given are missing from their list and their screens answer
+  “no such site”, so one cannot be reached by typing its address. You are the superadmin and
+  use every website without being given any. Every change is recorded against your name.
+</p>
+
+{% if rows %}
+  {% for row in rows %}
+    <div class="panel">
+      <div class="head">
+        <h2>{{ row.user.name }}</h2>
+        <span class="small muted">{{ row.user.email }}</span>
+        <span class="spacer"></span>
+        {% if row.user.is_admin %}<span class="badge ok">admin</span>
+        {% else %}<span class="badge mute">member</span>{% endif %}
+        {% if row.user.disabled_at %}<span class="badge bad">disabled</span>{% endif %}
+      </div>
+      <div class="body">
+        {% if sites %}
+          <form method="post" action="/console/settings/access/{{ row.user.id }}">
+            <div class="fields">
+              {% for entry in sites %}
+                <div class="field">
+                  <label class="check">
+                    <input type="checkbox" name="sites" value="{{ entry.slug }}"
+                           {% if entry.slug in row.slugs %}checked{% endif %}>
+                    {{ entry.name }}{% if not entry.enabled %} <span class="badge mute">hidden</span>{% endif %}
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="actions"><button type="submit">Save</button></div>
+          </form>
+        {% else %}
+          <p class="hint">There are no websites to give yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="panel"><div class="body empty">
+    Nobody but you has an account yet. <a href="/console/settings/users">Add someone</a>.
+  </div></div>
+{% endif %}
+{% endblock %}

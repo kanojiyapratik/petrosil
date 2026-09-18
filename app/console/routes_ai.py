@@ -22,6 +22,7 @@ from ..ai.providers import (
     create_driver,
 )
 from ..db.store import ProviderStore, Store
+from .access import managed_site, may_change_settings, visible_sites
 from .routes import tone_for
 
 
@@ -57,7 +58,7 @@ def create_ai_routes(
         if user is None:
             return None, RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return user, templates.TemplateResponse(
                 request,
                 "error.html",
@@ -120,7 +121,10 @@ def create_ai_routes(
                 "title": "AI",
                 "catalogue": PROVIDERS,
                 "providers": rows,
-                "sites": store.sites(),
+                # Only the sites this person may use: the AI screen is the
+                # third place sites are listed, and a list is as good a way to
+                # learn a site exists as its own address.
+                "sites": visible_sites(store, user, store.sites()),
                 "assignments": providers.assignments(),
                 "usage_days": usage.by_day(14) if usage is not None else [],
             },
@@ -366,7 +370,9 @@ def create_ai_routes(
 
         form = await request.form()
         raw = str(form.get("provider_id") or "").strip()
-        site = store.site_by_slug(slug)
+        # managed_site, so a hidden site can still be given a provider, and so
+        # a slug outside this person's own sites reads as "no such site".
+        site = managed_site(store, user, slug)
 
         if site is None:
             return back("err", "No such site.")

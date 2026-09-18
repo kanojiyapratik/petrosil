@@ -190,7 +190,7 @@ def screen(rules):
             rules=FakeRules(rules),
             templates=Jinja2Templates(directory="app/templates"),
             current_user=lambda request: type(
-                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True}
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
             )(),
             client_factory=lambda site: FakeSiteClient(),
         )
@@ -306,7 +306,7 @@ def save(**fields):
             rules=store,
             templates=Jinja2Templates(directory="app/templates"),
             current_user=lambda request: type(
-                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True}
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
             )(),
             client_factory=lambda site: FakeSiteClient(),
         )
@@ -386,7 +386,7 @@ class TestTheWorkedExample:
                 rules=FakeRules([]),
                 templates=Jinja2Templates(directory="app/templates"),
                 current_user=lambda request: type(
-                    "U", (), {"email": "a@b.test", "name": "A", "is_admin": True}
+                    "U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True}
                 )(),
                 client_factory=lambda site: Unpriced(),
             )

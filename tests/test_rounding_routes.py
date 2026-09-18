@@ -95,7 +95,7 @@ def build(store=None, rounding=None):
             rules=FakeRules(),
             templates=Jinja2Templates(directory="app/templates"),
             current_user=lambda request: type(
-                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True}
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
             )(),
             client_factory=lambda site: FakeSiteClient(),
             rounding=rounding,

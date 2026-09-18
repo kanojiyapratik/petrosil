@@ -143,7 +143,7 @@ def build(driver=None, extractions=None, store=None):
             extractions=extractions,
             templates=Jinja2Templates(directory="app/templates"),
             current_user=lambda request: type(
-                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True}
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
             )(),
             driver=driver or StubDriver(),
             default_model="gpt-4o-mini",
@@ -442,7 +442,7 @@ class TestTheReadingIsRecorded:
                 store=FakeStore(),
                 extractions=FakeExtractions(),
                 templates=Jinja2Templates(directory="app/templates"),
-                current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True})(),
+                current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True})(),
                 driver=StubDriver(),
                 default_model="gpt-4o-mini",
                 driver_for=lambda: StubDriver(),
@@ -465,7 +465,7 @@ class TestTheReadingIsRecorded:
                 store=FakeStore(),
                 extractions=extractions,
                 templates=Jinja2Templates(directory="app/templates"),
-                current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True})(),
+                current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True})(),
                 driver=StubDriver(),
                 default_model="gpt-4o-mini",
                 driver_for=lambda: StubDriver(),

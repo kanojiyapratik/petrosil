@@ -960,7 +960,7 @@ def build_analyse_client(
             store=store,
             templates=templates,
             current_user=lambda request: type(
-                "U", (), {"email": "editor@local.test", "name": "Editor", "is_admin": True}
+                "U", (), {"email": "editor@local.test", "name": "Editor", "is_admin": True, "is_superadmin": True}
             )(),
             driver=driver or StubDriver(),
             default_model="gemini-2.5-flash",

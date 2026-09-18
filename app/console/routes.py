@@ -15,6 +15,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite, StoredUser
+from .access import (
+    SUPERADMIN_ONLY,
+    is_superadmin,
+    make_site_guard,
+    managed_site,
+    may_change_settings,
+    visible_sites,
+)
 from .auth import (
     SESSION_COOKIE,
     authenticate,
@@ -143,6 +151,11 @@ def create_console(
 
         return next((user for user in store.active_users() if user.email == session.email), None)
 
+    # The one site guard, shared with every other router: see access.py. A
+    # slug that names a site this user has not been given resolves to nothing
+    # here, exactly as a hidden or missing one does.
+    guard = make_site_guard(store=store, templates=templates, current_user=current_user)
+
     def page(name: str, request: Request, user: StoredUser, **context) -> HTMLResponse:
         flash = None
 
@@ -239,19 +252,20 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        return page("sites.html", request, user, title="Sites", sites=store.enabled_sites())
+        return page(
+            "sites.html",
+            request,
+            user,
+            title="Sites",
+            sites=visible_sites(store, user, store.enabled_sites()),
+        )
 
     @router.get("/console/sites/{slug}", response_class=HTMLResponse)
     def site_home(request: Request, slug: str):
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None or not site.enabled:
-            return error_page(request, user, "No such site", "That site is not configured, or has been turned off.", 404)
+        if response is not None:
+            return response
 
         return page(
             "site.html",
@@ -267,15 +281,10 @@ def create_console(
 
     @router.get("/console/sites/{slug}/crawler", response_class=HTMLResponse)
     def crawler(request: Request, slug: str):
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None or not site.enabled:
-            return error_page(request, user, "No such site", "That site is not configured.", 404)
+        if response is not None:
+            return response
 
         try:
             client = client_for(site)
@@ -382,15 +391,10 @@ def create_console(
 
     @router.post("/console/sites/{slug}/crawler/urls")
     async def save_urls(request: Request, slug: str):
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None:
-            return RedirectResponse("/console", status_code=303)
+        if response is not None:
+            return response
 
         form = await request.form()
         path = f"/console/sites/{site.slug}/crawler"
@@ -422,15 +426,10 @@ def create_console(
 
     @router.post("/console/sites/{slug}/crawler/stage")
     async def stage(request: Request, slug: str):
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None:
-            return RedirectResponse("/console", status_code=303)
+        if response is not None:
+            return response
 
         form = await request.form()
         ids = [int(value) for value in form.getlist("activity_ids") if str(value).isdigit()]
@@ -523,15 +522,10 @@ def create_console(
         URL. Runs one pass, synchronously -- it takes seconds when the pages
         have not changed, and an admin who pressed a button should see the
         answer rather than be told to come back."""
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None:
-            return RedirectResponse("/console", status_code=303)
+        if response is not None:
+            return response
 
         path = f"/console/sites/{site.slug}/crawler"
 
@@ -600,15 +594,10 @@ def create_console(
         re-read afterwards, since their history no longer exists to compare
         against.
         """
-        user = current_user(request)
+        user, site, response = guard(request, slug)
 
-        if user is None:
-            return RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None:
-            return RedirectResponse("/console", status_code=303)
+        if response is not None:
+            return response
 
         path = f"/console/sites/{site.slug}/crawler"
 
@@ -631,7 +620,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
 
         return page(
@@ -641,18 +630,24 @@ def create_console(
             title="Sites",
             section="sites",
             crumbs=[{"label": "Settings"}, {"label": "Sites"}],
-            sites=store.sites(),
+            sites=visible_sites(store, user, store.sites()),
         )
 
     @router.post("/console/settings/sites")
     async def save_site(request: Request):
+        """Adding a site, or rewriting its address or token.
+
+        The superadmin's job, not an ordinary administrator's: this form is
+        the one that can point a site's screens at a different address or
+        replace the token they all depend on.
+        """
         user = current_user(request)
 
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
-            return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
+        if not is_superadmin(user):
+            return error_page(request, user, "Not allowed", SUPERADMIN_ONLY, 403)
 
         form = await request.form()
         path = "/console/settings/sites"
@@ -695,7 +690,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(
                 request, user, "Not allowed",
                 "Only an administrator can change these settings.", 403,
@@ -704,6 +699,13 @@ def create_console(
         path = "/console/settings/sites"
         form = await request.form()
         wanted = str(form.get("enabled") or "") == "1"
+
+        # managed_site, not visible_site: a hidden site has to still resolve
+        # here or the Show switch could never turn one back on. The access
+        # check is the same one.
+        if managed_site(store, user, slug) is None:
+            return back(path, "err", "No such site.")
+
         site = store.set_site_enabled(slug, wanted)
 
         if site is None:
@@ -725,7 +727,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
 
         return page(
@@ -745,7 +747,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
 
         form = await request.form()
@@ -793,7 +795,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
 
         form = await request.form()
@@ -819,7 +821,7 @@ def create_console(
         if user is None:
             return RedirectResponse("/console/login", status_code=303)
 
-        if not user.is_admin:
+        if not may_change_settings(user):
             return error_page(request, user, "Not allowed", "Only an administrator can change these settings.", 403)
 
         form = await request.form()
@@ -850,5 +852,79 @@ def create_console(
         )
 
         return back(path, "ok", f"{target.email} {'disabled' if disabled else 'enabled'}.")
+
+    # ---- who can use which website ----------------------------------------
+
+    @router.get("/console/settings/access", response_class=HTMLResponse)
+    def settings_access(request: Request):
+        """The superadmin's screen: which websites each person may use.
+
+        Not an administrator's screen. Deciding who sees which site is the
+        one thing the superadmin tier exists for, and an administrator who
+        could edit this could give themselves every site.
+        """
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        if not is_superadmin(user):
+            return error_page(request, user, "Not allowed", SUPERADMIN_ONLY, 403)
+
+        grants = store.all_grants()
+        rows = [
+            {"user": row, "slugs": grants.get(row.id, set())}
+            for row in store.users()
+            if not row.is_superadmin
+        ]
+
+        return page(
+            "settings_access.html",
+            request,
+            user,
+            title="Website access",
+            section="access",
+            crumbs=[{"label": "Settings"}, {"label": "Website access"}],
+            rows=rows,
+            sites=store.sites(),
+        )
+
+    @router.post("/console/settings/access/{user_id}")
+    async def save_access(request: Request, user_id: int):
+        user = current_user(request)
+
+        if user is None:
+            return RedirectResponse("/console/login", status_code=303)
+
+        if not is_superadmin(user):
+            return error_page(request, user, "Not allowed", SUPERADMIN_ONLY, 403)
+
+        form = await request.form()
+        path = "/console/settings/access"
+        target = next((row for row in store.users() if row.id == user_id), None)
+
+        if target is None:
+            return back(path, "err", "No such user.")
+
+        if target.is_superadmin:
+            # A superadmin sees every site by being one. Rows here would be a
+            # second answer to the same question, free to disagree with it.
+            return back(path, "err", "The superadmin already uses every website.")
+
+        known = {site.slug for site in store.sites()}
+        wanted = {str(value) for value in form.getlist("sites")} & known
+        held = store.granted_slugs(user_id)
+
+        for slug in sorted(wanted - held):
+            store.grant_site(user_id, slug, user.email)
+            # Every change here changes what another person can see, which is
+            # exactly what the trail is for.
+            store.record(user.email, "gave a user a website", slug, target.email)
+
+        for slug in sorted(held - wanted):
+            store.revoke_site(user_id, slug)
+            store.record(user.email, "took a website away from a user", slug, target.email)
+
+        return back(path, "ok", f"{target.email} can use {len(wanted)} website(s).")
 
     return router

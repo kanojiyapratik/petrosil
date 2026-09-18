@@ -39,7 +39,7 @@ class FakeProviders:
 
 
 def admin_user(request=None):
-    return type("U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True})()
+    return type("U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True})()
 
 
 def build(current_user=admin_user, providers=None, store=None):
@@ -213,7 +213,7 @@ def a_provider():
 
 
 def plain_user(request=None):
-    return type("U", (), {"email": "ed@local.test", "name": "Ed", "is_admin": False})()
+    return type("U", (), {"email": "ed@local.test", "name": "Ed", "is_admin": False, "is_superadmin": False})()
 
 
 class TestSeeingAStoredKey:

@@ -23,6 +23,7 @@ from ..editorial.fx import FrankfurterRates, convert_rows
 from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
 from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
+from .access import make_site_guard
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
 
@@ -103,31 +104,10 @@ def create_editorial_routes(
 
         return SiteClient(base_url=site.api_url, token=site.token, name=site.name)
 
-    def guard(request: Request, slug: str):
-        user = current_user(request)
-
-        if user is None:
-            return None, None, RedirectResponse("/console/login", status_code=303)
-
-        site = store.site_by_slug(slug)
-
-        if site is None or not site.enabled:
-            return (
-                user,
-                None,
-                templates.TemplateResponse(
-                    request,
-                    "error.html",
-                    {
-                        "user": user, "flash": None, "site": None, "section": None,
-                        "crumbs": None, "tone_for": tone_for, "title": "No such site",
-                        "message": "That site is not configured, or has been turned off.",
-                    },
-                    status_code=404,
-                ),
-            )
-
-        return user, site, None
+    # Returns (user, site, a-response-to-send-instead). The one implementation
+    # lives in access.py, so a site the signed-in user has not been given
+    # answers the same 404 here as it does on every other screen.
+    guard = make_site_guard(store=store, templates=templates, current_user=current_user)
 
     def screen(request: Request, user, site: StoredSite, extra: dict, status: int = 200):
         context = {

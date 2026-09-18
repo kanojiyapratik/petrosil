@@ -88,7 +88,7 @@ def commit(site_client, driver):
         create_price_routes(
             store=FakeStore(),
             templates=None,
-            current_user=lambda request: type("U", (), {"email": "admin@local.test"})(),
+            current_user=lambda request: type("U", (), {"email": "admin@local.test", "is_admin": True, "is_superadmin": True})(),
             client_factory=lambda site: site_client,
             driver=driver,
             default_model="gpt-4o-mini",
