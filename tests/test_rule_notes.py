@@ -349,6 +349,21 @@ class TestSavingARuleInDollarsOrPercent:
         assert store.created == []
         assert "err=" in response.headers["location"]
 
+    def test_a_conversion_at_a_fixed_rate_is_accepted(self):
+        # The client's Turkey rule: the lira price divided by 29, which is
+        # -96.5517%. The old -95 floor refused it outright.
+        store, response = save(adjustment_value="-96.5517")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", -96.5517, "percent")]
+        assert "ok=" in response.headers["location"]
+
+    def test_minus_one_hundred_percent_is_refused(self):
+        # At -100 the price is nothing, which is not a price.
+        store, response = save(adjustment_value="-100")
+
+        assert store.created == []
+        assert "err=" in response.headers["location"]
+
     def test_a_slipped_decimal_point_in_dollars_is_refused(self):
         store, response = save(adjustment_value="-250000", adjustment_kind="usd")
 

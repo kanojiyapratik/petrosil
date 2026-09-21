@@ -284,11 +284,21 @@ def create_rules_routes(
                 "Type a number — for example -10 for 10% less, or -25 for 25 US dollars less.",
             )
 
-        # A percentage below -100 would price a location under nothing; the
-        # dollar bound is a typo catch -- prices here run to four figures, so
-        # a five-figure difference is a slipped decimal point, not a rule.
-        if kind == PERCENT and not -95 <= amount <= 95:
-            return back(site.slug, "err", "A percentage must be between -95 and +95.")
+        # -100 is the real floor: at it, and below it, the price is nothing or
+        # less. The old -95 was tighter than the arithmetic needs and refused
+        # the one rule the client actually has down there -- a conversion at a
+        # fixed rate, which is a large negative percentage (dividing by 29 is
+        # -96.5517%). A price that still rounds to nothing is dropped by the
+        # engine, so the floor is the only guard this needs. Both bounds stay
+        # typo catches -- prices here run to four figures, so a five-figure
+        # difference is a slipped decimal point, not a rule.
+        if kind == PERCENT and not -100 < amount <= 1000:
+            return back(
+                site.slug,
+                "err",
+                "A percentage must be more than -100 (a price cannot fall below "
+                "nothing) and at most +1,000.",
+            )
 
         if kind == USD and not -5000 <= amount <= 5000:
             return back(
