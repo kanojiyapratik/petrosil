@@ -133,8 +133,10 @@
       <div class="field">
         <label for="round_to_nearest">Round every price to the nearest</label>
         <input id="round_to_nearest" type="number" step="any" min="0" name="round_to_nearest"
-               placeholder="5" value="{{ round_to_nearest if round_to_nearest is not none else '' }}"
+               placeholder="5" value="{{ plain_number(round_to_nearest) }}"
                style="width:8rem">
+        <p class="hint">In each price's own currency: 5 means $5 on a dollar price, €5 on a euro
+          price and ₹5 on a rupee price.</p>
       </div>
       <div class="actions"><button type="submit">Save</button></div>
     </form>
@@ -152,8 +154,11 @@
         </div>
         <div class="field">
           <label for="rounding-step">Round to the nearest</label>
-          <input id="rounding-step" type="number" step="any" min="0" name="round_to_nearest"
-                 placeholder="10" required style="width:8rem">
+          <div class="pair">
+            <span id="rounding-unit" aria-live="polite"></span>
+            <input id="rounding-step" type="number" step="any" min="0" name="round_to_nearest"
+                   placeholder="10" required style="width:8rem">
+          </div>
         </div>
       </div>
       <div class="actions"><button type="submit">Save override</button></div>
@@ -166,7 +171,7 @@
           {% for override in rounding_overrides %}
             <tr>
               <td>{{ override.location }}</td>
-              <td class="num">{{ override.round_to_nearest }}</td>
+              <td class="num">{{ step_label(override.round_to_nearest, currencies.get(override.location)) }}</td>
               <td>
                 <form method="post"
                       action="/console/sites/{{ site.slug }}/rounding/override/{{ override.id }}/delete"
@@ -498,6 +503,21 @@
   document.querySelectorAll('[data-combo]').forEach(function (root) {
     combos[root.dataset.combo] = combo(root);
   });
+
+  // The rounding step is in the picked location's own currency, so the sign
+  // in front of the box follows the location: ₹ for a refinery price.
+  var roundingPlace = document.getElementById('rounding-location');
+  var roundingUnit = document.getElementById('rounding-unit');
+
+  function roundingSign() {
+    var code = (CURRENCIES[roundingPlace.value] || '').toUpperCase();
+    roundingUnit.textContent = SYMBOL[KIND_FOR[code]] || '';
+  }
+
+  if (roundingPlace && roundingUnit) {
+    roundingPlace.addEventListener('change', roundingSign);
+    roundingSign();
+  }
 
   document.getElementById('adjustment_kind').addEventListener('change', example);
   document.getElementById('adjustment_value').addEventListener('input', example);

@@ -4,7 +4,9 @@ override it (Turkey's own-currency price rounds to 10). See
 app/editorial/rounding.py for where these are applied.
 """
 
+import dataclasses
 import re
+from urllib.parse import unquote
 
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -232,3 +234,80 @@ class TestRemovingALocationOverride:
 
         assert rounding.deleted == [9]
         assert "ok=" in response.headers["location"]
+
+
+class CurrencyClient:
+    def locations(self):
+        return {"data": [
+            {"title": "BPCL BITUMEN - VG 10 (bulk)", "latest_price": None, "currency": "INR"},
+            {"title": "Turkey Domestic EUR", "latest_price": 850, "currency": "EUR"},
+            {"title": "Japan FOB", "latest_price": 600, "currency": "USD"},
+        ]}
+
+
+def build_with_currencies(rounding=None, site=SITE):
+    rounding = rounding if rounding is not None else FakeRounding()
+    store = FakeStore(site)
+    app = FastAPI()
+    app.include_router(
+        create_rules_routes(
+            store=store,
+            rules=FakeRules(),
+            templates=Jinja2Templates(directory="app/templates"),
+            current_user=lambda request: type(
+                "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
+            )(),
+            client_factory=lambda site: CurrencyClient(),
+            rounding=rounding,
+        )
+    )
+
+    return TestClient(app), store, rounding
+
+
+class TestAStepIsWrittenTheWayAPersonWritesIt:
+    """"1.0" beside a rupee price means nothing to an editor. The step is
+    in the price's own currency, so it says so: Rs 1, EUR 10, $5."""
+
+    def test_an_override_shows_its_currency_and_no_trailing_zero(self):
+        overrides = [
+            LocationRounding(id=1, location="BPCL BITUMEN - VG 10 (bulk)", round_to_nearest=1.0),
+            LocationRounding(id=2, location="Turkey Domestic EUR", round_to_nearest=10.0),
+            LocationRounding(id=3, location="Japan FOB", round_to_nearest=5.0),
+        ]
+        client, _, _ = build_with_currencies(FakeRounding(overrides))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert ">₹1<" in page
+        assert ">€10<" in page
+        assert ">$5<" in page
+        assert ">1.0<" not in page
+
+    def test_the_site_default_field_has_no_trailing_zero(self):
+        # The database hands back 5.0, which the field showed as "5.0".
+        client, _, _ = build_with_currencies(site=dataclasses.replace(SITE, round_to_nearest=5.0))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert default_field_value(page) == "5"
+
+    def test_saving_an_override_says_the_currency(self):
+        client, _, _ = build_with_currencies()
+
+        response = client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "BPCL BITUMEN - VG 10 (bulk)", "round_to_nearest": "1"},
+            follow_redirects=False,
+        )
+
+        assert "₹1" in unquote(response.headers["location"])
+        assert "1.0" not in unquote(response.headers["location"])
+
+    def test_a_location_with_no_currency_shows_the_plain_number(self):
+        overrides = [LocationRounding(id=9, location="Korea TOBS", round_to_nearest=10.0)]
+        client, _, _ = build(rounding=FakeRounding(overrides))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert ">10<" in page

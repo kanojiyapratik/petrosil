@@ -28,6 +28,31 @@ FIXED_LIMITS = {"usd": 5000, "eur": 5000, "inr": 50000}
 # What the unit dropdown shows for each currency, so a message can point at it.
 _SHOWN_AS = {"USD": "US$", "EUR": "€", "INR": "₹"}
 
+_SYMBOL = {"USD": "$", "EUR": "€", "INR": "₹"}
+
+
+def plain_number(value) -> str:
+    """A step the way a person writes it: 5.0 is "5", 0.5 stays "0.5".
+
+    The database hands steps back as 5.0, and "1.0" beside a rupee price
+    reads as a code, not as one rupee.
+    """
+    if value is None:
+        return ""
+
+    number = float(value)
+
+    return f"{number:g}"
+
+
+def step_label(value, currency: str | None = None) -> str:
+    """A rounding step in its price's own currency: Rs 1, EUR 10, $5.
+
+    A location's step is in the currency that location is priced in, so it
+    carries that currency's sign. With none known, the plain number.
+    """
+    return f"{_SYMBOL.get((currency or '').upper(), '')}{plain_number(value)}"
+
 
 def _formula(rule) -> str:
     return f"{rule.reference_location} {adjustment_label(rule)}"
@@ -263,6 +288,8 @@ def create_rules_routes(
                     for entry in locations
                     if entry.get("title") and entry.get("currency")
                 },
+                "step_label": step_label,
+                "plain_number": plain_number,
                 "rule_notes": build_rule_notes(site_rules, locations),
                 "round_to_nearest": site.round_to_nearest,
                 "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
@@ -484,12 +511,13 @@ def create_rules_routes(
                 user.email,
                 "set the site's rounding step",
                 site.slug,
-                f"round to nearest {step}" if step else "no rounding",
+                f"round to nearest {plain_number(step)}" if step else "no rounding",
             )
 
             return back(
                 site.slug, "ok",
-                f"Prices now round to the nearest {step}." if step
+                f"Prices now round to the nearest {plain_number(step)}, in each price's own "
+                "currency." if step
                 else "Rounding turned off — prices are used exactly as worked out.",
             )
 
@@ -521,12 +549,28 @@ def create_rules_routes(
                 )
 
             rounding.set_override(site.slug, location, step)
+
+            # Said in the location's own currency -- "the nearest Rs 1" -- when
+            # the site names it. A site that is down only costs the sign.
+            try:
+                currency = next(
+                    (
+                        entry.get("currency")
+                        for entry in client_for(site).locations().get("data", [])
+                        if entry.get("title") == location
+                    ),
+                    None,
+                )
+            except SiteError:
+                currency = None
+
+            shown = step_label(step, currency)
             store.record(
                 user.email, "set a location's rounding step", site.slug,
-                f"{location} rounds to the nearest {step}",
+                f"{location} rounds to the nearest {shown}",
             )
 
-            return back(site.slug, "ok", f"{location} now rounds to the nearest {step}.")
+            return back(site.slug, "ok", f"{location} now rounds to the nearest {shown}.")
 
         @router.post("/console/sites/{slug}/rounding/override/{override_id}/delete")
         async def delete_rounding_override(request: Request, slug: str, override_id: int):
