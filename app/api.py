@@ -56,6 +56,9 @@ class EditorialCurrentPrice(BaseModel):
     location: str
     # A location can be tracked without a published price yet.
     price: float | None = None
+    # The ISO currency the location is priced in. Absent means dollars, which
+    # is what every caller meant before this field existed.
+    currency: str | None = None
 
 
 class EditorialReviewRequest(BaseModel):
@@ -311,7 +314,10 @@ def create_api(
             parsed = ParsedSuggestions()
 
         rows = build_rows(locations, current, parsed)
-        rows = convert_rows(rows, fx if fx is not None else FrankfurterRates(), body.price_date)
+        home = {entry.location: entry.currency for entry in body.current_prices if entry.currency}
+        rows = convert_rows(
+            rows, fx if fx is not None else FrankfurterRates(), body.price_date, home=home
+        )
         near_matches = sum(1 for row in rows if row["status"] == "near_match")
 
         return JSONResponse(

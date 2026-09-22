@@ -1209,6 +1209,92 @@ class TestTheChosenPriceDateReachesFxConversion:
         assert fx.calls == [("TRY", date.today().isoformat())]
 
 
+class TestTheSitesOwnCurrencyReachesTheConversion:
+    """The site's location list says which currency each location is priced
+    in. A rupee circular for a rupee location must reach the editor as
+    rupees -- the site stores the staged number in the location's currency,
+    so converting it to dollars on the way would publish about $780 where
+    the circular says Rs 69,100."""
+
+    def test_a_rupee_figure_for_a_rupee_location_is_not_converted(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "BPCL BITUMEN - VG 10 (bulk)", "suggested_min": 69100,
+                    "suggested_max": 69100, "confidence": "high",
+                    "basis": "Ex Mumbai Refinery, basic rate", "source": "BPCL circular",
+                    "rationale": "printed", "currency": "INR",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="bpcl.pdf", name="Bit Bulk VG10", price=69100.0,
+                price_min=None, price_max=None, currency="INR", unit="MT",
+                basis="Ex Mumbai Refinery", price_date=None, note=None, kept=True,
+            ),
+        ]
+        fx = RecordingFx()
+        client, _, _ = build_analyse_client(
+            rows, driver=driver,
+            locations=[{
+                "title": "BPCL BITUMEN - VG 10 (bulk)", "latest_price": None, "currency": "INR",
+            }],
+            fx=fx,
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": "2026-09-01"},
+        )
+
+        assert response.status_code == 200
+        assert fx.calls == []
+        assert 'value="69100' in response.text
+
+    def test_a_site_that_names_no_currency_is_still_all_dollars(self):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150", "suggested_min": 80000,
+                    "suggested_max": 82000, "confidence": "high", "basis": "Ex-rack Izmir",
+                    "source": "reading", "rationale": "checked by the editor", "currency": "TRY",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5, completion_tokens=5, error=None,
+            )
+        )
+        rows = [
+            ReadRow(
+                id=1, set_id=7, filename="lube.docx", name="Europe Domestic SN150", price=81212.0,
+                price_min=None, price_max=None, currency="TRY", unit="MT", basis="Ex-rack",
+                price_date=None, note=None, kept=True,
+            ),
+        ]
+        fx = RecordingFx()
+        client, _, _ = build_analyse_client(
+            rows, driver=driver,
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 2500.0}],
+            fx=fx,
+        )
+
+        client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": "2026-08-12"},
+        )
+
+        # Only the lira rate: a dollar destination needs no second rate.
+        assert fx.calls == [("TRY", "2026-08-12")]
+
+
 class TestTheAnalyseRouteRoundsThePrice:
     """The client's rulebook rounds nearly every price it derives from a
     report; the wiring lives in the analyse route, not just in the

@@ -106,39 +106,81 @@ class CachedRates:
         return rate
 
 
-def convert_rows(rows: list[dict], rates, pricedate: str) -> list[dict]:
-    """Turns every `foreign` row into a USD suggestion, or marks it `needs_rate`.
+def convert_rows(
+    rows: list[dict], rates, pricedate: str, home: dict[str, str] | None = None
+) -> list[dict]:
+    """Turns every `foreign` row into a price in its location's own currency.
 
     `rates.get(currency, iso_date)` returns an FxRate or None. The price date
     comes from the report when it says one, otherwise the draft's own date.
+
+    `home` maps a site location to the currency it is priced in, as the site
+    reports it. The site stores whatever number it is given in that
+    location's currency, so a figure must arrive in it: a rupee circular for
+    a rupee location is already a price and is left exactly as printed, and
+    lira for a euro location becomes euros, not dollars. A location with no
+    home -- a dollar site, or a report benchmark, which is not a location at
+    all -- becomes USD as it always has.
     """
+    home = {name: code.strip().upper() for name, code in (home or {}).items() if code}
+
     for row in rows:
         if row.get("status") != "foreign":
             continue
 
         currency = row["currency"]
+        target = home.get(row["location"], "USD")
+
+        if currency == target:
+            # Printed in the currency the location is priced in: nothing to
+            # convert, and the change already computed against the current
+            # price compares like with like.
+            row.update({"status": "suggested", "currency": None})
+
+            continue
+
         wanted = row.get("price_date") or pricedate
         rate = rates.get(currency, wanted)
+        # Rates are published per US dollar, so any other destination goes
+        # through the dollar: its own rate for the same date is needed too.
+        target_rate = None if target == "USD" else rates.get(target, wanted)
 
-        if rate is None or not _applicable(rate.rate_date, wanted):
+        missing = (
+            currency if rate is None or not _applicable(rate.rate_date, wanted)
+            else target if target != "USD" and (
+                target_rate is None or not _applicable(target_rate.rate_date, wanted)
+            )
+            else None
+        )
+
+        if missing is not None:
             row["status"] = "needs_rate"
             row["rationale"] = (
-                f"Needs manual review: no {currency}/USD exchange rate for "
-                f"{_ddmmyy(wanted)}, so this figure was not converted. "
+                f"Needs manual review: no {missing}/USD exchange rate for "
+                f"{_ddmmyy(wanted)}, so this figure was not converted to {target}. "
                 + (row.get("rationale") or "")
             ).strip()
 
             continue
 
+        def into_target(amount: float) -> float:
+            dollars = amount / rate.rate
+
+            return _round2(dollars if target == "USD" else dollars * target_rate.rate)
+
         printed = row["suggested_price"]
-        low = _round2(row["suggested_min"] / rate.rate)
-        high = _round2(row["suggested_max"] / rate.rate)
-        price = _round2(printed / rate.rate)
+        low = into_target(row["suggested_min"])
+        high = into_target(row["suggested_max"])
+        price = into_target(printed)
         current = row.get("current_price")
         change = _round2(((price - current) / current) * 100) if current else None
         conversion = (
             f"{currency} {printed:,.0f} ÷ {rate.rate:.4f} {currency}/USD "
             f"({rate.source} rate of {_ddmmyy(rate.rate_date)}) = USD {price:,.2f}"
+            if target == "USD"
+            else f"{currency} {printed:,.0f} ÷ {rate.rate:.4f} {currency}/USD "
+            f"× {target_rate.rate:.4f} {target}/USD "
+            f"({rate.source} rates of {_ddmmyy(rate.rate_date)}) = {target} {price:,.2f}"
         )
 
         row.update(

@@ -329,6 +329,13 @@ def create_editorial_routes(
                 for entry in locations
                 if entry.get("title") and entry.get("latest_price") is not None
             }
+            # The currency each location is priced in, when the site says so.
+            # A site that does not is treated as all-dollar, as before.
+            home = {
+                str(entry["title"]): str(entry["currency"])
+                for entry in locations
+                if entry.get("title") and entry.get("currency")
+            }
 
             if not names:
                 return screen(
@@ -454,10 +461,14 @@ def create_editorial_routes(
 
             rows = build_rows(asked, current, parsed)
 
-            # A figure printed in lira becomes USD at the rate for its own date
-            # before any rule sees it; no rate, no conversion, and the rule
-            # below it stays silent. See app/editorial/fx.py.
-            rows = convert_rows(rows, fx if fx is not None else FrankfurterRates(), pricedate)
+            # A figure printed in another currency becomes the location's own
+            # currency (dollars, unless the site says otherwise) at the rate
+            # for its own date before any rule sees it; no rate, no
+            # conversion, and the rule below it stays silent. A rupee figure
+            # for a rupee location is left as printed. See app/editorial/fx.py.
+            rows = convert_rows(
+                rows, fx if fx is not None else FrankfurterRates(), pricedate, home=home
+            )
 
             # The rulebook fills what the reports never mention -- code, not the
             # model, does this arithmetic. See app/editorial/rules.py.

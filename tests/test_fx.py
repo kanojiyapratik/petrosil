@@ -9,6 +9,7 @@ audit line can cite them.
 
 import json
 
+import pytest
 import requests
 
 from app.editorial.fx import MAX_RATE_AGE_DAYS, FrankfurterRates, FxRate, convert_rows
@@ -316,3 +317,152 @@ class TestHeadlessApi:
         assert row["status"] == "suggested"
         assert row["suggested_price"] == 1984.6
         assert row["fx_rate"] == 40.921
+
+    def test_a_caller_can_say_a_location_is_priced_in_rupees(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.ai.gemini import AiCompletion
+        from app.api import create_api
+        from tests.test_editorial import StubDriver, TOKEN, build_docx
+
+        answer = AiCompletion(
+            status="complete", text=json.dumps([rupee_row()]),
+            prompt_tokens=1, completion_tokens=1, error=None,
+        )
+        app = FastAPI()
+        app.include_router(
+            create_api(
+                api_token=TOKEN, driver=StubDriver(answer), default_model="m",
+                fx=FakeRates({}),
+            )
+        )
+        response = TestClient(app).post(
+            "/api/editorial-reviews",
+            data={"payload": json.dumps({
+                "price_date": "2026-09-01",
+                "current_prices": [{"location": BPCL, "price": None, "currency": "INR"}],
+            })},
+            files=[("documents", ("r.docx", build_docx(["BPCL VG10 bulk 69,100"]),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))],
+            headers={"authorization": f"Bearer {TOKEN}"},
+        )
+
+        assert response.status_code == 201
+        row = response.json()["rows"][0]
+        assert row["status"] == "suggested"
+        assert row["suggested_price"] == 69100
+
+
+BPCL = "BPCL BITUMEN - VG 10 (bulk)"
+TURKEY_EUR = "Turkey Domestic EUR"
+HOME_LOCATIONS = [BPCL, TURKEY_EUR, RUSSIA, TURKEY]
+EUR_RATE = FxRate(currency="EUR", rate=0.9, rate_date="2026-08-19", source="ECB")
+
+
+def home_draft(model_rows, current=None):
+    parsed = parse_suggestions(json.dumps(model_rows), HOME_LOCATIONS)
+
+    return build_rows(HOME_LOCATIONS, current or {}, parsed)
+
+
+def rupee_row(**overrides):
+    row = {
+        "location": BPCL,
+        "suggested_min": 69100,
+        "suggested_max": 69100,
+        "currency": "INR",
+        "price_date": "2026-08-19",
+        "confidence": "high",
+        "basis": "Ex Mumbai Refinery, basic rate",
+        "source": "BPCL rate list wef 01.09.2026",
+        "rationale": "Printed on the circular.",
+    }
+    row.update(overrides)
+
+    return row
+
+
+class TestHomeCurrency:
+    """A location is priced in its own currency, and the site says which.
+
+    Bitumart's refinery prices are rupees and its European domestic prices
+    are euros. Converting every non-dollar figure to dollars would publish
+    a Rs 69,100 circular price as about $780 on a rupee location -- the
+    site stores whatever number it is given in that location's currency.
+    """
+
+    def test_a_figure_in_its_own_locations_currency_is_kept_as_printed(self):
+        rates = FakeRates({})
+        rows = convert_rows(
+            home_draft([rupee_row()], {BPCL: 67940}), rates, "2026-08-19", home={BPCL: "INR"}
+        )
+        row = row_for(rows, BPCL)
+
+        assert row["status"] == "suggested"
+        assert row["currency"] is None
+        assert row["suggested_price"] == 69100
+        assert row["change_pct"] == 1.71
+        assert "conversion" not in row
+        assert rates.asked == []
+
+    def test_the_home_currency_is_compared_regardless_of_case(self):
+        rows = convert_rows(
+            home_draft([rupee_row()]), FakeRates({}), "2026-08-19", home={BPCL: "inr"}
+        )
+
+        assert row_for(rows, BPCL)["suggested_price"] == 69100
+
+    def test_a_foreign_figure_becomes_the_locations_own_currency_not_dollars(self):
+        # Lira for a euro location: through the dollar, since the rates are
+        # published per dollar, but it lands in euros.
+        rates = FakeRates({("TRY", "2026-08-19"): RATE, ("EUR", "2026-08-19"): EUR_RATE})
+        rows = convert_rows(
+            home_draft([turkey_row(location=TURKEY_EUR)]),
+            rates,
+            "2026-08-19",
+            home={TURKEY_EUR: "EUR"},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert row["status"] == "suggested"
+        assert row["currency"] is None
+        assert row["suggested_price"] == pytest.approx(81212 / 40.921 * 0.9, abs=0.01)
+        assert "EUR" in row["conversion"]
+        assert "TRY" in row["conversion"]
+
+    def test_no_rate_for_the_locations_own_currency_leaves_the_row_for_a_person(self):
+        rates = FakeRates({("TRY", "2026-08-19"): RATE})
+        rows = convert_rows(
+            home_draft([turkey_row(location=TURKEY_EUR)]),
+            rates,
+            "2026-08-19",
+            home={TURKEY_EUR: "EUR"},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert row["status"] == "needs_rate"
+        assert row["suggested_price"] == 81212
+        assert "EUR" in row["rationale"]
+
+    def test_a_dollar_location_still_gets_dollars(self):
+        rates = FakeRates({("TRY", "2026-08-19"): RATE})
+        rows = convert_rows(
+            home_draft([turkey_row(location=RUSSIA)]), rates, "2026-08-19", home={RUSSIA: "USD"}
+        )
+
+        assert row_for(rows, RUSSIA)["suggested_price"] == 1984.6
+
+    def test_a_report_benchmark_still_becomes_dollars(self):
+        # Benchmarks are not site locations and have no home; baseoil's
+        # Russia rule depends on the lira benchmark arriving in dollars.
+        rates = FakeRates({("TRY", "2026-08-19"): RATE})
+        rows = convert_rows(home_draft([turkey_row()]), rates, "2026-08-19", home={BPCL: "INR"})
+
+        assert row_for(rows, TURKEY)["suggested_price"] == 1984.6
+
+    def test_without_a_home_map_nothing_changes(self):
+        rates = FakeRates({("TRY", "2026-08-19"): RATE})
+        rows = convert_rows(home_draft([turkey_row(location=TURKEY_EUR)]), rates, "2026-08-19")
+
+        assert row_for(rows, TURKEY_EUR)["suggested_price"] == 1984.6
