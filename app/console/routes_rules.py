@@ -25,6 +25,9 @@ from .site_client import SiteClient, SiteError
 # point; rupee prices run to six figures and packed sits 11,800 over bulk.
 FIXED_LIMITS = {"usd": 5000, "eur": 5000, "inr": 50000}
 
+# What the unit dropdown shows for each currency, so a message can point at it.
+_SHOWN_AS = {"USD": "US$", "EUR": "€", "INR": "₹"}
+
 
 def _formula(rule) -> str:
     return f"{rule.reference_location} {adjustment_label(rule)}"
@@ -347,7 +350,8 @@ def create_rules_routes(
                     site.slug,
                     "err",
                     f"{derived} is priced in {priced_in}, so a fixed amount for it has to be "
-                    f"in {priced_in} too. Pick {priced_in} next to the amount.",
+                    f"in {priced_in} too. Pick {_SHOWN_AS.get(priced_in, priced_in)} next to "
+                    "the amount.",
                 )
 
         saved = PriceRule(
