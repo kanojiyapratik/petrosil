@@ -506,3 +506,22 @@ class TestTheWorkedExample:
 
         assert payload(page, "PRICES") == {}
         assert "New Place" in payload(page, "LOCATIONS")
+
+
+class TestEveryRuleHasAnEditButton:
+    def test_each_rule_offers_edit_with_its_values(self):
+        stored = [
+            PriceRule(id=1, derived_location="Korea TOBS", reference_location="Singapore SN 150",
+                      adjustment_value=-96.5517, adjustment_kind="percent"),
+            PriceRule(id=2, derived_location="Saudi SN 500", reference_location="Europe FOB SN 150",
+                      adjustment_value=5.0, adjustment_kind="eur"),
+        ]
+
+        page = screen(stored).text
+
+        assert page.count("type=\"button\" data-edit-rule") == 2
+        assert 'data-derived="Korea TOBS"' in page
+        assert 'data-reference="Singapore SN 150"' in page
+        assert 'data-value="-96.5517"' in page
+        assert 'data-value="5"' in page
+        assert 'data-kind="eur"' in page

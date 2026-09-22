@@ -101,6 +101,11 @@
               </span>
             </td>
             <td style="white-space:nowrap">
+              <button class="ghost" type="button" data-edit-rule
+                      data-derived="{{ rule.derived_location }}"
+                      data-reference="{{ rule.reference_location }}"
+                      data-value="{{ plain_number(rule.adjustment_value) }}"
+                      data-kind="{{ rule.adjustment_kind }}">Edit</button>
               <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/toggle"
                     style="display:inline" data-no-overlay="1">
                 <input type="hidden" name="enabled" value="{{ '0' if rule.enabled else '1' }}">
@@ -172,7 +177,10 @@
             <tr>
               <td>{{ override.location }}</td>
               <td class="num">{{ step_label(override.round_to_nearest, currencies.get(override.location)) }}</td>
-              <td>
+              <td style="white-space:nowrap">
+                <button class="ghost" type="button" data-edit-rounding
+                        data-location="{{ override.location }}"
+                        data-step="{{ plain_number(override.round_to_nearest) }}">Edit</button>
                 <form method="post"
                       action="/console/sites/{{ site.slug }}/rounding/override/{{ override.id }}/delete"
                       style="display:inline" data-no-overlay="1"
@@ -496,6 +504,8 @@
       root: root,
       value: function () { return hidden.value; },
       flag: function () { root.classList.add('missing'); button.focus(); },
+      // Picks a name as if it had been clicked -- what Edit on a row uses.
+      set: function (name) { choose(name); },
     };
   }
 
@@ -518,6 +528,48 @@
     roundingPlace.addEventListener('change', roundingSign);
     roundingSign();
   }
+
+  // Edit fills the form above with the row's values. Saving replaces the row
+  // rather than adding a second one: a price has one rule and one rounding
+  // step, so a save over it IS the edit.
+  document.querySelectorAll('[data-edit-rule]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var amount = document.getElementById('adjustment_value');
+      // The unit first, so picking the price below keeps it rather than
+      // switching it to the price's currency.
+      document.getElementById('adjustment_kind').value = button.dataset.kind || 'percent';
+      amount.value = button.dataset.value;
+      combos.derived.set(button.dataset.derived);
+      combos.reference.set(button.dataset.reference);
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      amount.focus();
+      amount.select();
+    });
+  });
+
+  document.querySelectorAll('[data-edit-rounding]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var place = button.dataset.location;
+      var step = document.getElementById('rounding-step');
+      var listed = Array.prototype.some.call(roundingPlace.options, function (option) {
+        return option.value === place;
+      });
+
+      // A step can outlive its location's name (a rename on the site); it
+      // is still editable, so it joins the list rather than silently
+      // becoming whichever location happens to be first.
+      if (!listed) {
+        roundingPlace.add(new Option(place, place));
+      }
+
+      roundingPlace.value = place;
+      roundingSign();
+      step.value = button.dataset.step;
+      step.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      step.focus();
+      step.select();
+    });
+  });
 
   document.getElementById('adjustment_kind').addEventListener('change', example);
   document.getElementById('adjustment_value').addEventListener('input', example);

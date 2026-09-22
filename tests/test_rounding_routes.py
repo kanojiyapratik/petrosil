@@ -311,3 +311,21 @@ class TestAStepIsWrittenTheWayAPersonWritesIt:
         page = client.get("/console/sites/baseoil/rules").text
 
         assert ">10<" in page
+
+
+class TestEveryRowHasAnEditButton:
+    """Edit fills the form with the row's values; saving replaces the row."""
+
+    def test_each_rounding_step_offers_edit_with_its_values(self):
+        overrides = [
+            LocationRounding(id=1, location="BPCL BITUMEN - VG 10 (bulk)", round_to_nearest=1.0),
+            LocationRounding(id=2, location="Turkey Domestic EUR", round_to_nearest=10.0),
+        ]
+        client, _, _ = build_with_currencies(FakeRounding(overrides))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert page.count("type=\"button\" data-edit-rounding") == 2
+        assert 'data-location="BPCL BITUMEN - VG 10 (bulk)"' in page
+        assert 'data-step="1"' in page
+        assert 'data-step="10"' in page
