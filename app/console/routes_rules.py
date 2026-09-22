@@ -14,11 +14,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import RoundingStore, RulesStore, Store, StoredSite
-from ..editorial.rules import PERCENT, USD, PriceRule, _adjusted, adjustment_label
+from ..editorial.rules import FIXED, PERCENT, PriceRule, _adjusted, adjustment_label
 from .config import ConsoleConfigError
 from .access import make_site_guard
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
+
+# Typo catches for a fixed amount, per currency. Dollar and euro prices here
+# run to four figures, so a five-figure difference is a slipped decimal
+# point; rupee prices run to six figures and packed sits 11,800 over bulk.
+FIXED_LIMITS = {"usd": 5000, "eur": 5000, "inr": 50000}
 
 
 def _formula(rule) -> str:
@@ -250,6 +255,11 @@ def create_rules_routes(
                 "locations": titles,
                 "benchmarks": benchmarks,
                 "prices": prices,
+                "currencies": {
+                    str(entry["title"]): str(entry["currency"])
+                    for entry in locations
+                    if entry.get("title") and entry.get("currency")
+                },
                 "rule_notes": build_rule_notes(site_rules, locations),
                 "round_to_nearest": site.round_to_nearest,
                 "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
@@ -267,7 +277,8 @@ def create_rules_routes(
         derived = str(form.get("derived_location") or "").strip()
         reference = str(form.get("reference_location") or "").strip()
         raw_value = str(form.get("adjustment_value") or "").strip()
-        kind = USD if str(form.get("adjustment_kind") or "") == USD else PERCENT
+        raw_kind = str(form.get("adjustment_kind") or "")
+        kind = raw_kind if raw_kind in FIXED else PERCENT
 
         if not derived or not reference:
             return back(site.slug, "err", "Pick both locations.")
@@ -281,7 +292,8 @@ def create_rules_routes(
             return back(
                 site.slug,
                 "err",
-                "Type a number — for example -10 for 10% less, or -25 for 25 US dollars less.",
+                "Type a number — for example -10 for 10% less, or -25 for 25 less in the "
+                "price's own currency.",
             )
 
         # -100 is the real floor: at it, and below it, the price is nothing or
@@ -300,10 +312,43 @@ def create_rules_routes(
                 "nothing) and at most +1,000.",
             )
 
-        if kind == USD and not -5000 <= amount <= 5000:
+        # Rupee prices run to six figures (packed over bulk is 11,800), so the
+        # typo catch there is ten times the dollar and euro one.
+        limit = FIXED_LIMITS.get(kind)
+
+        if limit is not None and not -limit <= amount <= limit:
             return back(
-                site.slug, "err", "A US dollar difference must be between -5,000 and +5,000."
+                site.slug,
+                "err",
+                f"A fixed difference in {FIXED[kind]} must be between -{limit:,} and +{limit:,}.",
             )
+
+        try:
+            locations = client_for(site).locations().get("data", [])
+        except SiteError:
+            locations = None
+
+        # A fixed amount is added to the price as it stands, and the site
+        # stores the result in the derived location's own currency -- so "+5
+        # US dollars" on a euro price would be published as five euros. When
+        # the site says what currency the price is in, the amount must match.
+        if kind in FIXED and locations is not None:
+            priced_in = next(
+                (
+                    str(entry.get("currency") or "").upper()
+                    for entry in locations
+                    if entry.get("title") == derived and entry.get("currency")
+                ),
+                None,
+            )
+
+            if priced_in and priced_in != FIXED[kind]:
+                return back(
+                    site.slug,
+                    "err",
+                    f"{derived} is priced in {priced_in}, so a fixed amount for it has to be "
+                    f"in {priced_in} too. Pick {priced_in} next to the amount.",
+                )
 
         saved = PriceRule(
             id=0,
@@ -324,26 +369,21 @@ def create_rules_routes(
         # "nothing happened". Previewing it against the latest published price
         # shows immediately what the rule will do.
         preview = ""
+        latest = next(
+            (
+                entry.get("latest_price")
+                for entry in (locations or [])
+                if entry.get("title") == reference
+            ),
+            None,
+        )
 
-        try:
-            locations = client_for(site).locations().get("data", [])
-            latest = next(
-                (
-                    entry.get("latest_price")
-                    for entry in locations
-                    if entry.get("title") == reference
-                ),
-                None,
+        if latest is not None:
+            would_be = round(_adjusted(float(latest), saved))
+            preview = (
+                f" With today's prices: {reference} is {latest:g}, "
+                f"so {derived} would be {would_be}."
             )
-
-            if latest is not None:
-                would_be = round(_adjusted(float(latest), saved))
-                preview = (
-                    f" With today's prices: {reference} is {latest:g}, "
-                    f"so {derived} would be {would_be}."
-                )
-        except SiteError:
-            preview = ""
 
         return back(
             site.slug,

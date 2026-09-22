@@ -312,3 +312,32 @@ class TestARuleInDollarsRatherThanPercent:
         row = next(r for r in rows if r["location"] == KOREA)
 
         assert row["suggested_price"] == 720
+
+
+class TestAFixedAmountInEurosOrRupees:
+    """Bitumart prices Europe in euros and Indian refineries in rupees. A
+    fixed difference is in the derived location's own currency -- "Brussels
+    = Antwerp + 5" means five euros -- and the audit line must say which,
+    not call it dollars."""
+
+    def test_a_euro_amount_adds_like_a_dollar_amount(self):
+        euros = PriceRule(
+            id=4, derived_location=KOREA, reference_location=SINGAPORE,
+            adjustment_value=5.0, adjustment_kind="eur",
+        )
+        rows = apply_rules(draft([suggestion(SINGAPORE, 520, 520)]), [euros])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["suggested_price"] == 525
+        assert row["basis"] == f"Derived: {SINGAPORE} +5 EUR"
+
+    def test_a_rupee_amount_adds_and_says_rupees(self):
+        rupees = PriceRule(
+            id=5, derived_location=KOREA, reference_location=SINGAPORE,
+            adjustment_value=11800.0, adjustment_kind="inr",
+        )
+        rows = apply_rules(draft([suggestion(SINGAPORE, 75100, 75100)]), [rupees])
+        row = next(r for r in rows if r["location"] == KOREA)
+
+        assert row["suggested_price"] == 86900
+        assert "+11800 INR" in row["rationale"]

@@ -20,6 +20,14 @@ from .review import FLAG_PCT
 
 PERCENT = "percent"
 USD = "usd"
+EUR = "eur"
+INR = "inr"
+
+# A fixed amount, and the currency it is written in. The arithmetic is the
+# same for all three -- the amount is added -- because a fixed difference is
+# always in the derived price's own currency: Bitumart's Brussels is five
+# euros over Antwerp, its packed refinery prices rupees over bulk.
+FIXED = {USD: "USD", EUR: "EUR", INR: "INR"}
 
 
 @dataclass(frozen=True)
@@ -28,9 +36,10 @@ class PriceRule:
     derived_location: str
     reference_location: str
     adjustment_value: float
-    # "percent" -- the client's rulebook is written in percentages -- or
-    # "usd", a flat US dollar difference per tonne for the locations that sit
-    # a fixed amount off their benchmark rather than a fixed proportion.
+    # "percent" -- the client's rulebook is written in percentages -- or a
+    # fixed amount per tonne in dollars ("usd"), euros ("eur") or rupees
+    # ("inr"), for the locations that sit a fixed amount off their benchmark
+    # rather than a fixed proportion.
     adjustment_kind: str = PERCENT
     enabled: bool = True
 
@@ -42,14 +51,14 @@ def adjustment_label(rule: PriceRule) -> str:
     agree: "-10%" and "-25 USD" mean very different things and the editor
     reads them in three different places.
     """
-    if rule.adjustment_kind == USD:
-        return f"{rule.adjustment_value:+g} USD"
+    if rule.adjustment_kind in FIXED:
+        return f"{rule.adjustment_value:+g} {FIXED[rule.adjustment_kind]}"
 
     return f"{rule.adjustment_value:+g}%"
 
 
 def _adjusted(value: float, rule: PriceRule) -> float:
-    if rule.adjustment_kind == USD:
+    if rule.adjustment_kind in FIXED:
         return value + rule.adjustment_value
 
     return value * (1 + (rule.adjustment_value / 100.0))
@@ -121,8 +130,8 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
 
             price = _whole(_adjusted(reference["suggested_price"], rule))
 
-            # A flat USD difference can take a low benchmark below zero, which
-            # a percentage never could. A price of nothing is not a price:
+            # A fixed amount can take a low benchmark below zero, and so can a
+            # percentage near -100. A price of nothing is not a price:
             # leave the row for the editor rather than staging one.
             if price <= 0:
                 continue

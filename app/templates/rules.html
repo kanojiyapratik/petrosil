@@ -56,9 +56,11 @@
           <div class="pair">
             <input id="adjustment_value" type="number" step="any" name="adjustment_value"
                    placeholder="-10" required>
-            <select id="adjustment_kind" name="adjustment_kind" aria-label="Percent or US dollars">
+            <select id="adjustment_kind" name="adjustment_kind" aria-label="Percent or a fixed amount">
               <option value="percent" selected>%</option>
               <option value="usd">US$</option>
+              <option value="eur">€</option>
+              <option value="inr">₹</option>
             </select>
           </div>
           <p class="rulenote mute" id="adjustment-note">
@@ -197,6 +199,12 @@
   // They need the sum, with the real price of the location they just picked:
   // "Singapore SN 150 is 1560 today, so this price would be 1535."
   var PRICES = {{ prices | tojson }};
+  // The currency each location is priced in, when the site says. A fixed
+  // amount is in the price's own currency: five euros on Brussels, rupees on
+  // a refinery price.
+  var CURRENCIES = {{ currencies | tojson }};
+  var KIND_FOR = { USD: 'usd', EUR: 'eur', INR: 'inr' };
+  var SYMBOL = { usd: '$', eur: '€', inr: '₹' };
 
   function example() {
     var kind = document.getElementById('adjustment_kind');
@@ -205,33 +213,48 @@
     var from = document.querySelector('[data-combo="reference"] input[type=hidden]').value;
     var to = document.querySelector('[data-combo="derived"] input[type=hidden]').value;
     var typed = parseFloat(amount.value);
-    var dollars = kind.value === 'usd';
+    var fixed = kind.value !== 'percent';
+    var sign = fixed ? SYMBOL[kind.value] : '';
 
-    amount.placeholder = dollars ? '-25' : '-10';
+    amount.placeholder = fixed ? '-25' : '-10';
 
     if (isNaN(typed)) {
-      sum.textContent = dollars
-        ? 'Example: 1,000 − 25 = 975. The amount is the same whatever the price is.'
+      sum.textContent = fixed
+        ? 'Example: ' + sign + '1,000 − ' + sign + '25 = ' + sign +
+          '975. The amount is the same whatever the price is.'
         : 'Example: 1,000 − 10% = 900.';
       return;
     }
 
-    var unit = dollars ? '' : '%';
+    var unit = fixed ? '' : '%';
     var base = PRICES[from];
 
     if (base === undefined) {
       var shown = 1000;
-      sum.textContent = 'Example: ' + money(shown) + ' ' + word(typed) + ' ' +
-        money(Math.abs(typed)) + unit + ' = ' + money(work(shown, typed, dollars)) + '.';
+      sum.textContent = 'Example: ' + sign + money(shown) + ' ' + word(typed) + ' ' +
+        sign + money(Math.abs(typed)) + unit + ' = ' + sign +
+        money(work(shown, typed, fixed)) + '.';
       return;
     }
 
-    sum.textContent = from + ' is ' + money(base) + ' today, so ' +
-      (to ? to : 'this price') + ' would be ' + money(work(base, typed, dollars)) + '.';
+    sum.textContent = from + ' is ' + sign + money(base) + ' today, so ' +
+      (to ? to : 'this price') + ' would be ' + sign + money(work(base, typed, fixed)) + '.';
   }
 
-  function work(base, typed, dollars) {
-    return Math.round(dollars ? base + typed : base * (1 + typed / 100));
+  // Picking a price that is in euros or rupees while a fixed amount is chosen
+  // moves the unit to that currency: the save refuses a mismatch anyway, and
+  // it is kinder to get it right before than to explain it after.
+  function matchUnit(name) {
+    var kind = document.getElementById('adjustment_kind');
+    var own = KIND_FOR[(CURRENCIES[name] || '').toUpperCase()];
+
+    if (own && kind.value !== 'percent' && kind.value !== own) {
+      kind.value = own;
+    }
+  }
+
+  function work(base, typed, fixed) {
+    return Math.round(fixed ? base + typed : base * (1 + typed / 100));
   }
 
   function word(typed) {
@@ -294,6 +317,10 @@
       note.hidden = false;
       root.classList.remove('missing');
       close();
+      if (side === 'derived') {
+        matchUnit(name);
+      }
+
       // The worked example names both locations and uses the price of the
       // one on the right, so it is rewritten whenever either changes.
       example();

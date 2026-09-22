@@ -8,6 +8,7 @@ is the flag; these tests hold the sentences behind it.
 
 import json
 import re
+from urllib.parse import unquote
 
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -297,7 +298,17 @@ class RecordingRules(FakeRules):
         self.created.append((derived, reference, value, kind))
 
 
-def save(**fields):
+class CurrencySiteClient:
+    """A site whose location list says which currency each is priced in."""
+
+    def __init__(self, locations):
+        self._locations = locations
+
+    def locations(self):
+        return {"data": self._locations}
+
+
+def save(locations=None, **fields):
     store = RecordingRules()
     app = FastAPI()
     app.include_router(
@@ -308,7 +319,9 @@ def save(**fields):
             current_user=lambda request: type(
                 "U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True}
             )(),
-            client_factory=lambda site: FakeSiteClient(),
+            client_factory=lambda site: (
+                CurrencySiteClient(locations) if locations is not None else FakeSiteClient()
+            ),
         )
     )
     form = {
@@ -370,6 +383,56 @@ class TestSavingARuleInDollarsOrPercent:
         assert store.created == []
         assert "err=" in response.headers["location"]
 
+    def test_a_euro_rule_is_stored_as_one(self):
+        store, response = save(adjustment_value="5", adjustment_kind="eur")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", 5.0, "eur")]
+        assert "ok=" in response.headers["location"]
+
+    def test_a_rupee_rule_is_stored_as_one(self):
+        # Packed over bulk runs to five figures in rupees -- 86,900 against
+        # 75,100 -- which the dollar typo-catch would refuse.
+        store, response = save(adjustment_value="11800", adjustment_kind="inr")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", 11800.0, "inr")]
+
+    def test_a_slipped_decimal_point_in_rupees_is_still_refused(self):
+        store, response = save(adjustment_value="1180000", adjustment_kind="inr")
+
+        assert store.created == []
+        assert "err=" in response.headers["location"]
+
+    def test_a_fixed_amount_must_be_in_the_prices_own_currency(self):
+        # Brussels is priced in euros; "+5 US dollars" on it would be staged
+        # as five euros. The screen says so rather than storing it.
+        store, response = save(
+            locations=[
+                {"title": "Korea TOBS", "latest_price": 525, "currency": "EUR"},
+                {"title": "Singapore SN 150", "latest_price": 520, "currency": "EUR"},
+            ],
+            adjustment_value="5", adjustment_kind="usd",
+        )
+
+        assert store.created == []
+        assert "err=" in response.headers["location"]
+        assert "EUR" in unquote(response.headers["location"])
+
+    def test_the_matching_currency_is_accepted(self):
+        store, _ = save(
+            locations=[
+                {"title": "Korea TOBS", "latest_price": 525, "currency": "EUR"},
+                {"title": "Singapore SN 150", "latest_price": 520, "currency": "EUR"},
+            ],
+            adjustment_value="5", adjustment_kind="eur",
+        )
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", 5.0, "eur")]
+
+    def test_a_site_that_names_no_currency_accepts_dollars_as_before(self):
+        store, _ = save(adjustment_value="-25", adjustment_kind="usd")
+
+        assert store.created == [("Korea TOBS", "Singapore SN 150", -25.0, "usd")]
+
     def test_an_unknown_unit_is_treated_as_a_percentage_not_as_dollars(self):
         # The safe reading: percentages are what every stored rule is.
         store, _ = save(adjustment_kind="bananas")
@@ -386,6 +449,39 @@ class TestTheWorkedExample:
         page = screen([rule("Korea TOBS", "Singapore SN 150", -10)]).text
 
         assert payload(page, "PRICES")["Singapore SN 150"] == 1560
+
+    def test_the_unit_can_be_euros_or_rupees_as_well_as_dollars(self):
+        page = screen([]).text
+
+        for value in ("percent", "usd", "eur", "inr"):
+            assert f'<option value="{value}"' in page
+
+    def test_each_locations_currency_reaches_the_page(self):
+        class Priced(FakeSiteClient):
+            def locations(self):
+                return {"data": [
+                    {"title": "Brussels Domestic", "latest_price": 525, "currency": "EUR"},
+                    {"title": "BPCL BITUMEN - VG 10 (bulk)", "latest_price": None,
+                     "currency": "INR"},
+                ]}
+
+        app = FastAPI()
+        app.include_router(
+            create_rules_routes(
+                store=FakeStore(),
+                rules=FakeRules([]),
+                templates=Jinja2Templates(directory="app/templates"),
+                current_user=lambda request: type(
+                    "U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True}
+                )(),
+                client_factory=lambda site: Priced(),
+            )
+        )
+        page = TestClient(app).get("/console/sites/baseoil/rules").text
+
+        assert payload(page, "CURRENCIES") == {
+            "Brussels Domestic": "EUR", "BPCL BITUMEN - VG 10 (bulk)": "INR",
+        }
 
     def test_a_location_with_no_price_yet_is_simply_absent(self):
         # A newly imported location has none, and "undefined" arithmetic would
