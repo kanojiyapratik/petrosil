@@ -28,6 +28,7 @@ def create_price_routes(
     driver=None,
     default_model: str | None = None,
     driver_for=None,
+    drafts=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -314,10 +315,22 @@ def create_price_routes(
             if count
         ]
 
+        # The AI draft this update came from, if any -- so what the AI said
+        # can be set against what is about to go live. A lookup that fails
+        # costs the link, not the page.
+        ai_draft_id = None
+
+        if drafts is not None:
+            try:
+                ai_draft_id = drafts.ids_for_batches(site.slug, [int(batch_id)]).get(int(batch_id))
+            except Exception:  # noqa: BLE001 - a missing link is not a broken page
+                ai_draft_id = None
+
         return templates.TemplateResponse(
             request,
             "batch.html",
             {
+                "ai_draft_id": ai_draft_id,
                 "user": user,
                 "flash": flash_of(request),
                 "site": site,

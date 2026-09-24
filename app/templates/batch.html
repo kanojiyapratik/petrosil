@@ -4,6 +4,10 @@
 <p class="lede">
   {{ label_for(envelope.batch.source) }} · <span class="badge {{ tone_for(envelope.batch.status) }}">{{ label_for(envelope.batch.status) }}</span>
   · {{ total_items }} price{{ "" if total_items == 1 else "s" }}
+  {% if ai_draft_id %}
+    · from AI draft #{{ ai_draft_id }} &mdash;
+    <a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ ai_draft_id }}">view what the AI suggested</a>
+  {% endif %}
 </p>
 
 <div class="panel">

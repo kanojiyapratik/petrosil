@@ -36,6 +36,16 @@ def _figure(value: float) -> str:
     return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
 
 
+def _price(value) -> str:
+    """A stored price for reading: 1,560 not 1560.0, 537.50 not 537.5."""
+    if value is None:
+        return "—"
+
+    value = float(value)
+
+    return f"{value:,.0f}" if value == int(value) else f"{value:,.2f}"
+
+
 def _plausible_timestamp(value: str) -> bool:
     """A guard before a reuse token reaches reclaim_set's ``::timestamptz`` cast.
 
@@ -192,6 +202,23 @@ def create_editorial_routes(
             except Exception:  # noqa: BLE001 - a missing reminder is not a broken screen
                 waiting, spent = None, None
 
+        # Which price updates came from an AI draft, for the "View draft"
+        # column; and the draft a used reading made, which may never have
+        # been saved and so has no price update to be found from.
+        draft_links: dict[int, int] = {}
+        spent_draft_id = None
+
+        if drafts is not None:
+            try:
+                draft_links = drafts.ids_for_batches(
+                    site.slug, [int(batch["id"]) for batch in batches if batch.get("id")]
+                )
+
+                if spent is not None:
+                    spent_draft_id = drafts.latest_for_reading(site.slug, spent.id)
+            except Exception:  # noqa: BLE001 - a missing link is not a broken screen
+                draft_links, spent_draft_id = {}, None
+
         return screen(
             request, user, site,
             {
@@ -199,9 +226,73 @@ def create_editorial_routes(
                 "flash": flash,
                 "waiting": waiting,
                 "spent": spent,
+                "spent_draft_id": spent_draft_id,
                 "batches": [
-                    {**batch, "tone": tone_for(batch.get("status"))} for batch in batches
+                    {
+                        **batch,
+                        "tone": tone_for(batch.get("status")),
+                        "draft_id": draft_links.get(int(batch["id"])) if batch.get("id") else None,
+                    }
+                    for batch in batches
                 ],
+            },
+        )
+
+    @router.get("/console/sites/{slug}/editorial/drafts/{draft_id}", response_class=HTMLResponse)
+    def view_draft(request: Request, slug: str, draft_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        draft = drafts.draft(draft_id, site.slug) if drafts is not None else None
+
+        if draft is None:
+            return screen(
+                request, user, site, {"error": "That AI draft could not be found."}, 404
+            )
+
+        rows = [row for row in draft.rows if not row.is_benchmark]
+        saved = draft.batch_id is not None
+        kept = [row for row in rows if row.ticked]
+        # An editor's change to the AI's figure is the thing to look at, so it
+        # is counted and marked rather than left to be spotted by eye.
+        changed = [
+            row for row in kept
+            if row.suggested_price is not None and row.saved_price is not None
+            and abs(row.saved_price - row.suggested_price) >= 0.005
+        ]
+
+        return templates.TemplateResponse(
+            request,
+            "editorial_draft.html",
+            {
+                "user": user,
+                "flash": None,
+                "site": site,
+                "section": "editorial",
+                "crumbs": [
+                    {"label": site.name, "href": f"/console/sites/{site.slug}"},
+                    {"label": "Editorial update", "href": f"/console/sites/{site.slug}/editorial"},
+                    {"label": f"AI draft #{draft.id}"},
+                ],
+                "tone_for": tone_for,
+                "title": f"AI draft #{draft.id} · {site.name}",
+                "draft": draft,
+                "created_at": str(draft.created_at or "").replace(" ", "T"),
+                "number": _price,
+                "rows": rows,
+                "benchmarks": [
+                    row for row in draft.rows
+                    if row.is_benchmark and row.suggested_price is not None
+                ],
+                "saved": saved,
+                "counts": {
+                    "locations": len(rows),
+                    "priced": sum(1 for row in rows if row.suggested_price is not None),
+                    "kept": len(kept),
+                    "changed": len(changed),
+                },
             },
         )
 

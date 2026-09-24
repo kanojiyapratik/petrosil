@@ -1084,6 +1084,48 @@ DRAFT_ROW_FIELDS = (
 )
 
 
+@dataclass(frozen=True)
+class DraftRow:
+    location: str
+    is_benchmark: bool
+    status: str
+    reported_as: str | None
+    current_price: float | None
+    suggested_min: float | None
+    suggested_max: float | None
+    suggested_price: float | None
+    change_pct: float | None
+    confidence: str | None
+    basis: str | None
+    source: str | None
+    rationale: str | None
+    flag: str | None
+    derived_from: str | None
+    ticked: bool | None
+    saved_price: float | None
+
+
+@dataclass(frozen=True)
+class StoredDraft:
+    id: int
+    site_slug: str
+    reading_set_id: int | None
+    created_by: str
+    created_at: object
+    price_date: str | None
+    provider: str | None
+    model: str | None
+    analysis_status: str | None
+    batch_id: int | None
+    saved_by: str | None
+    saved_at: object
+    rows: list[DraftRow]
+
+
+def _number(value) -> float | None:
+    return float(value) if value is not None else None
+
+
 class DraftStore:
     """Every AI draft, row by row, and what the editor did with it.
 
@@ -1189,3 +1231,73 @@ class DraftStore:
             return False
 
         return True
+
+    def draft(self, draft_id: int, site_slug: str) -> StoredDraft | None:
+        """One draft with its rows, only if it belongs to this site."""
+        with self._pool.connection() as connection:
+            head = connection.execute(
+                "SELECT id, site_slug, reading_set_id, created_by, created_at, price_date, "
+                "provider, model, analysis_status, batch_id, saved_by, saved_at "
+                "FROM console_editorial_drafts WHERE id = %s AND site_slug = %s",
+                (draft_id, site_slug),
+            ).fetchone()
+
+            if head is None:
+                return None
+
+            rows = connection.execute(
+                "SELECT location, is_benchmark, status, reported_as, current_price, "
+                "suggested_min, suggested_max, suggested_price, change_pct, confidence, "
+                "basis, source, rationale, flag, derived_from, ticked, saved_price "
+                "FROM console_editorial_draft_rows WHERE draft_id = %s ORDER BY position",
+                (draft_id,),
+            ).fetchall()
+
+        return StoredDraft(
+            id=int(head[0]), site_slug=head[1],
+            reading_set_id=int(head[2]) if head[2] is not None else None,
+            created_by=head[3], created_at=head[4],
+            price_date=head[5].isoformat() if head[5] is not None else None,
+            provider=head[6], model=head[7], analysis_status=head[8],
+            batch_id=int(head[9]) if head[9] is not None else None,
+            saved_by=head[10], saved_at=head[11],
+            rows=[
+                DraftRow(
+                    location=row[0], is_benchmark=bool(row[1]), status=row[2],
+                    reported_as=row[3], current_price=_number(row[4]),
+                    suggested_min=_number(row[5]), suggested_max=_number(row[6]),
+                    suggested_price=_number(row[7]), change_pct=_number(row[8]),
+                    confidence=row[9], basis=row[10], source=row[11], rationale=row[12],
+                    flag=row[13], derived_from=row[14], ticked=row[15],
+                    saved_price=_number(row[16]),
+                )
+                for row in rows
+            ],
+        )
+
+    def ids_for_batches(self, site_slug: str, batch_ids: list[int]) -> dict[int, int]:
+        """Which draft each price update came from: {batch_id: draft_id}.
+        Two drafts saved into one batch (a re-save) answer with the newest."""
+        if not batch_ids:
+            return {}
+
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT batch_id, max(id) FROM console_editorial_drafts "
+                "WHERE site_slug = %s AND batch_id = ANY(%s) GROUP BY batch_id",
+                (site_slug, list(batch_ids)),
+            ).fetchall()
+
+        return {int(row[0]): int(row[1]) for row in rows}
+
+    def latest_for_reading(self, site_slug: str, reading_set_id: int) -> int | None:
+        """The newest draft made from a reading -- the only way back to one
+        that was never saved, since it has no price update to hang off."""
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT max(id) FROM console_editorial_drafts "
+                "WHERE site_slug = %s AND reading_set_id = %s",
+                (site_slug, reading_set_id),
+            ).fetchone()
+
+        return int(row[0]) if row and row[0] is not None else None

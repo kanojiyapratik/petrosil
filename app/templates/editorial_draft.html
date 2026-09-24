@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>AI draft #{{ draft.id }}</h1>
+<p class="lede">
+  What the AI suggested for {{ site.name }} on
+  <time datetime="{{ created_at }}">{{ datefmt(created_at) }}</time>
+  (prices dated {{ datefmt(draft.price_date) }}), made by {{ draft.created_by }}
+  {% if draft.model %}using {{ draft.model }}{% endif %}.
+  {% if saved %}
+    Saved by {{ draft.saved_by }} as
+    <a href="/console/sites/{{ site.slug }}/prices/{{ draft.batch_id }}">price update #{{ draft.batch_id }}</a>.
+  {% else %}
+    <strong>This draft was never saved</strong> &mdash; none of these prices reached {{ site.name }} from it.
+  {% endif %}
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Summary</h2></div>
+  <div class="body">
+    {{ counts.priced }} of {{ counts.locations }} locations got a price from the AI.
+    {% if saved %}
+      {{ counts.kept }} were saved{% if counts.changed %}, and the editor changed
+      <strong>{{ counts.changed }}</strong> of them before saving{% endif %}.
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Prices</h2></div>
+  <table>
+    <thead>
+      <tr>
+        <th>&#8470;</th><th>Location</th><th>Current</th><th>AI range</th><th>AI price</th>
+        {% if saved %}<th>Saved price</th>{% endif %}
+        <th>Confidence</th><th>Basis</th><th>Source</th><th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        {% set edited = row.ticked and row.saved_price is not none and row.suggested_price is not none
+                        and (row.saved_price - row.suggested_price)|abs >= 0.005 %}
+        <tr>
+          <td class="small muted" style="text-align:right">{{ loop.index }}</td>
+          <td>
+            {{ row.location }}
+            {% if row.reported_as %}
+              <div class="small muted">The report called this &ldquo;{{ row.reported_as }}&rdquo;</div>
+            {% endif %}
+          </td>
+          <td>{{ number(row.current_price) }}</td>
+          <td>
+            {% if row.suggested_min is not none %}
+              {{ number(row.suggested_min) }}&ndash;{{ number(row.suggested_max) }}
+              {% if row.status == "derived" %}<span class="badge mute">derived</span>{% endif %}
+              {% if row.status == "near_match" %}<span class="badge warn">close match?</span>{% endif %}
+            {% else %}
+              <span class="badge warn">{{ label_for(row.status) }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {{ number(row.suggested_price) }}
+            {% if row.flag %}<span class="badge warn">check</span>{% endif %}
+          </td>
+          {% if saved %}
+            <td>
+              {% if row.ticked %}
+                {{ number(row.saved_price) }}
+                {% if edited %}<span class="badge warn">changed</span>
+                {% else %}<span class="badge ok">saved</span>{% endif %}
+              {% elif row.suggested_price is not none %}
+                <span class="badge mute">not saved</span>
+              {% else %}&mdash;{% endif %}
+            </td>
+          {% endif %}
+          <td>{{ row.confidence or "" }}</td>
+          <td class="small muted">{{ row.basis or "" }}</td>
+          <td class="small muted">{{ row.source or "" }}</td>
+          <td class="small muted">{{ row.rationale or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if benchmarks %}
+<div class="panel">
+  <div class="head"><h2>Report figures found</h2></div>
+  <table>
+    <thead><tr><th>Figure</th><th>Range</th><th>Price</th><th>Source</th></tr></thead>
+    <tbody>
+      {% for row in benchmarks %}
+        <tr>
+          <td>{{ row.location }}</td>
+          <td>{% if row.suggested_min is not none %}{{ number(row.suggested_min) }}&ndash;{{ number(row.suggested_max) }}{% endif %}</td>
+          <td>{{ number(row.suggested_price) }}</td>
+          <td class="small muted">{{ row.source or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

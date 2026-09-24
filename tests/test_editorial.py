@@ -2206,3 +2206,154 @@ class TestTheAiDraftIsKept:
 
         assert response.status_code == 303
         assert drafts.saved == []
+
+
+def stored_draft(batch_id=31, site_slug="baseoil"):
+    from app.db.store import DraftRow, StoredDraft
+
+    def row(location, **fields):
+        base = dict(
+            location=location, is_benchmark=False, status="suggested", reported_as=None,
+            current_price=1500.0, suggested_min=1540.0, suggested_max=1580.0,
+            suggested_price=1560.0, change_pct=4.0, confidence="high", basis="FOB",
+            source="Lube Report", rationale="Printed 1,540-1,580.", flag=None,
+            derived_from=None, ticked=None, saved_price=None,
+        )
+        base.update(fields)
+
+        return DraftRow(**base)
+
+    saved = batch_id is not None
+
+    return StoredDraft(
+        id=12, site_slug=site_slug, reading_set_id=7, created_by="editor@local.test",
+        created_at="2026-09-24 08:51:11+00:00", price_date="2026-09-24", provider="openai",
+        model="gpt-4o-mini", analysis_status="complete", batch_id=batch_id,
+        saved_by="editor@local.test" if saved else None, saved_at=None,
+        rows=[
+            row("Singapore SN 150 FOB Group I", ticked=True if saved else None,
+                saved_price=1555.0 if saved else None),
+            row("Japan SN 150", ticked=True if saved else None,
+                saved_price=1560.0 if saved else None),
+            row("Korea SN 150", ticked=False if saved else None),
+            row("Europe Domestic SN150", status="no_evidence", suggested_min=None,
+                suggested_max=None, suggested_price=None, change_pct=None,
+                ticked=False if saved else None),
+            row("Report: FOB Asia SN 150", is_benchmark=True, suggested_price=1300.0),
+        ],
+    )
+
+
+class ViewableDrafts(FakeDrafts):
+    def __init__(self, draft=None, links=None, from_reading=None):
+        super().__init__()
+        self._draft = draft
+        self._links = links or {}
+        self._from_reading = from_reading
+
+    def draft(self, draft_id, site_slug):
+        if self._draft is None or draft_id != self._draft.id or site_slug != self._draft.site_slug:
+            return None
+
+        return self._draft
+
+    def ids_for_batches(self, site_slug, batch_ids):
+        return {batch: draft for batch, draft in self._links.items() if batch in batch_ids}
+
+    def latest_for_reading(self, site_slug, set_id):
+        return self._from_reading
+
+
+class ListingSiteClient(AnalyseFakeSiteClient):
+    def batches(self):
+        return {"data": [
+            {"id": 31, "source": "editorial", "status": "draft", "items_count": 2},
+            {"id": 29, "source": "api", "status": "committed", "items_count": 40},
+        ]}
+
+
+def build_listing_client(drafts, used_at=None):
+    from app.console.routes import datefmt, label_for
+
+    templates = Jinja2Templates(directory="app/templates")
+    templates.env.globals["datefmt"] = datefmt
+    templates.env.globals["label_for"] = label_for
+    app = FastAPI()
+    app.include_router(
+        create_editorial_routes(
+            store=AnalyseFakeStore(), templates=templates,
+            current_user=lambda request: type(
+                "U", (), {"email": "editor@local.test", "name": "Editor", "is_admin": True, "is_superadmin": True}
+            )(),
+            driver=StubDriver(), default_model="m",
+            client_factory=lambda site: ListingSiteClient([]),
+            extractions=AnalyseFakeExtractions(kept_and_dropped_rows(), used_at=used_at),
+            drafts=drafts,
+        )
+    )
+
+    return TestClient(app)
+
+
+class TestViewingAnAiDraft:
+    def test_a_saved_draft_shows_the_ai_figure_beside_what_was_saved(self):
+        client = build_listing_client(ViewableDrafts(stored_draft()))
+
+        response = client.get("/console/sites/baseoil/editorial/drafts/12")
+
+        assert response.status_code == 200
+        text = response.text
+        assert "AI draft #12" in text
+        assert "/console/sites/baseoil/prices/31" in text
+        # 3 of 4 locations priced; 2 saved, one of them changed by the editor.
+        assert "3 of 4 locations got a price from the AI" in text
+        assert "the editor changed\n      <strong>1</strong>" in text
+        assert "1,555" in text and "1,560" in text
+        assert text.count('badge warn">changed') == 1
+        assert text.count('badge ok">saved') == 1
+        assert text.count('badge mute">not saved') == 1
+        # The report figure is shown apart from the site's locations.
+        assert "Report figures found" in text
+
+    def test_a_draft_never_saved_says_so(self):
+        client = build_listing_client(ViewableDrafts(stored_draft(batch_id=None)))
+
+        response = client.get("/console/sites/baseoil/editorial/drafts/12")
+
+        assert "This draft was never saved" in response.text
+        assert "Saved price" not in response.text
+
+    def test_another_sites_draft_is_a_404(self):
+        client = build_listing_client(ViewableDrafts(stored_draft(site_slug="bitumart")))
+
+        response = client.get("/console/sites/baseoil/editorial/drafts/12")
+
+        assert response.status_code == 404
+
+    def test_the_recent_updates_list_links_each_update_to_its_draft(self):
+        client = build_listing_client(ViewableDrafts(links={31: 12}))
+
+        text = client.get("/console/sites/baseoil/editorial").text
+
+        assert '<a href="/console/sites/baseoil/editorial/drafts/12">View draft</a>' in text
+        assert text.count("View draft") == 1
+
+    def test_a_used_reading_offers_the_draft_it_made(self):
+        client = build_listing_client(
+            ViewableDrafts(from_reading=12), used_at="2026-09-24T08:00:00"
+        )
+
+        text = client.get("/console/sites/baseoil/editorial").text
+
+        assert "view the AI draft it made" in text
+        assert "/console/sites/baseoil/editorial/drafts/12" in text
+
+    def test_a_failing_lookup_costs_the_links_not_the_screen(self):
+        class Broken(ViewableDrafts):
+            def ids_for_batches(self, site_slug, batch_ids):
+                raise RuntimeError("down")
+
+        response = build_listing_client(Broken()).get("/console/sites/baseoil/editorial")
+
+        assert response.status_code == 200
+        assert "Recent price updates" in response.text

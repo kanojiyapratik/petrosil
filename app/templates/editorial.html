@@ -24,6 +24,9 @@
     prices never reached {{ site.name }}, open it and use them again rather than uploading the
     reports afresh.
     <a href="/console/sites/{{ site.slug }}/reading/{{ spent.id }}">Open what was read</a>
+    {% if spent_draft_id %}
+      or <a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ spent_draft_id }}">view the AI draft it made</a>
+    {% endif %}
   </div>
 {% endif %}
 {% if reuse %}
@@ -268,7 +271,7 @@
   <div class="head"><h2>Recent price updates</h2></div>
   {% if batches %}
     <table>
-      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th></tr></thead>
+      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th><th>AI draft</th></tr></thead>
       <tbody>
         {% for batch in batches %}
           <tr>
@@ -277,6 +280,7 @@
             <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
             <td><span class="badge {{ batch.tone }}">{{ label_for(batch.status) }}</span></td>
             <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ datefmt(batch.created_at) }}</time>{% else %}—{% endif %}</td>
+            <td>{% if batch.draft_id %}<a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ batch.draft_id }}">View draft</a>{% else %}<span class="muted">—</span>{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>
