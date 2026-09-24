@@ -20,7 +20,14 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import Store, StoredSite
 from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks
 from ..editorial.fx import FrankfurterRates, convert_rows
-from ..editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
+from ..editorial.review import (
+    ParsedSuggestions,
+    build_rows,
+    editorial_prompt,
+    flag_unsupported,
+    parse_suggestions,
+    unsupported_by_evidence,
+)
 from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
 from .access import make_site_guard
@@ -554,6 +561,9 @@ def create_editorial_routes(
                         )
 
             rows = build_rows(asked, current, parsed)
+            # Figures the checked reports never printed -- checked now, while
+            # every row still holds the figure the model returned.
+            unsupported = unsupported_by_evidence(rows, evidence)
 
             # A figure printed in another currency becomes the location's own
             # currency (dollars, unless the site says otherwise) at the rate
@@ -578,6 +588,9 @@ def create_editorial_routes(
                 site.round_to_nearest,
                 rounding.for_site(site.slug) if rounding is not None else None,
             )
+
+            # Last, so neither conversion nor rounding can clear the flag.
+            rows = flag_unsupported(rows, unsupported)
 
             # Benchmarks fed the rules; they are not site prices and never stage.
             benchmark_set = set(benchmarks)

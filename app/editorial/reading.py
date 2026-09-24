@@ -93,8 +93,9 @@ Rules:
   each with its own range. "Local currency" is not a code: give the ISO
   code of that row's country (Turkey TRY, Italy/Spain/France EUR, UK GBP)
   and put "Local currency/t" in note. Leaving the local figure out loses a
-  price the report states -- "Turkey 29,084 29,084 nc 600 600" is TRY
-  29,084 AND USD 600.
+  price the report states -- a row "Turkey <a> <b> nc <c> <d>" under those
+  two headings is TRY <a>-<b> AND USD <c>-<d>. (Letters, not numbers: an
+  example figure is never a price. Only copy numbers the report prints.)
 - basis and note answer different questions and BOTH must be filled when
   the report supports them: basis says WHERE or on WHAT TERMS a price
   applies, note says WHICH COLUMN of a multi-column table it came from.

@@ -75,7 +75,7 @@ row's rationale which figure you used and why (e.g. "used the BASIC
 figure, pre-tax").
 
 Some "Report: " benchmarks are printed in a currency other than USD (for
-example Turkey ex-rack prices in Turkish lira, "Tl 81,212.00/t plus VAT").
+example Turkey ex-rack prices in Turkish lira, printed like "Tl <amount>/t plus VAT").
 Never convert these yourself: return the figure exactly as printed,
 EXCLUDING any VAT, set "currency" to its ISO code ("TRY") and
 "price_date" to the date the report gives for it (YYYY-MM-DD, or null),
@@ -241,6 +241,68 @@ def _stripped_name(name: str) -> tuple[str, ...]:
     text = re.sub(r"[^a-z0-9]+", " ", (name or "").lower())
 
     return tuple(token for token in text.split() if token not in FILLER_TOKENS)
+
+
+UNSUPPORTED_NOTE = (
+    "This figure is not among the prices checked from the reports -- the AI "
+    "may have made it up. Check the report before saving."
+)
+
+
+def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
+    """Locations whose suggested figure appears in none of the checked rows.
+
+    On 24 Sep 2026 the draft priced Turkey Domestic EUR from "TRY 81,212" --
+    a number that was in no report, only in an example inside the prompt.
+    Every figure the model hands back should be one the editor checked (or
+    the midpoint of one's range), so anything else is flagged, not trusted.
+    Call on the rows as the model returned them, before any conversion.
+    """
+    allowed: list[float] = []
+
+    for entry in evidence:
+        low, high = entry.get("price_min"), entry.get("price_max")
+        allowed += [float(v) for v in (entry.get("price"), low, high) if v is not None]
+
+        if low is not None and high is not None:
+            allowed.append((float(low) + float(high)) / 2)
+
+    def known(value) -> bool:
+        return value is not None and any(
+            abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001) for figure in allowed
+        )
+
+    return {
+        row["location"]
+        for row in rows
+        if row.get("status") in ("suggested", "near_match", "foreign")
+        and row.get("suggested_min") is not None
+        and not (known(row.get("suggested_min")) or known(row.get("suggested_max")))
+    }
+
+
+def flag_unsupported(rows: list[dict], unsupported: set[str]) -> list[dict]:
+    """Flag those rows -- and every price a rule worked out from one of them
+    -- for checking. A flagged row is left unticked on the draft screen."""
+    marked = set(unsupported)
+    grew = True
+
+    while grew:
+        grew = False
+
+        for row in rows:
+            if row.get("derived_from") in marked and row["location"] not in marked:
+                marked.add(row["location"])
+                grew = True
+
+    for row in rows:
+        if row["location"] in marked and row.get("suggested_price") is not None:
+            row["flag"] = "check"
+
+            if UNSUPPORTED_NOTE not in (row.get("rationale") or ""):
+                row["rationale"] = " ".join(filter(None, [row.get("rationale"), UNSUPPORTED_NOTE]))
+
+    return rows
 
 
 def build_rows(

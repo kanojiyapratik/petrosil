@@ -51,7 +51,7 @@ Reports name things loosely: "SN150" is "SN 150", "Solvent neutral 150" is
 benchmark, "ex rack Izmir" prices are the "Turkey" benchmarks.
 
 Some benchmarks are printed in a currency other than USD (for example Turkey
-ex-rack prices in Turkish lira, "Tl 81,212.00/t plus VAT"). Never convert
+ex-rack prices in Turkish lira, printed like "Tl <amount>/t plus VAT"). Never convert
 these yourself: return the figure exactly as printed, EXCLUDING any VAT, set
 "currency" to its ISO code ("TRY") and "price_date" to the date the report
 gives for it (YYYY-MM-DD, or null), and mention the VAT amount in "basis".

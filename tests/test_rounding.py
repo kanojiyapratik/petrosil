@@ -230,4 +230,53 @@ def test_the_reading_prompt_asks_for_both_currencies_of_a_two_currency_row():
     from app.editorial.reading import READING_PREAMBLE
 
     assert "Local currency/t" in READING_PREAMBLE
-    assert "TRY 29,084 AND USD 600" in " ".join(READING_PREAMBLE.split())
+    assert "TRY <a>-<b> AND USD <c>-<d>" in " ".join(READING_PREAMBLE.split())
+    # An example printed as real figures gets copied as a price when the
+    # report lacks one (81,212 did exactly that on 24 Sep 2026).
+    assert "29,084" not in READING_PREAMBLE
+
+
+class TestAFigureNoReportPrinted:
+    """24 Sep 2026: Turkey Domestic EUR was drafted from TRY 81,212 -- a
+    number from an example inside the prompt, not from any report."""
+
+    EVIDENCE = [
+        {"name": "Turkey", "price": 29084, "price_min": 29084, "price_max": 29084, "currency": "TRY"},
+        {"name": "FOB Asia", "price": 1640, "price_min": 1640, "price_max": 1655},
+    ]
+
+    def test_an_invented_figure_is_flagged_and_says_why(self):
+        from app.editorial.review import flag_unsupported, unsupported_by_evidence
+
+        rows = draft([suggestion(TURKEY, 81212, 81212, currency="TRY")])
+        unsupported = unsupported_by_evidence(rows, self.EVIDENCE)
+        rows = flag_unsupported(rows, unsupported)
+        row = next(r for r in rows if r["location"] == TURKEY)
+
+        assert unsupported == {TURKEY}
+        assert row["flag"] == "check"
+        assert "not among the prices checked" in row["rationale"]
+
+    def test_a_printed_figure_its_range_end_or_midpoint_is_trusted(self):
+        from app.editorial.review import unsupported_by_evidence
+
+        rows = draft([
+            suggestion(TURKEY, 29084, 29084, currency="TRY"),
+            suggestion(SINGAPORE, 1647.5, 1647.5),  # midpoint of 1640-1655
+            suggestion(KOREA, 1600, 1655),          # one end is printed
+        ])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE) == set()
+
+    def test_a_price_worked_out_from_an_invented_figure_is_flagged_too(self):
+        from app.editorial.review import flag_unsupported, unsupported_by_evidence
+
+        rule = PriceRule(id=1, derived_location=KOREA, reference_location=SINGAPORE,
+                         adjustment_value=-10.0)
+        rows = draft([suggestion(SINGAPORE, 1999, 1999)])
+        unsupported = unsupported_by_evidence(rows, self.EVIDENCE)
+        rows = flag_unsupported(apply_rules(rows, [rule]), unsupported)
+        korea = next(r for r in rows if r["location"] == KOREA)
+
+        assert korea["flag"] == "check"
+        assert "not among the prices checked" in korea["rationale"]
