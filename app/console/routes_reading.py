@@ -37,7 +37,10 @@ _ISO_SHAPE = re.compile(r"\d{4}-\d{2}-\d{2}")
 IMAGE_PROMPT = (
     "Transcribe every price table and price figure in these images as "
     "plain text. Keep all company names, grades, viscosities and numbers "
-    "exactly as shown, one line per row, with column labels."
+    "exactly as shown, one line per row, with column labels. Start each "
+    "table with its title and say which currency every column is in "
+    "(e.g. 'Local currency/t' and '$/t' side by side are two different "
+    "prices for the same row) -- a figure without its currency is useless."
 )
 
 

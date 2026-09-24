@@ -87,6 +87,14 @@ Rules:
   example "BASIC", "TOTAL incl. GST", "PREVIOUS"). The name stays exactly
   as the report writes it either way; the qualifier belongs in note, never
   folded into the name.
+- A table that prices each row in two currencies side by side -- a
+  "Local currency/t" column group next to a "$/t" one -- prints TWO prices
+  per row. Return both: one row in the local currency and one in dollars,
+  each with its own range. "Local currency" is not a code: give the ISO
+  code of that row's country (Turkey TRY, Italy/Spain/France EUR, UK GBP)
+  and put "Local currency/t" in note. Leaving the local figure out loses a
+  price the report states -- "Turkey 29,084 29,084 nc 600 600" is TRY
+  29,084 AND USD 600.
 - basis and note answer different questions and BOTH must be filled when
   the report supports them: basis says WHERE or on WHAT TERMS a price
   applies, note says WHICH COLUMN of a multi-column table it came from.

@@ -97,6 +97,20 @@ def apply_rounding(
         if rounded == original:
             continue
 
+        # A figure that rounds away to nothing was never a price at this
+        # location's scale -- TRY 145 read off the wrong row became EUR 2.57
+        # and then 0, offered as the price to save. Say so; offer nothing.
+        if rounded <= 0:
+            row["status"] = "invalid"
+            row["suggested_price"] = None
+            note = (
+                f"Rounds to {js_number(rounded)} at a step of {js_number(step)} "
+                f"(was {js_number(original)}) -- far too small to be this "
+                "location's price. Check the report."
+            )
+            row["rationale"] = f"{row['rationale']} {note}" if row.get("rationale") else note
+            continue
+
         row["suggested_price"] = js_number(rounded)
         note = f"Rounded to the nearest {js_number(step)} (was {js_number(original)})."
         row["rationale"] = f"{row['rationale']} {note}" if row.get("rationale") else note

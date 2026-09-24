@@ -200,3 +200,34 @@ class TestApplyRoundingADerivedPrice:
         row = next(r for r in rows if r["location"] == KOREA)
 
         assert row["suggested_price"] == 1480
+
+
+class TestAFigureThatRoundsToNothing:
+    """TRY 145 read off the wrong row became EUR 2.57, and a step of 10 then
+    offered 0 as the price to save (11 Sep 2026 Argus, Turkey Domestic EUR)."""
+
+    def test_it_is_unusable_not_a_zero_price(self):
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 2.57, 2.57)]), 10)
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["status"] == "invalid"
+        assert row["suggested_price"] is None
+        assert "far too small" in row["rationale"]
+        assert "was 2.57" in row["rationale"]
+
+    def test_a_small_price_that_stays_above_zero_is_still_rounded(self):
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 6, 6)]), 10)
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["status"] == "suggested"
+        assert row["suggested_price"] == 10
+
+
+def test_the_reading_prompt_asks_for_both_currencies_of_a_two_currency_row():
+    # The 11 Sep Argus table prints "Turkey 29,084 29,084 nc 600 600": the
+    # reading kept only the dollars, and the lira price never reached the
+    # euro conversion.
+    from app.editorial.reading import READING_PREAMBLE
+
+    assert "Local currency/t" in READING_PREAMBLE
+    assert "TRY 29,084 AND USD 600" in READING_PREAMBLE

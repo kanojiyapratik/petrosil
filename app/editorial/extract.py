@@ -12,6 +12,7 @@ adding python-docx for one function. PDF reuses the crawler's reader.
 from __future__ import annotations
 
 import io
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -76,8 +77,8 @@ MIN_PDF_IMAGE_BYTES = 20 * 1024
 # model can read as-is -- the PDF filter literally means "this stream is a
 # JPEG file". Every other PDF image filter (/FlateDecode raw bitmaps,
 # /CCITTFaxDecode fax data, /JPXDecode JPEG2000) needs Pillow to become a
-# standalone image file, and pillow is not a dependency this module carries
-# (pypdf's own page.images needs it too, and raises ImportError without it).
+# standalone image file. (Pillow is now carried, for rendering damaged pages
+# -- see damaged_pdf_pages -- but these filters are still left unread.)
 PDF_IMAGE_FILTERS = {"/DCTDecode": "image/jpeg"}
 
 # A price circular is a handful of pages at most; nothing legitimate needs
@@ -134,6 +135,107 @@ def _docx_images(body: bytes) -> list[tuple[str, bytes]]:
 
 
 def _pdf_images(body: bytes) -> list[tuple[str, bytes]]:
+    """Embedded pictures of a text-less PDF, then pictures of any page whose
+    tables lost their text (see damaged_pdf_pages)."""
+    images = _pdf_embedded_images(body)
+    room = MAX_IMAGES - len(images)
+
+    if room > 0:
+        images += [("image/png", page) for page in _render_damaged_pages(body, room)]
+
+    return images
+
+
+# A table row the text layer kept only half of: numbers and "nc" with no
+# label in front ("nc 600 600 -2.00"). A real row always starts with a name.
+_ORPHAN_TOKEN = re.compile(r"^(nc|[-+]?[\d,]*\d(\.\d+)?)$", re.IGNORECASE)
+
+# The page is sent as a picture once it shows this many label-less rows, or
+# one long enough (three figures) that it cannot be a page number or footnote.
+ORPHAN_ROWS_PER_DAMAGED_PAGE = 2
+ORPHAN_FIGURES_IN_ONE_ROW = 3
+
+# 144 dpi: a report's 7-8pt table figures stay legible to a vision model while
+# a page stays a few hundred KB.
+RENDER_SCALE = 2
+
+
+def damaged_pdf_pages(body: bytes) -> list[int]:
+    """Zero-based pages whose price tables are drawn rather than written.
+
+    Some reports draw part of a table as vector shapes -- the 11 Sep 2026
+    Argus Bitumen PDF has its whole "Local currency/t" column like that, so
+    "Turkey 29,084" never reaches the text layer and only "nc 600 600 -2.00"
+    of the row survives. No text extractor can see such figures; a picture
+    of the page can. The survivor is the tell: figures with no name.
+    """
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(body))
+
+        if reader.is_encrypted:
+            reader.decrypt("")
+
+        pages = reader.pages[:MAX_PDF_PAGES_FOR_IMAGES]
+    except Exception:  # noqa: BLE001 - an unreadable PDF has no damaged pages
+        return []
+
+    damaged = []
+
+    for number, page in enumerate(pages):
+        try:
+            text = page.extract_text() or ""
+        except Exception:  # noqa: BLE001
+            continue
+
+        orphans = [
+            tokens for tokens in (line.split() for line in text.splitlines())
+            if tokens and all(_ORPHAN_TOKEN.match(token) for token in tokens)
+        ]
+
+        if len(orphans) >= ORPHAN_ROWS_PER_DAMAGED_PAGE or any(
+            len(tokens) >= ORPHAN_FIGURES_IN_ONE_ROW for tokens in orphans
+        ):
+            damaged.append(number)
+
+    return damaged
+
+
+def _render_damaged_pages(body: bytes, limit: int) -> list[bytes]:
+    """PNGs of the damaged pages, in page order, at most `limit` of them."""
+    pages = damaged_pdf_pages(body)[:limit]
+
+    if not pages:
+        return []
+
+    try:
+        import pypdfium2
+    except ImportError:  # pragma: no cover - declared in requirements.txt
+        return []
+
+    rendered = []
+
+    try:
+        document = pypdfium2.PdfDocument(body)
+
+        for number in pages:
+            try:
+                picture = document[number].render(scale=RENDER_SCALE).to_pil()
+                out = io.BytesIO()
+                picture.save(out, format="PNG", optimize=True)
+
+                if len(out.getvalue()) <= MAX_IMAGE_BYTES:
+                    rendered.append(out.getvalue())
+            except Exception:  # noqa: BLE001 - one bad page costs that page
+                continue
+    except Exception:  # noqa: BLE001
+        return rendered
+
+    return rendered
+
+
+def _pdf_embedded_images(body: bytes) -> list[tuple[str, bytes]]:
     # A PDF with a usable text layer already reads fine; harvesting its
     # pictures too would send a report's letterhead or a logo to a vision
     # model on every ordinary upload.

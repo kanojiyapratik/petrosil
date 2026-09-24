@@ -2357,3 +2357,91 @@ class TestViewingAnAiDraft:
 
         assert response.status_code == 200
         assert "Recent price updates" in response.text
+
+
+def build_text_pdf(page_lines: list[list[str]]) -> bytes:
+    """A minimal PDF with one page per entry, each page's lines as real text."""
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>"]
+    kids = " ".join(f"{4 + 2 * n} 0 R" for n in range(len(page_lines)))
+    objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {len(page_lines)} >>")
+    objects.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    for n, lines in enumerate(page_lines):
+        content = "BT /F1 10 Tf 40 740 Td 14 TL\n" + "".join(
+            f"({line}) Tj T*\n" for line in lines
+        ) + "ET"
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + 2 * n} 0 R >>"
+        )
+        objects.append(f"<< /Length {len(content)} >>\nstream\n{content}\nendstream")
+
+    out = b"%PDF-1.4\n"
+    offsets = []
+
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n{body}\nendobj\n".encode("latin-1")
+
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += "".join(f"{offset:010d} 00000 n \n" for offset in offsets).encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF"
+    ).encode()
+
+    return out
+
+
+WHOLE_TABLE = [
+    "Mediterranean bitumen prices, 05 - 11 Sep",
+    "Italy, including tax 530 545 +35.00 616 634 +42.00",
+    "Spain 595 605 nc 692 703 +1.50",
+    "Turkey 29,084 29,084 nc 600 600 -2.00",
+]
+# The same table as the 11 Sep Argus PDF actually yields it: the local
+# currency column and the Turkey label are drawn, not written.
+DRAWN_TABLE = [
+    "Mediterranean bitumen prices, 05 - 11 Sep",
+    "Italy, including tax 616",
+    "Spain nc 703",
+    "nc 600 600 -2.00",
+    "601 611 +13.00",
+    "Page 6 of 22",
+]
+
+
+class TestPagesWhoseTablesAreDrawn:
+    def test_a_page_with_label_less_rows_is_found(self):
+        from app.editorial.extract import damaged_pdf_pages
+
+        assert damaged_pdf_pages(build_text_pdf([WHOLE_TABLE, DRAWN_TABLE])) == [1]
+
+    def test_a_whole_table_and_a_lone_page_number_are_not_damage(self):
+        from app.editorial.extract import damaged_pdf_pages
+
+        pdf = build_text_pdf([WHOLE_TABLE, ["Some commentary.", "2"]])
+
+        assert damaged_pdf_pages(pdf) == []
+
+    def test_the_damaged_page_goes_to_the_vision_model_as_a_picture(self):
+        from app.editorial.extract import document_images
+
+        images = document_images("argus.pdf", build_text_pdf([WHOLE_TABLE, DRAWN_TABLE]))
+
+        assert len(images) == 1
+        mime, data = images[0]
+        assert mime == "image/png"
+        assert data[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_an_ordinary_text_pdf_still_sends_no_pictures(self):
+        from app.editorial.extract import document_images
+
+        assert document_images("argus.pdf", build_text_pdf([WHOLE_TABLE, WHOLE_TABLE])) == []
+
+    def test_the_picture_cap_holds(self):
+        from app.editorial.extract import MAX_IMAGES, document_images
+
+        pdf = build_text_pdf([DRAWN_TABLE] * (MAX_IMAGES + 2))
+
+        assert len(document_images("argus.pdf", pdf)) == MAX_IMAGES
