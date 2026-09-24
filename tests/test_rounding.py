@@ -230,4 +230,4 @@ def test_the_reading_prompt_asks_for_both_currencies_of_a_two_currency_row():
     from app.editorial.reading import READING_PREAMBLE
 
     assert "Local currency/t" in READING_PREAMBLE
-    assert "TRY 29,084 AND USD 600" in READING_PREAMBLE
+    assert "TRY 29,084 AND USD 600" in " ".join(READING_PREAMBLE.split())
