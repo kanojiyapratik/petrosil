@@ -1178,3 +1178,88 @@ class TestTheRowsAreNumbered:
         # Two panels, each starting at 1 -- a number is a position within its
         # own report, which is what makes it checkable against that report.
         assert page.count(">1</td>") == 2
+
+
+class TestPicturesOfATextReportAreReadOnTheirOwn:
+    """11 Sep 2026 Argus: page 6's lira column is drawn, so the page went to
+    the vision model, which transcribed "Turkey 29,084 29,084 nc 600 600"
+    perfectly -- and then, pasted after ~15,000 tokens of report, the same
+    model skipped it on one run in two. The pictures now get their own call."""
+
+    TABLE = "Turkey | 29,084 | 29,084 | nc | 600 | 600 | -2.00"
+    TURKEY = (
+        '[{"name": "Turkey", "price": 29084, "currency": "TRY", '
+        '"basis": "ex-works", "note": "Local currency/t"}]'
+    )
+
+    def _driver(self):
+        table = self.TABLE
+
+        class Seeing(StubDriver):
+            def generate_with_images(self, prompt, images):
+                return AiCompletion(
+                    status="complete", text=table, prompt_tokens=1, completion_tokens=1,
+                    error=None,
+                )
+
+        return Seeing(answers=[ANSWER, self.TURKEY])
+
+    def test_the_report_and_its_pictures_are_two_reading_calls(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.console.routes_reading.document_images",
+            lambda filename, raw: [("image/png", b"page-6")],
+        )
+        driver = self._driver()
+        client, extractions = build(driver)
+
+        upload(client, [("argus.txt", b"FOB Asia SN 150 1260")])
+
+        report_prompt, pictures_prompt = driver.prompts
+        assert "FOB Asia SN 150 1260" in report_prompt
+        assert self.TABLE not in report_prompt
+        assert self.TABLE in pictures_prompt
+        assert "FOB Asia SN 150 1260" not in pictures_prompt
+
+    def test_both_sets_of_rows_land_under_the_one_file(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.console.routes_reading.document_images",
+            lambda filename, raw: [("image/png", b"page-6")],
+        )
+        client, extractions = build(self._driver())
+
+        upload(client, [("argus.txt", b"FOB Asia SN 150 1260")])
+
+        [(filename, rows)] = extractions.added
+        assert filename == "argus.txt"
+        assert [row["name"] for row in rows] == ["FOB Asia SN 150", "Turkey"]
+        turkey = rows[1]
+        assert turkey["currency"] == "TRY"
+        assert turkey["note"] == "Local currency/t; read from a picture of the page"
+
+    def test_a_failed_pictures_reading_keeps_the_reports_rows(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.console.routes_reading.document_images",
+            lambda filename, raw: [("image/png", b"page-6")],
+        )
+        table = self.TABLE
+
+        class HalfBroken(StubDriver):
+            def generate_with_images(self, prompt, images):
+                return AiCompletion(
+                    status="complete", text=table, prompt_tokens=1, completion_tokens=1,
+                    error=None,
+                )
+
+            def generate(self, prompt):
+                if table in prompt:
+                    raise RuntimeError("timed out")
+
+                return super().generate(prompt)
+
+        client, extractions = build(HalfBroken())
+
+        response = upload(client, [("argus.txt", b"FOB Asia SN 150 1260")])
+        page = client.get(response.headers["location"]).text
+
+        assert [row["name"] for row in extractions.added[0][1]] == ["FOB Asia SN 150"]
+        assert "the figures in its pictures were not read" in page

@@ -154,9 +154,54 @@ def create_reading_routes(
         reading = extractions.open_set(site.slug, user.email)
         failures = []
 
+        def read_pictures(filename: str, pictures: str) -> list[dict]:
+            """Rows from a report's page pictures, each saying where it came
+            from. A failure costs these rows only, and is said out loud."""
+            try:
+                prompt = reading_prompt(
+                    pictures, f"{filename} (pages read as pictures)", instructions
+                )
+                seen = (
+                    active.generate(prompt) if chosen is not None
+                    else active.generate(model, prompt)
+                )
+            except Exception as error:  # noqa: BLE001
+                note_usage(
+                    kind="extract_file_pictures", provider=provider_name, model=model,
+                    status="failed", site_slug=site.slug,
+                )
+                failures.append(f"{filename}: the figures in its pictures were not read — {error}")
+
+                return []
+
+            note_usage(
+                kind="extract_file_pictures", provider=provider_name, model=model,
+                status=seen.status, prompt_tokens=seen.prompt_tokens,
+                completion_tokens=seen.completion_tokens, site_slug=site.slug,
+            )
+
+            if seen.status != "complete":
+                failures.append(
+                    f"{filename}: the figures in its pictures were not read — "
+                    + (seen.error or f"the model stopped ({seen.status}).")
+                )
+
+                return []
+
+            found = parse_reading(seen.text)
+
+            for row in found:
+                row["note"] = "; ".join(
+                    filter(None, [row.get("note"), "read from a picture of the page"])
+                )
+
+            return found
+
         for filename, raw in bodies:
             text = document_to_text(filename, raw)
             images = document_images(filename, raw)
+            # What the pictures say, read on its own below -- see there.
+            pictures = ""
 
             # Reports embed whole price tables as pictures -- the USA posted
             # prices are one -- so each file's own pictures are transcribed
@@ -188,7 +233,7 @@ def create_reading_routes(
                     )
 
                     if seen.status == "complete" and (seen.text or "").strip():
-                        text += "\n\nFigures transcribed from pictures in this report:\n" + seen.text
+                        pictures = seen.text
                     else:
                         failures.append(
                             f"{filename}: the pictures in it were not read — "
@@ -200,6 +245,10 @@ def create_reading_routes(
                         status="failed", site_slug=site.slug,
                     )
                     failures.append(f"{filename}: the pictures in it were not read — {error}")
+
+            # A scan has no text of its own: the pictures ARE the report.
+            if not text.strip():
+                text, pictures = pictures, ""
 
             if not text.strip():
                 extractions.add_rows(reading.id, filename, [])
@@ -228,10 +277,17 @@ def create_reading_routes(
                 status=answer.status, prompt_tokens=answer.prompt_tokens,
                 completion_tokens=answer.completion_tokens, site_slug=site.slug,
             )
-            extractions.add_rows(
-                reading.id, filename,
-                parse_reading(answer.text) if answer.status == "complete" else [],
-            )
+            rows = parse_reading(answer.text) if answer.status == "complete" else []
+
+            # The pictures' text gets its own, short reading. Appended to a
+            # 20-page report it sat at the end of ~15,000 tokens and was
+            # skimmed: the 11 Sep Argus "Turkey 29,084 ... 600" line was
+            # transcribed perfectly, then dropped by the same model on one run
+            # in two. Read alone it is a page of tables and nothing else.
+            if pictures.strip():
+                rows += read_pictures(filename, pictures)
+
+            extractions.add_rows(reading.id, filename, rows)
 
             # A length cap, a refusal or a safety stop is not a report with no
             # prices in it, and the screen said the same thing for both.

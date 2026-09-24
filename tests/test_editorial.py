@@ -2429,10 +2429,12 @@ class TestPagesWhoseTablesAreDrawn:
 
         images = document_images("argus.pdf", build_text_pdf([WHOLE_TABLE, DRAWN_TABLE]))
 
-        assert len(images) == 1
-        mime, data = images[0]
-        assert mime == "image/png"
-        assert data[:8] == b"\x89PNG\r\n\x1a\n"
+        # Two halves of the one damaged page, so its small figures stay legible.
+        assert len(images) == 2
+
+        for mime, data in images:
+            assert mime == "image/png"
+            assert data[:8] == b"\x89PNG\r\n\x1a\n"
 
     def test_an_ordinary_text_pdf_still_sends_no_pictures(self):
         from app.editorial.extract import document_images

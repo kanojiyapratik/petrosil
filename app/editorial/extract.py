@@ -155,9 +155,12 @@ _ORPHAN_TOKEN = re.compile(r"^(nc|[-+]?[\d,]*\d(\.\d+)?)$", re.IGNORECASE)
 ORPHAN_ROWS_PER_DAMAGED_PAGE = 2
 ORPHAN_FIGURES_IN_ONE_ROW = 3
 
-# 144 dpi: a report's 7-8pt table figures stay legible to a vision model while
-# a page stays a few hundred KB.
-RENDER_SCALE = 2
+# 216 dpi, then cut in two (see _render_damaged_pages): a report's 7-8pt
+# table figures stay legible after the model's own downscaling, and each half
+# stays a few hundred KB.
+RENDER_SCALE = 3
+PIECES_PER_PAGE = 2
+HALF_OVERLAP = 0.03
 
 
 def damaged_pdf_pages(body: bytes) -> list[int]:
@@ -203,8 +206,16 @@ def damaged_pdf_pages(body: bytes) -> list[int]:
 
 
 def _render_damaged_pages(body: bytes, limit: int) -> list[bytes]:
-    """PNGs of the damaged pages, in page order, at most `limit` of them."""
-    pages = damaged_pdf_pages(body)[:limit]
+    """PNGs of the damaged pages, in page order, at most `limit` pictures.
+
+    Each page goes as two overlapping halves, not one picture: a vision
+    model shrinks a whole page to ~768px wide, and at that size GPT-4.1 read
+    the Argus "600" as "606" on one run in three. Halves keep 7pt table
+    figures twice as large -- 4 of 4 runs right -- for about twice the
+    picture tokens (~2,600 per page). The overlap keeps a row cut by the
+    middle whole in one half or the other.
+    """
+    pages = damaged_pdf_pages(body)[: limit // PIECES_PER_PAGE]
 
     if not pages:
         return []
@@ -222,11 +233,18 @@ def _render_damaged_pages(body: bytes, limit: int) -> list[bytes]:
         for number in pages:
             try:
                 picture = document[number].render(scale=RENDER_SCALE).to_pil()
-                out = io.BytesIO()
-                picture.save(out, format="PNG", optimize=True)
+                width, height = picture.size
+                halves = (
+                    (0, 0, width, int(height * (0.5 + HALF_OVERLAP))),
+                    (0, int(height * (0.5 - HALF_OVERLAP)), width, height),
+                )
 
-                if len(out.getvalue()) <= MAX_IMAGE_BYTES:
-                    rendered.append(out.getvalue())
+                for box in halves:
+                    out = io.BytesIO()
+                    picture.crop(box).save(out, format="PNG", optimize=True)
+
+                    if len(out.getvalue()) <= MAX_IMAGE_BYTES:
+                        rendered.append(out.getvalue())
             except Exception:  # noqa: BLE001 - one bad page costs that page
                 continue
     except Exception:  # noqa: BLE001
