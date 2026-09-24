@@ -828,6 +828,11 @@ class AnalyseFakeSiteClient:
     def batches(self):
         return {"data": []}
 
+    def stage_rows(self, rows, price_date=None, source=None):
+        self.staged = rows
+
+        return {"batch": {"id": 31}}
+
 
 class AnalyseFakeRules:
     def __init__(self, rules):
@@ -944,6 +949,7 @@ class AnalyseFakeRounding:
 def build_analyse_client(
     rows, driver=None, rules_list=None, locations=None, store=None, fx=None,
     set_id=7, reading_site_slug="baseoil", used_at=None, rounding_overrides=None,
+    drafts=None,
 ):
     from app.console.routes import datefmt, label_for
 
@@ -972,6 +978,7 @@ def build_analyse_client(
             extractions=extractions,
             fx=fx,
             rounding=AnalyseFakeRounding(rounding_overrides or {}),
+            drafts=drafts,
         )
     )
 
@@ -2058,3 +2065,144 @@ class TestAMalformedReuseTokenIsAScreenfulNotACrash:
 
         assert response.status_code == 409
         assert driver.calls == []
+
+
+class FakeDrafts:
+    """Stands in for DraftStore: keeps what it is given, answers like it."""
+
+    def __init__(self, draft_id=12, owner="baseoil"):
+        self._draft_id = draft_id
+        self._owner = owner
+        self.created = []
+        self.saved = []
+
+    def create(self, **draft):
+        self.created.append(draft)
+
+        return self._draft_id
+
+    def mark_saved(self, draft_id, site_slug, **saved):
+        if draft_id != self._draft_id or site_slug != self._owner:
+            return False
+
+        self.saved.append({"draft_id": draft_id, "site_slug": site_slug, **saved})
+
+        return True
+
+
+DRAFT_LOCATIONS = [
+    {"title": "Singapore SN 150 FOB Group I", "latest_price": 1500.0},
+    {"title": "Europe Domestic SN150", "latest_price": 1000.0},
+]
+
+
+class TestTheAiDraftIsKept:
+    def test_every_row_of_the_draft_is_kept_not_only_the_priced_ones(self):
+        drafts = FakeDrafts()
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=drafts,
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": "2026-09-24"},
+        )
+
+        assert response.status_code == 200
+        [draft] = drafts.created
+        by_location = {row["location"]: row for row in draft["rows"]}
+        # The AI's figure, range, confidence and reasoning -- and the row it
+        # found nothing for, which the screen shows unticked.
+        singapore = by_location["Singapore SN 150 FOB Group I"]
+        assert singapore["status"] == "suggested"
+        assert singapore["suggested_price"] == 1560
+        assert singapore["confidence"] == "high"
+        assert by_location["Europe Domestic SN150"]["status"] == "no_evidence"
+        assert draft["site_slug"] == "baseoil"
+        assert draft["created_by"] == "editor@local.test"
+        assert draft["reading_set_id"] == 7
+        assert draft["price_date"] == "2026-09-24"
+        assert draft["model"] == "gemini-2.5-flash"
+
+    def test_the_save_form_carries_the_draft_it_came_from(self):
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=FakeDrafts(draft_id=12),
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert '<input type="hidden" name="draft_id" value="12">' in response.text
+
+    def test_a_draft_that_could_not_be_kept_still_reaches_the_editor(self):
+        class LosingDrafts(FakeDrafts):
+            def create(self, **draft):
+                return None
+
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=LosingDrafts(),
+        )
+
+        response = client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+        assert response.status_code == 200
+        assert "Singapore SN 150 FOB Group I" in response.text
+        assert 'name="draft_id"' not in response.text
+
+    def test_saving_records_what_was_kept_and_at_what_price(self):
+        drafts = FakeDrafts(draft_id=12)
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=drafts,
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/stage",
+            data={
+                "pricedate": "2026-09-24", "draft_id": "12",
+                # The editor moved the AI's 1560 to 1555 and left Europe off.
+                "loc_0": "Singapore SN 150 FOB Group I", "price_0": "1555", "inc_0": "1",
+                "loc_1": "Europe Domestic SN150", "price_1": "1010",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert drafts.saved == [
+            {
+                "draft_id": 12, "site_slug": "baseoil", "batch_id": 31,
+                "saved_by": "editor@local.test",
+                "prices": {"Singapore SN 150 FOB Group I": 1555.0},
+            }
+        ]
+        assert store.recorded[-1][3] == "1 row(s) to batch #31, from AI draft #12"
+
+    def test_another_sites_draft_is_not_linked(self):
+        drafts = FakeDrafts(draft_id=12, owner="bitumart")
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=drafts,
+        )
+
+        client.post(
+            "/console/sites/baseoil/editorial/stage",
+            data={"draft_id": "12", "loc_0": "Europe Domestic SN150", "price_0": "1010",
+                  "inc_0": "1"},
+            follow_redirects=False,
+        )
+
+        assert drafts.saved == []
+        assert store.recorded[-1][3] == "1 row(s) to batch #31"
+
+    def test_a_form_without_a_usable_draft_id_saves_exactly_as_before(self):
+        drafts = FakeDrafts()
+        client, extractions, store = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=drafts,
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/stage",
+            data={"draft_id": "garbage", "loc_0": "Europe Domestic SN150", "price_0": "1010",
+                  "inc_0": "1"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert drafts.saved == []

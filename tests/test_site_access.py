@@ -592,11 +592,10 @@ class TestGivingAndTakingAway:
 
 
 class TestTheMigration:
-    def test_it_is_appended_and_last(self):
+    def test_it_is_appended_after_rounding(self):
         ids = [row.id for row in MIGRATIONS]
 
-        assert ids[-1] == "0012_site_access"
-        assert ids[-2] == "0011_price_rounding"
+        assert ids.index("0012_site_access") == ids.index("0011_price_rounding") + 1
         assert len(ids) == len(set(ids))
 
     def test_it_leaves_everyone_the_access_they_already_had(self):

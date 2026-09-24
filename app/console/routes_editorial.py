@@ -95,6 +95,7 @@ def create_editorial_routes(
     fx=None,
     extractions=None,
     rounding=None,
+    drafts=None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -131,6 +132,8 @@ def create_editorial_routes(
             "benchmarks": None,
             # Set only on the 409: the reading whose figures may be used again.
             "reuse": None,
+            # The kept copy of this draft (DraftStore), so saving links back to it.
+            "draft_id": None,
             # A reading already read and not yet used, so a closed tab does
             # not strand it. See ExtractionStore.latest_open.
             "waiting": None,
@@ -505,9 +508,24 @@ def create_editorial_routes(
                 "dropped_unknown": len(parsed.unmatched) - near_matches,
             }
 
+            # The draft is kept before the editor sees it: the AI's figures,
+            # its reasoning and every row, ticked or not. Saving then fills in
+            # what the editor kept and at what price. See DraftStore.
+            draft_id = (
+                drafts.create(
+                    site_slug=site.slug, created_by=user.email, rows=rows,
+                    benchmark_rows=benchmark_rows, reading_set_id=set_id,
+                    price_date=pricedate, provider=provider_name, model=model,
+                    analysis_status=completion.status,
+                )
+                if drafts is not None
+                else None
+            )
+
             return screen(
                 request, user, site,
                 {
+                    "draft_id": draft_id,
                     "rows": rows,
                     "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
                     "summary": summary,
@@ -571,12 +589,27 @@ def create_editorial_routes(
             return RedirectResponse(f"{path}?err={quote(str(error))}", status_code=303)
 
         batch_id = result.get("batch", {}).get("id")
+
+        # Link the saved update back to the AI's draft: which rows were kept
+        # and at what price, so an AI figure and the editor's change to it
+        # stay distinguishable. A form without a usable id saves as before.
+        try:
+            draft_id = int(str(form_data.get("draft_id") or "").strip())
+        except ValueError:
+            draft_id = None
+
+        linked = draft_id is not None and drafts is not None and drafts.mark_saved(
+            draft_id, site.slug, batch_id=batch_id, saved_by=user.email,
+            prices={row["location"]: row["price"] for row in rows},
+        )
+
         store.record(
             user.email,
             "staged an editorial update",
             site.slug,
             f"{len(rows)} row(s) to batch #{batch_id}"
-            + (f", {len(derivations)} of them derived by rule" if derivations else ""),
+            + (f", {len(derivations)} of them derived by rule" if derivations else "")
+            + (f", from AI draft #{draft_id}" if linked else ""),
         )
 
         # One audit line per derived price: source, rule and result, kept even

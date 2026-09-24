@@ -8,6 +8,7 @@ because adding a site should not need a redeploy.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from dataclasses import dataclass
@@ -1072,3 +1073,119 @@ class ExtractionStore:
                 "UPDATE console_reading_sets SET used_at = NULL WHERE id = %s", (set_id,)
             )
             connection.commit()
+
+
+# The row keys that get their own column; everything else a row carries
+# (conversion, fx rate, rule unit) rides in `detail` so nothing is lost.
+DRAFT_ROW_FIELDS = (
+    "status", "reported_as", "current_price", "suggested_min", "suggested_max",
+    "suggested_price", "change_pct", "confidence", "basis", "source", "rationale",
+    "flag", "derived_from",
+)
+
+
+class DraftStore:
+    """Every AI draft, row by row, and what the editor did with it.
+
+    Like the usage ledger, keeping the record must never cost the editor the
+    work: a failed insert loses the record, not the draft on screen, and a
+    failed update loses the link, not the saved prices. Both swallow and log.
+    """
+
+    def __init__(self, pool) -> None:
+        self._pool = pool
+
+    def create(
+        self,
+        *,
+        site_slug: str,
+        created_by: str,
+        rows: list[dict],
+        benchmark_rows: list[dict] | None = None,
+        reading_set_id: int | None = None,
+        price_date: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        analysis_status: str | None = None,
+    ) -> int | None:
+        entries = [(row, False) for row in rows] + [
+            (row, True) for row in benchmark_rows or []
+        ]
+
+        try:
+            with self._pool.connection() as connection:
+                draft = connection.execute(
+                    "INSERT INTO console_editorial_drafts (site_slug, reading_set_id, "
+                    "created_by, price_date, provider, model, analysis_status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (site_slug, reading_set_id, created_by, price_date or None, provider,
+                     model, analysis_status),
+                ).fetchone()
+                draft_id = int(draft[0])
+
+                for position, (row, is_benchmark) in enumerate(entries):
+                    connection.execute(
+                        "INSERT INTO console_editorial_draft_rows (draft_id, position, "
+                        "location, is_benchmark, " + ", ".join(DRAFT_ROW_FIELDS) + ", detail) "
+                        "VALUES (%s, %s, %s, %s, "
+                        + ", ".join("%s" for _ in DRAFT_ROW_FIELDS) + ", %s::jsonb)",
+                        (
+                            draft_id, position, str(row.get("location") or ""), is_benchmark,
+                            *(row.get(field) for field in DRAFT_ROW_FIELDS),
+                            json.dumps(row, default=str),
+                        ),
+                    )
+
+                connection.commit()
+        except Exception:  # noqa: BLE001 - the record must never break the draft
+            logging.getLogger("module").exception("could not keep the AI draft")
+
+            return None
+
+        return draft_id
+
+    def mark_saved(
+        self,
+        draft_id: int,
+        site_slug: str,
+        *,
+        batch_id,
+        saved_by: str,
+        prices: dict[str, float],
+    ) -> bool:
+        """Say which price update the draft became, and row by row whether
+        the editor kept it and at what price. Only a draft of this site is
+        touched -- the id arrives from a form and is not to be trusted."""
+        try:
+            with self._pool.connection() as connection:
+                found = connection.execute(
+                    "UPDATE console_editorial_drafts SET batch_id = %s, saved_by = %s, "
+                    "saved_at = now() WHERE id = %s AND site_slug = %s RETURNING id",
+                    (batch_id, saved_by, draft_id, site_slug),
+                ).fetchone()
+
+                if found is None:
+                    connection.rollback()
+
+                    return False
+
+                connection.execute(
+                    "UPDATE console_editorial_draft_rows SET ticked = FALSE, saved_price = NULL "
+                    "WHERE draft_id = %s AND NOT is_benchmark",
+                    (draft_id,),
+                )
+
+                for location, price in prices.items():
+                    connection.execute(
+                        "UPDATE console_editorial_draft_rows SET ticked = TRUE, saved_price = %s "
+                        "WHERE draft_id = %s AND location = %s AND NOT is_benchmark",
+                        (price, draft_id, location),
+                    )
+
+                connection.commit()
+        except Exception:  # noqa: BLE001 - the prices are saved; only the link is lost
+            logging.getLogger("module").exception("could not mark the AI draft saved")
+
+            return False
+
+        return True

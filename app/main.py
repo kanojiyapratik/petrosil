@@ -28,6 +28,7 @@ from .console.routes_rules import create_rules_routes
 from .db.migrate import migrate
 from .db.pool import create_pool
 from .db.store import (
+    DraftStore,
     ExtractionStore,
     FxStore,
     ProviderStore,
@@ -250,6 +251,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
         rules = RulesStore(pool)
         rounding = RoundingStore(pool)
         extractions = ExtractionStore(pool)
+        drafts = DraftStore(pool)
         app.state.fx = CachedRates(FrankfurterRates(), FxStore(pool))
 
         app.include_router(console)
@@ -277,6 +279,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 rules=rules,
                 fx=app.state.fx,
                 extractions=extractions,
+                drafts=drafts,
                 rounding=rounding,
             )
         )

@@ -320,6 +320,66 @@ MIGRATIONS: list[Migration] = [
          WHERE NOT u.is_superadmin;
         """,
     ),
+    Migration(
+        id="0013_editorial_drafts",
+        sql="""
+        -- What the AI recommended, kept. The draft used to live only on the
+        -- screen: the model's range, confidence and reasoning, every row the
+        -- editor left unticked, and what the editor changed a price to were
+        -- all gone the moment the tab closed. A saved price could not be told
+        -- apart from one typed by hand, and nobody could ask how often the
+        -- AI had been right. One row per draft, one per location in it.
+        CREATE TABLE console_editorial_drafts (
+          id              BIGSERIAL PRIMARY KEY,
+          site_slug       TEXT NOT NULL,
+          reading_set_id  BIGINT,
+          created_by      TEXT NOT NULL,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          price_date      DATE,
+          provider        TEXT,
+          model           TEXT,
+          analysis_status TEXT,
+          -- Filled when the editor saves: which price update it became.
+          batch_id        BIGINT,
+          saved_by        TEXT,
+          saved_at        TIMESTAMPTZ
+        );
+
+        CREATE INDEX console_editorial_drafts_site
+            ON console_editorial_drafts (site_slug, id DESC);
+
+        CREATE TABLE console_editorial_draft_rows (
+          id              BIGSERIAL PRIMARY KEY,
+          draft_id        BIGINT NOT NULL
+                          REFERENCES console_editorial_drafts(id) ON DELETE CASCADE,
+          position        INT NOT NULL,
+          location        TEXT NOT NULL,
+          -- A report figure a rule works from, not a site price; never saved.
+          is_benchmark    BOOLEAN NOT NULL DEFAULT FALSE,
+          status          TEXT NOT NULL,
+          reported_as     TEXT,
+          current_price   NUMERIC,
+          suggested_min   NUMERIC,
+          suggested_max   NUMERIC,
+          suggested_price NUMERIC,
+          change_pct      NUMERIC,
+          confidence      TEXT,
+          basis           TEXT,
+          source          TEXT,
+          rationale       TEXT,
+          flag            TEXT,
+          derived_from    TEXT,
+          -- The whole row as the screen got it: conversion, rate, rule unit.
+          detail          JSONB,
+          -- Filled when the draft is saved. NULL means never saved at all.
+          ticked          BOOLEAN,
+          saved_price     NUMERIC
+        );
+
+        CREATE INDEX console_editorial_draft_rows_draft
+            ON console_editorial_draft_rows (draft_id, position);
+        """,
+    ),
 ]
 
 

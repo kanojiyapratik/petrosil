@@ -338,6 +338,7 @@
     </p>
     <form method="post" action="/console/sites/{{ site.slug }}/editorial/stage">
       <input type="hidden" name="pricedate" value="{{ pricedate }}">
+      {% if draft_id %}<input type="hidden" name="draft_id" value="{{ draft_id }}">{% endif %}
       <table>
         <thead>
           <tr>
