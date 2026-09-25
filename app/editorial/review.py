@@ -244,8 +244,9 @@ def _stripped_name(name: str) -> tuple[str, ...]:
 
 
 UNSUPPORTED_NOTE = (
-    "This figure is not among the prices checked from the reports -- the AI "
-    "may have made it up. Check the report before saving."
+    "This figure (in this currency) is not among the prices checked from the "
+    "reports -- the AI may have made it up or mixed up the currency. Check the "
+    "report before saving."
 )
 
 
@@ -257,19 +258,34 @@ def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
     Every figure the model hands back should be one the editor checked (or
     the midpoint of one's range), so anything else is flagged, not trusted.
     Call on the rows as the model returned them, before any conversion.
+
+    The currency must match too. On 25 Sep 2026 the draft priced Turkey
+    Domestic EUR from "TRY 552": 552 was a real figure, but the report
+    printed it in dollars -- so the lira-to-euro conversion gave EUR 9.80.
     """
-    allowed: list[float] = []
+    allowed: list[tuple[float, str]] = []
 
     for entry in evidence:
+        currency = _money(entry.get("currency"))
         low, high = entry.get("price_min"), entry.get("price_max")
-        allowed += [float(v) for v in (entry.get("price"), low, high) if v is not None]
+        allowed += [
+            (float(v), currency) for v in (entry.get("price"), low, high) if v is not None
+        ]
 
         if low is not None and high is not None:
-            allowed.append((float(low) + float(high)) / 2)
+            allowed.append(((float(low) + float(high)) / 2, currency))
 
-    def known(value) -> bool:
+    def known(value, currency: str) -> bool:
         return value is not None and any(
-            abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001) for figure in allowed
+            money == currency and abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001)
+            for figure, money in allowed
+        )
+
+    def supported(row) -> bool:
+        currency = _money(row.get("currency"))
+
+        return known(row.get("suggested_min"), currency) or known(
+            row.get("suggested_max"), currency
         )
 
     return {
@@ -277,8 +293,22 @@ def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
         for row in rows
         if row.get("status") in ("suggested", "near_match", "foreign")
         and row.get("suggested_min") is not None
-        and not (known(row.get("suggested_min")) or known(row.get("suggested_max")))
+        and not supported(row)
     }
+
+
+def _money(value) -> str:
+    """One spelling per currency, for comparing a suggestion with a checked
+    row: no currency means dollars (how the model is told to answer), and a
+    report's "$/t" or "US$" is USD too."""
+    text = str(value or "").strip().upper()
+
+    if not text or "$" in text or text.startswith("USD"):
+        return "USD"
+
+    symbols = {"€": "EUR", "₹": "INR", "RS": "INR", "RS.": "INR", "£": "GBP", "TL": "TRY"}
+
+    return symbols.get(text, text[:3])
 
 
 def flag_unsupported(rows: list[dict], unsupported: set[str]) -> list[dict]:

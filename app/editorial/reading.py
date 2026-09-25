@@ -96,6 +96,13 @@ Rules:
   price the report states -- a row "Turkey <a> <b> nc <c> <d>" under those
   two headings is TRY <a>-<b> AND USD <c>-<d>. (Letters, not numbers: an
   example figure is never a price. Only copy numbers the report prints.)
+- Reports print the same place in several tables -- a domestic table, an
+  export table, a front-page price map -- and the row name alone ("Turkey")
+  cannot tell those figures apart. So note must also say WHERE the figure
+  was printed: the table's title and section as the report words them
+  (e.g. "Mediterranean bitumen prices - Domestic prices, ex-works"), or
+  "price map" / "chart" for a figure printed on a map or a chart rather
+  than in a table.
 - basis and note answer different questions and BOTH must be filled when
   the report supports them: basis says WHERE or on WHAT TERMS a price
   applies, note says WHICH COLUMN of a multi-column table it came from.

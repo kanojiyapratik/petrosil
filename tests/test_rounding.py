@@ -280,3 +280,40 @@ class TestAFigureNoReportPrinted:
 
         assert korea["flag"] == "check"
         assert "not among the prices checked" in korea["rationale"]
+
+
+class TestARealFigureInTheWrongCurrency:
+    """25 Sep 2026: Turkey Domestic EUR was drafted from "TRY 552". 552 was
+    printed -- in dollars -- so lira-to-euro gave EUR 9.80."""
+
+    EVIDENCE = [
+        {"name": "Turkey", "price": 29084, "price_min": None, "price_max": None, "currency": "TRY"},
+        {"name": "Turkey", "price": 600, "price_min": None, "price_max": None, "currency": "USD"},
+        {"name": "Turkey", "price": 552, "price_min": None, "price_max": None, "currency": "$/T"},
+    ]
+
+    def test_a_dollar_figure_passed_off_as_lira_is_flagged(self):
+        from app.editorial.review import unsupported_by_evidence
+
+        rows = draft([suggestion(TURKEY, 552, 552, currency="TRY")])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE) == {TURKEY}
+
+    def test_the_same_figure_in_its_own_currency_is_trusted(self):
+        from app.editorial.review import unsupported_by_evidence
+
+        # No currency on a suggestion means dollars; "$/T" on a checked row too.
+        rows = draft([
+            suggestion(TURKEY, 29084, 29084, currency="TRY"),
+            suggestion(SINGAPORE, 552, 552),
+        ])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE) == set()
+
+
+def test_the_reading_prompt_asks_where_each_figure_was_printed():
+    from app.editorial.reading import READING_PREAMBLE
+
+    flat = " ".join(READING_PREAMBLE.split())
+    assert "note must also say WHERE the figure was printed" in flat
+    assert '"price map"' in flat
