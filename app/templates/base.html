@@ -157,6 +157,18 @@ ul.steps li { margin-bottom:.25rem; }
 .rulenote.info { background:var(--accent-soft); border-color:#dbeafe; color:var(--accent); }
 .rulenote.warn { background:var(--warn-soft); border-color:#fde68a; color:var(--warn); }
 .rulenote.mute { background:#f8fafc; border-color:var(--line); color:var(--muted); }
+/* An ⓘ beside a heading: the page's explanation, shown on hover, focus or
+   tap instead of taking up the top of the page. */
+.info-tip { position:relative; display:inline-block; margin-left:.35rem; vertical-align:middle;
+  color:var(--accent); font-size:1rem; font-weight:400; line-height:1; cursor:help; }
+.info-tip:focus { outline:none; }
+.info-tip .info-pop { display:none; position:absolute; left:0; top:calc(100% + .45rem); z-index:30;
+  width:min(26rem, 80vw); padding:.7rem .85rem; border:1px solid var(--line); border-radius:8px;
+  background:var(--panel); box-shadow:var(--shadow); color:var(--ink); font-size:.84rem;
+  line-height:1.45; letter-spacing:0; cursor:auto; }
+.info-tip .info-pop p { margin:0 0 .5rem; }
+.info-tip .info-pop p:last-child { margin:0; }
+.info-tip:hover .info-pop, .info-tip:focus .info-pop, .info-tip:focus-within .info-pop { display:block; }
 .muted { color:var(--muted); }
 .small { font-size:.83rem; }
 .empty { color:var(--muted); font-size:.9rem; padding:.4rem 0; }

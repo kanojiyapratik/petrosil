@@ -1,19 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">
-  <h1>AI</h1>
+  <h1>AI<span class="info-tip" tabindex="0" role="button" aria-label="About this page">&#9432;<span class="info-pop" role="tooltip">
+    <p>Which model reads pages for the crawler and narrates a price batch. Add a key here rather
+      than in a deployment setting, and pick a different one per site if you want to.</p>
+    <p>The model list for a saved key is the list that key can actually use — it is asked of the
+      provider each time this page opens, so a model added to your account shows up here on its
+      own. A bigger model costs more for every page read and every price update; what has been
+      used so far is at the bottom of this page.</p>
+  </span></span></h1>
   <button type="button" id="add-provider-open">Add provider</button>
 </div>
-<p class="lede">
-  Which model reads pages for the crawler and narrates a price batch. Add a key here rather than
-  in a deployment setting, and pick a different one per site if you want to.
-</p>
-<p class="lede">
-  The model list for a saved key is the list that key can actually use — it is asked of the
-  provider each time this page opens, so a model added to your account shows up here on its own.
-  A bigger model costs more for every page read and every price update; what has been used so far
-  is at the bottom of this page.
-</p>
 
 {# Closed until "Add provider" is clicked: adding a key is rare, and the
    form sat above the providers list on every visit. #}
