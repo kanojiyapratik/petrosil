@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>AI</h1>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">
+  <h1>AI</h1>
+  <button type="button" id="add-provider-open">Add provider</button>
+</div>
 <p class="lede">
   Which model reads pages for the crawler and narrates a price batch. Add a key here rather than
   in a deployment setting, and pick a different one per site if you want to.
@@ -12,7 +15,9 @@
   is at the bottom of this page.
 </p>
 
-<div class="panel">
+{# Closed until "Add provider" is clicked: adding a key is rare, and the
+   form sat above the providers list on every visit. #}
+<div class="panel" id="add-provider" hidden>
   <div class="head"><h2>Add a provider</h2></div>
   <div class="body">
     <form method="post" action="/console/settings/ai">
@@ -52,7 +57,10 @@
       <div class="field">
         <label class="check"><input type="checkbox" name="make_default" checked> Use this one by default</label>
       </div>
-      <div class="actions"><button type="submit">Add provider</button></div>
+      <div class="actions">
+        <button type="submit">Add provider</button>
+        <button type="button" class="ghost" id="add-provider-close">Cancel</button>
+      </div>
     </form>
   </div>
 </div>
@@ -164,6 +172,21 @@
 {% endif %}
 
 <script>
+(function () {
+  var card = document.getElementById('add-provider');
+  var open = document.getElementById('add-provider-open');
+
+  // The panel has no display rule of its own, so [hidden] works on it; the
+  // button's inline-block would beat [hidden], so it toggles instead.
+  open.addEventListener('click', function () {
+    card.hidden = !card.hidden;
+    if (!card.hidden) document.getElementById('name').focus();
+  });
+  document.getElementById('add-provider-close').addEventListener('click', function () {
+    card.hidden = true;
+  });
+})();
+
 // The model list and the key hint follow the chosen provider, so nobody picks
 // a Claude model for an OpenAI key. This only ever touches the hardcoded
 // (data-fallback) options -- the ones offered before a key has been checked.
