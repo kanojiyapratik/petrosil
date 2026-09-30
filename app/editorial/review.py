@@ -79,8 +79,14 @@ example Turkey ex-rack prices in Turkish lira, printed like "Tl <amount>/t plus 
 Never convert these yourself: return the figure exactly as printed,
 EXCLUDING any VAT, set "currency" to its ISO code ("TRY") and
 "price_date" to the date the report gives for it (YYYY-MM-DD, or null),
-and mention the VAT amount in "basis" for reference. USD figures need no
-"currency".
+and mention the VAT amount in "basis" for reference.
+
+When a report prints the same price in two currencies (a $/t column and
+a local-currency column), take the figure in the currency the location
+is named for or priced in -- a "Domestic" European price from the euro
+column -- and set "currency" to that figure's own currency. Always set
+"currency" to the currency of the figure you return; a figure with no
+"currency" is read as US dollars.
 
 Answer with a JSON array only -- no prose before or after, no markdown
 fences. Each element must be an object with exactly these fields:
@@ -90,7 +96,7 @@ fences. Each element must be an object with exactly these fields:
  "basis": "<price basis and assessment date from the report>",
  "source": "<which report or section the evidence came from>",
  "rationale": "<one short sentence>",
- "currency": "<ISO code when not USD, else omit>",
+ "currency": "<ISO code of the figure as printed: USD, EUR, TRY, ...>",
  "price_date": "<YYYY-MM-DD or null>"}"""
 
 

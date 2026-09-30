@@ -71,6 +71,12 @@ class TestPrompt:
         assert '"price_date"' in prompt
         assert "VAT" in prompt
 
+    def test_asks_for_the_currency_of_every_figure_not_only_foreign_ones(self):
+        prompt = editorial_prompt([TURKEY], ["report"])
+
+        assert "Always set" in prompt
+        assert "when not USD, else omit" not in prompt
+
 
 class TestBuildRows:
     def test_a_lira_figure_is_kept_as_printed_and_marked_foreign(self):
@@ -460,6 +466,53 @@ class TestHomeCurrency:
         rows = convert_rows(home_draft([turkey_row()]), rates, "2026-08-19", home={BPCL: "INR"})
 
         assert row_for(rows, TURKEY)["suggested_price"] == 1984.6
+
+    def test_a_dollar_figure_for_a_euro_location_becomes_euros(self):
+        # Client's 30-Sep sheet: Brussels Domestic saved as 600 against the
+        # euro column's 520 -- the $/t figure had gone in as euros.
+        rates = FakeRates({("EUR", "2026-08-19"): EUR_RATE})
+        dollars = turkey_row(location=TURKEY_EUR, suggested_min=600, suggested_max=600)
+        del dollars["currency"]
+        rows = convert_rows(
+            home_draft([dollars], {TURKEY_EUR: 520}), rates, "2026-08-19",
+            home={TURKEY_EUR: "EUR"},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert row["status"] == "suggested"
+        assert row["suggested_price"] == 540
+        assert row["change_pct"] == 3.85
+        assert row["conversion"].startswith("USD 600 × 0.9000 EUR/USD")
+        assert rates.asked == [("EUR", "2026-08-19")]
+
+    def test_a_dollar_figure_for_a_euro_location_without_a_euro_rate_waits(self):
+        dollars = turkey_row(location=TURKEY_EUR, suggested_min=600, suggested_max=600)
+        del dollars["currency"]
+        rows = convert_rows(
+            home_draft([dollars]), FakeRates({}), "2026-08-19", home={TURKEY_EUR: "EUR"}
+        )
+
+        assert row_for(rows, TURKEY_EUR)["status"] == "needs_rate"
+
+    def test_a_dollar_figure_for_a_dollar_location_is_untouched(self):
+        rates = FakeRates({})
+        dollars = turkey_row(location=RUSSIA, suggested_min=600, suggested_max=600)
+        del dollars["currency"]
+        rows = convert_rows(home_draft([dollars]), rates, "2026-08-19", home={RUSSIA: "USD"})
+        row = row_for(rows, RUSSIA)
+
+        assert row["suggested_price"] == 600
+        assert "conversion" not in row
+        assert rates.asked == []
+
+    def test_a_euro_figure_for_a_euro_location_is_kept_as_printed(self):
+        rates = FakeRates({})
+        euros = turkey_row(location=TURKEY_EUR, suggested_min=520, suggested_max=520,
+                           currency="EUR")
+        rows = convert_rows(home_draft([euros]), rates, "2026-08-19", home={TURKEY_EUR: "EUR"})
+
+        assert row_for(rows, TURKEY_EUR)["suggested_price"] == 520
+        assert rates.asked == []
 
     def test_without_a_home_map_nothing_changes(self):
         rates = FakeRates({("TRY", "2026-08-19"): RATE})

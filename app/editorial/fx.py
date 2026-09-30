@@ -109,7 +109,8 @@ class CachedRates:
 def convert_rows(
     rows: list[dict], rates, pricedate: str, home: dict[str, str] | None = None
 ) -> list[dict]:
-    """Turns every `foreign` row into a price in its location's own currency.
+    """Turns every `foreign` row -- and a dollar figure for a location priced
+    in another currency -- into a price in its location's own currency.
 
     `rates.get(currency, iso_date)` returns an FxRate or None. The price date
     comes from the report when it says one, otherwise the draft's own date.
@@ -125,11 +126,18 @@ def convert_rows(
     home = {name: code.strip().upper() for name, code in (home or {}).items() if code}
 
     for row in rows:
-        if row.get("status") != "foreign":
-            continue
-
-        currency = row["currency"]
         target = home.get(row["location"], "USD")
+
+        if row.get("status") == "foreign":
+            currency = row["currency"]
+        elif row.get("status") == "suggested" and not row.get("currency") and target != "USD":
+            # A figure with no currency is a dollar figure (the prompt says
+            # so). On a euro or rupee location it is not a price yet: saved
+            # as it stands, Argus's $595/t Brussels line became EUR 595
+            # against the euro column's EUR 520.
+            currency = "USD"
+        else:
+            continue
 
         if currency == target:
             # Printed in the currency the location is priced in: nothing to
@@ -140,7 +148,13 @@ def convert_rows(
             continue
 
         wanted = row.get("price_date") or pricedate
-        rate = rates.get(currency, wanted)
+        # The rates are dollars' worth of each currency, so a dollar figure
+        # needs no rate of its own.
+        rate = (
+            FxRate(currency="USD", rate=1.0, rate_date=wanted, source="ECB")
+            if currency == "USD"
+            else rates.get(currency, wanted)
+        )
         # Rates are published per US dollar, so any other destination goes
         # through the dollar: its own rate for the same date is needed too.
         target_rate = None if target == "USD" else rates.get(target, wanted)
@@ -175,7 +189,11 @@ def convert_rows(
         current = row.get("current_price")
         change = _round2(((price - current) / current) * 100) if current else None
         conversion = (
-            f"{currency} {printed:,.0f} ÷ {rate.rate:.4f} {currency}/USD "
+            f"USD {printed:,.0f} × {target_rate.rate:.4f} {target}/USD "
+            f"({target_rate.source} rate of {_ddmmyy(target_rate.rate_date)}) "
+            f"= {target} {price:,.2f}"
+            if currency == "USD"
+            else f"{currency} {printed:,.0f} ÷ {rate.rate:.4f} {currency}/USD "
             f"({rate.source} rate of {_ddmmyy(rate.rate_date)}) = USD {price:,.2f}"
             if target == "USD"
             else f"{currency} {printed:,.0f} ÷ {rate.rate:.4f} {currency}/USD "
@@ -193,8 +211,8 @@ def convert_rows(
                 "change_pct": js_number(change) if change is not None else None,
                 "flag": "check" if change is not None and abs(change) >= FLAG_PCT else None,
                 "conversion": conversion,
-                "fx_rate": rate.rate,
-                "fx_date": rate.rate_date,
+                "fx_rate": target_rate.rate if currency == "USD" else rate.rate,
+                "fx_date": target_rate.rate_date if currency == "USD" else rate.rate_date,
                 "rationale": (conversion + ". " + (row.get("rationale") or "")).strip(),
             }
         )
