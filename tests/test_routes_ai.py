@@ -142,23 +142,51 @@ class TestTheKeyIsAskedDirectly:
         assert response.json()["ok"] is False
 
 
-class TestTheFormStillRendersTheFallback:
-    def test_the_hardcoded_catalogue_is_offered_before_anything_is_checked(self):
-        client = build()
+class TestAddingAProviderWithoutPickingAModel:
+    """The add form asks no model; it is changed on the provider's row."""
 
-        response = client.get("/console/settings/ai")
+    def added(self, monkeypatch, live):
+        monkeypatch.setattr(routes_ai, "available_models", lambda *a, **k: live)
+        saved = {}
+        providers = FakeProviders()
 
-        assert response.status_code == 200
-        html = response.text
+        def create(**kwargs):
+            saved.update(kwargs)
 
-        # Every provider's hardcoded models are still on the page, ready to
-        # work with no fetch, no key typed, and no JavaScript at all.
-        for key, meta in PROVIDERS.items():
-            for model in meta["models"]:
-                assert f'data-provider="{key}"' in html
-                assert f'value="{model}"' in html and f'data-fallback="1"' in html
+            return type("P", (), {"name": kwargs["name"]})()
 
-        assert "check-key" in html
+        providers.create = create
+        response = build(providers=providers).post(
+            "/console/settings/ai",
+            data={"name": "Main", "provider": "openai", "api_key": "sk-new"},
+            follow_redirects=False,
+        )
+
+        return response, saved
+
+    def test_the_form_has_no_model_field_and_starts_closed(self):
+        html = build().get("/console/settings/ai").text
+
+        assert 'id="model"' not in html
+        assert 'id="add-provider" hidden' in html
+        assert 'id="add-provider-open"' in html
+
+    def test_it_starts_on_the_providers_usual_model(self, monkeypatch):
+        usual = PROVIDERS["openai"]["models"][0]
+        response, saved = self.added(monkeypatch, ["gpt-5.5", usual])
+
+        assert response.status_code == 303
+        assert saved["model"] == usual
+
+    def test_a_key_that_cannot_run_the_usual_model_starts_on_its_first(self, monkeypatch):
+        _, saved = self.added(monkeypatch, ["gpt-5.5", "gpt-5-mini"])
+
+        assert saved["model"] == "gpt-5.5"
+
+    def test_with_no_answer_from_the_provider_it_uses_the_catalogue(self, monkeypatch):
+        _, saved = self.added(monkeypatch, [])
+
+        assert saved["model"] == PROVIDERS["openai"]["models"][0]
 
 
 class TestAKeyPastedOutOfAChatMessage:

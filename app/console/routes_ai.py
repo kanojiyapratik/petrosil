@@ -186,6 +186,13 @@ def create_ai_routes(
         # catalogue is only consulted when the provider cannot be asked.
         allowed = available_models(provider, api_key) or PROVIDERS[provider]["models"]
 
+        # The add form no longer asks for a model -- it is changed on the
+        # provider's row afterwards. Start on the provider's usual model when
+        # this key can run it, else on the first one the key offers.
+        if model == "":
+            usual = [m for m in PROVIDERS[provider]["models"] if m in allowed]
+            model = usual[0] if usual else allowed[0]
+
         if model not in allowed:
             return back(
                 "err", f"{model or 'That model'} is not one {PROVIDERS[provider]['label']} offers."
