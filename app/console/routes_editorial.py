@@ -26,6 +26,7 @@ from ..editorial.review import (
     editorial_prompt,
     flag_unsupported,
     parse_suggestions,
+    reject_out_of_scale,
     unsupported_by_evidence,
 )
 from ..editorial.rounding import apply_rounding
@@ -588,6 +589,10 @@ def create_editorial_routes(
                 site.round_to_nearest,
                 rounding.for_site(site.slug) if rounding is not None else None,
             )
+
+            # A figure far off the scale of this location (or the site's other
+            # prices) is not offered at all -- Vietnam CFR FOB at 13.
+            rows = reject_out_of_scale(rows, current, home)
 
             # Last, so neither conversion nor rounding can clear the flag.
             rows = flag_unsupported(rows, unsupported)

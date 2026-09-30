@@ -341,6 +341,71 @@ def flag_unsupported(rows: list[dict], unsupported: set[str]) -> list[dict]:
     return rows
 
 
+SCALE_FACTOR = 5.0
+SCALE_SAMPLE = 3
+
+
+def reject_out_of_scale(
+    rows: list[dict], current: dict[str, float], home: dict[str, str] | None = None
+) -> list[dict]:
+    """Take away any price that cannot be a price at this location's scale.
+
+    On 30 Sep 2026 the draft offered Vietnam CFR FOB at 13 on five runs out
+    of five -- a real number from the report (a change or a freight figure),
+    so nothing flagged it, and the location had no price yet to compare
+    with. A price is measured against the location's own current price, or,
+    when it has none, against the middle of the site's other prices in the
+    same currency: more than SCALE_FACTOR times off either way, and it is
+    not offered at all. Call after rounding, on prices in the location's
+    own currency.
+    """
+    home = {name: code.strip().upper() for name, code in (home or {}).items() if code}
+    by_currency: dict[str, list[float]] = {}
+
+    for name, price in current.items():
+        if price and price > 0:
+            by_currency.setdefault(home.get(name, "USD"), []).append(float(price))
+
+    def typical(currency: str) -> float | None:
+        prices = sorted(by_currency.get(currency, []))
+
+        if len(prices) < SCALE_SAMPLE:
+            return None
+
+        middle = len(prices) // 2
+
+        return prices[middle] if len(prices) % 2 else (prices[middle - 1] + prices[middle]) / 2
+
+    for row in rows:
+        price = row.get("suggested_price")
+
+        if row.get("status") not in ("suggested", "near_match", "derived") or price is None:
+            continue
+
+        currency = home.get(row["location"], "USD")
+        own = current.get(row["location"])
+        reference = float(own) if own and own > 0 else typical(currency)
+
+        if reference is None or reference / SCALE_FACTOR <= price <= reference * SCALE_FACTOR:
+            continue
+
+        compared = (
+            f"its current price of {js_number(round(reference, 2))}"
+            if own and own > 0
+            else f"the site's other {currency} prices (typically about {js_number(round(reference))})"
+        )
+        note = (
+            f"{js_number(price)} is far out of line with {compared} -- not a price at this "
+            "scale, so nothing is offered. Check the report."
+        )
+        row["status"] = "invalid"
+        row["suggested_price"] = None
+        row["flag"] = None
+        row["rationale"] = f"{row['rationale']} {note}" if row.get("rationale") else note
+
+    return rows
+
+
 def build_rows(
     locations: list[str],
     current_prices: dict[str, float],

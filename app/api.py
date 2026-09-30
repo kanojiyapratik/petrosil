@@ -20,7 +20,13 @@ from .ai.gemini import AiProviderError
 from .ai.prompt import render_prompt
 from .editorial.extract import document_to_text
 from .editorial.fx import FrankfurterRates, convert_rows
-from .editorial.review import ParsedSuggestions, build_rows, editorial_prompt, parse_suggestions
+from .editorial.review import (
+    ParsedSuggestions,
+    build_rows,
+    editorial_prompt,
+    parse_suggestions,
+    reject_out_of_scale,
+)
 from .price_review.differ import CurrentPrice, ProposedRow, diff_prices, js_number
 from .price_review.summariser import Move, PriceSummary, summarise
 
@@ -318,6 +324,7 @@ def create_api(
         rows = convert_rows(
             rows, fx if fx is not None else FrankfurterRates(), body.price_date, home=home
         )
+        rows = reject_out_of_scale(rows, current, home)
         near_matches = sum(1 for row in rows if row["status"] == "near_match")
 
         return JSONResponse(
