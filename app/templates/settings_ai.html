@@ -155,7 +155,7 @@
                   <option value="" data-provider="">Default model</option>
                   {% for p in providers %}
                     <option value="" data-provider="{{ p.id }}"
-                      {% if mine == p.id and not own_model %}selected{% endif %}>{{ p.model }} (provider's own)</option>
+                      {% if mine == p.id and not own_model %}selected{% endif %}>{{ p.model }}</option>
                     {% for m in offered.get(p.id, []) if m != p.model %}
                       <option value="{{ m }}" data-provider="{{ p.id }}"
                         {% if mine == p.id and own_model == m %}selected{% endif %}>{{ m }}</option>
