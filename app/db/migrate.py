@@ -380,6 +380,15 @@ MIGRATIONS: list[Migration] = [
             ON console_editorial_draft_rows (draft_id, position);
         """,
     ),
+    Migration(
+        id="0014_site_ai_model",
+        sql="""
+        -- A site can run its provider on a model of its own (a cheaper one
+        -- for a simple site, a stronger one for a hard report), without a
+        -- second copy of the key. NULL means the provider's own model.
+        ALTER TABLE console_sites ADD COLUMN IF NOT EXISTS ai_model TEXT;
+        """,
+    ),
 ]
 
 

@@ -135,20 +135,34 @@
   <div class="panel">
     <div class="head"><h2>Which site uses which</h2></div>
     <table>
-      <thead><tr><th>Site</th><th>Provider</th></tr></thead>
+      <thead><tr><th>Site</th><th>Provider and model</th></tr></thead>
       <tbody>
         {% for site_row in sites %}
+          {% set mine = assignments.get(site_row.slug) %}
+          {% set own_model = site_models.get(site_row.slug) %}
           <tr>
             <td><strong>{{ site_row.name }}</strong></td>
             <td>
               <form method="post" action="/console/settings/ai/site/{{ site_row.slug }}"
-                style="margin:0;display:flex;gap:.3rem">
+                class="site-ai" style="margin:0;display:flex;gap:.3rem">
                 <select name="provider_id" style="min-width:14rem;padding:.25rem .4rem">
                   <option value="">Use the default</option>
                   {% for p in providers %}
-                    <option value="{{ p.id }}" {% if assignments.get(site_row.slug) == p.id %}selected{% endif %}>
-                      {{ p.name }} ({{ p.model }})
-                    </option>
+                    <option value="{{ p.id }}" {% if mine == p.id %}selected{% endif %}>{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+                {# A model of the site's own, from what the chosen key can run.
+                   Only with a provider picked here: the default can change
+                   under the site, and a model belongs to one key. #}
+                <select name="model" style="min-width:12rem;padding:.25rem .4rem">
+                  <option value="" data-provider="">Default model</option>
+                  {% for p in providers %}
+                    <option value="" data-provider="{{ p.id }}"
+                      {% if mine == p.id and not own_model %}selected{% endif %}>{{ p.model }} (provider's own)</option>
+                    {% for m in offered.get(p.id, []) if m != p.model %}
+                      <option value="{{ m }}" data-provider="{{ p.id }}"
+                        {% if mine == p.id and own_model == m %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
                   {% endfor %}
                 </select>
                 <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
@@ -158,6 +172,12 @@
         {% endfor %}
       </tbody>
     </table>
+    <div class="body">
+      <p class="hint" style="margin:0">
+        A site on its own provider can run a different model of it — a cheaper one for a simple
+        site, a stronger one for hard reports. Everything the AI does for that site uses it.
+      </p>
+    </div>
   </div>
 {% endif %}
 
@@ -176,6 +196,27 @@
     card.hidden = true;
   });
 })();
+
+// Each site's model list shows only the models of the provider picked beside
+// it, and falls back to that provider's own model when the provider changes.
+document.querySelectorAll('form.site-ai').forEach(function (form) {
+  var provider = form.querySelector('select[name="provider_id"]');
+  var model = form.querySelector('select[name="model"]');
+
+  function match(reset) {
+    var first = null;
+    Array.prototype.forEach.call(model.options, function (option) {
+      var mine = option.dataset.provider === provider.value;
+      option.hidden = !mine;
+      option.disabled = !mine;
+      if (mine && first === null) first = option;
+    });
+    if (reset || model.selectedOptions[0].hidden) first.selected = true;
+  }
+
+  provider.addEventListener('change', function () { match(true); });
+  match(false);
+});
 
 // The key hint follows the chosen provider. The model is not picked here: the
 // provider starts on its usual model and is changed on its row once added.

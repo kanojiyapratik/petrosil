@@ -126,6 +126,7 @@ def create_ai_routes(
                 # learn a site exists as its own address.
                 "sites": visible_sites(store, user, store.sites()),
                 "assignments": providers.assignments(),
+                "site_models": providers.site_models(),
                 "usage_days": usage.by_day(14) if usage is not None else [],
             },
         )
@@ -385,9 +386,35 @@ def create_ai_routes(
             return back("err", "No such site.")
 
         provider_id = int(raw) if raw.isdigit() else None
-        providers.assign_to_site(slug, provider_id)
+        provider = providers.get(provider_id) if provider_id else None
 
-        chosen = providers.get(provider_id).name if provider_id else "the default"
+        if provider_id and provider is None:
+            return back("err", "That provider no longer exists.")
+
+        # Blank means the provider's own model. A model of its own is only
+        # kept with a provider picked for this site -- see ProviderStore.
+        model = str(form.get("model") or "").strip() if provider else ""
+
+        # Picking the provider's own model is the same as not picking one, and
+        # stored blank it follows the provider when its model is changed.
+        if provider and model == provider.model:
+            model = ""
+
+        # A model this key cannot run would only fail later, in the middle of
+        # a price update, so it is refused here.
+        if model:
+            allowed = available_models(provider.provider, provider.api_key) or PROVIDERS.get(
+                provider.provider, {}
+            ).get("models", [])
+
+            if model not in allowed:
+                return back("err", f"{provider.name} cannot run {model}.")
+
+        providers.assign_to_site(slug, provider_id, model or None)
+
+        chosen = (
+            f"{provider.name} ({model or provider.model})" if provider else "the default"
+        )
         store.record(user.email, "chose an AI provider for a site", slug, chosen)
 
         return back("ok", f"{site.name} now uses {chosen}.")

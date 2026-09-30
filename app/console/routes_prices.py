@@ -32,7 +32,7 @@ def create_price_routes(
 ) -> APIRouter:
     router = APIRouter()
 
-    def note_the_update(client, batch_id: int) -> None:
+    def note_the_update(client, batch_id: int, site_slug: str | None = None) -> None:
         """Write the note that goes above the site's price trends table.
 
         Everything in here is best-effort. It runs after the prices are
@@ -48,7 +48,7 @@ def create_price_routes(
             items = payload.get("items") or []
             source = (payload.get("batch") or {}).get("source") or "editorial"
 
-            chosen = driver_for() if driver_for is not None else None
+            chosen = driver_for(site_slug) if driver_for is not None else None
             active = chosen or driver
             model = None if chosen is not None else default_model
 
@@ -418,7 +418,7 @@ def create_price_routes(
 
         # The prices are already live. This only writes the note that goes
         # above the site's price trends table, and swallows its own failures.
-        note_the_update(client, batch_id)
+        note_the_update(client, batch_id, site.slug)
 
         return back(path, "ok", f"Update #{batch_id} is now live on the website.")
 

@@ -146,7 +146,7 @@ def create_reading_routes(
 
             bodies.append((upload.filename or "report", raw))
 
-        chosen = driver_for() if driver_for is not None else None
+        chosen = driver_for(site.slug) if driver_for is not None else None
         active = chosen or driver
         model = getattr(chosen, "model", default_model) if chosen is not None else default_model
         provider_name = getattr(chosen or driver, "provider_key", "gemini")

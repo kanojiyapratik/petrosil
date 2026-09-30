@@ -72,14 +72,16 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Petrosil price module", docs_url=None, redoc_url=None)
 
-    def configured_driver():
-        """The provider an admin chose, if the console is running."""
+    def configured_driver(site_slug: str | None = None):
+        """The provider an admin chose, if the console is running -- the
+        site's own provider and model when asked for a site, else the
+        default."""
         providers = getattr(app.state, "providers", None)
 
         if providers is None:
             return None
 
-        chosen = providers.default()
+        chosen = providers.for_site(site_slug) if site_slug else providers.default()
 
         if chosen is None:
             return None

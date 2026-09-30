@@ -37,6 +37,9 @@ class FakeProviders:
     def assignments(self):
         return {}
 
+    def site_models(self):
+        return {}
+
 
 def admin_user(request=None):
     return type("U", (), {"email": "admin@local.test", "name": "Admin", "is_admin": True, "is_superadmin": True})()

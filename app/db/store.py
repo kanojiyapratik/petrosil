@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 
@@ -470,17 +470,33 @@ class ProviderStore:
         return _to_provider(row) if row else None
 
     def for_site(self, site_slug: str) -> StoredProvider | None:
-        """The site's own provider, or the default when it has not chosen."""
+        """The site's own provider, or the default when it has not chosen --
+        on the site's own model when it has set one."""
         with self._pool.connection() as connection:
-            row = connection.execute(
-                f"SELECT p.id, p.name, p.provider, p.api_key, p.model, p.enabled, p.is_default "
-                "FROM console_sites s "
-                "JOIN console_ai_providers p ON p.id = s.ai_provider_id "
-                "WHERE s.slug = %s AND p.enabled",
+            site = connection.execute(
+                "SELECT ai_provider_id, ai_model FROM console_sites WHERE slug = %s",
                 (site_slug,),
             ).fetchone()
+            row = (
+                connection.execute(
+                    f"SELECT {PROVIDER_COLUMNS} FROM console_ai_providers "
+                    "WHERE id = %s AND enabled",
+                    (site[0],),
+                ).fetchone()
+                if site and site[0] is not None
+                else None
+            )
 
-        return _to_provider(row) if row else self.default()
+        if row is None:
+            return self.default()
+
+        chosen = _to_provider(row)
+        model = (site[1] or "").strip()
+
+        # The model belongs to the provider picked for this site. When that
+        # provider is off the site falls back to the default -- a different
+        # key that may not run the model -- so the default keeps its own.
+        return replace(chosen, model=model) if model else chosen
 
     def create(
         self, name: str, provider: str, api_key: str, model: str, make_default: bool
@@ -534,11 +550,17 @@ class ProviderStore:
             connection.execute("DELETE FROM console_ai_providers WHERE id = %s", (provider_id,))
             connection.commit()
 
-    def assign_to_site(self, site_slug: str, provider_id: int | None) -> None:
+    def assign_to_site(
+        self, site_slug: str, provider_id: int | None, model: str | None = None
+    ) -> None:
+        # No provider of its own means no model of its own either.
+        model = (model or "").strip() or None if provider_id is not None else None
+
         with self._pool.connection() as connection:
             connection.execute(
-                "UPDATE console_sites SET ai_provider_id = %s, updated_at = now() WHERE slug = %s",
-                (provider_id, site_slug),
+                "UPDATE console_sites SET ai_provider_id = %s, ai_model = %s, updated_at = now() "
+                "WHERE slug = %s",
+                (provider_id, model, site_slug),
             )
             connection.commit()
 
@@ -550,6 +572,16 @@ class ProviderStore:
             ).fetchall()
 
         return {row[0]: int(row[1]) for row in rows}
+
+    def site_models(self) -> dict[str, str]:
+        """The model each site has set on its own provider, if any."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT slug, ai_model FROM console_sites "
+                "WHERE ai_provider_id IS NOT NULL AND ai_model IS NOT NULL"
+            ).fetchall()
+
+        return {row[0]: row[1] for row in rows}
 
 
 @dataclass(frozen=True)

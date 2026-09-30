@@ -170,6 +170,9 @@ class FakeProviders:
     def assignments(self):
         return {}
 
+    def site_models(self):
+        return {}
+
 
 def console_client(store, signed_in_as):
     """The main console router, reached the way a browser reaches it: with a

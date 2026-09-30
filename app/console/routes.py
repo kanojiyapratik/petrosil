@@ -331,7 +331,7 @@ def create_console(
         if unmatched and location_titles and (driver is not None or driver_for is not None):
             from ..editorial.match import build_match_prompt, parse_match_answer
 
-            chosen = driver_for() if driver_for is not None else None
+            chosen = driver_for(site.slug) if driver_for is not None else None
             active = chosen or driver
             model = getattr(chosen, "model", default_model) if chosen else default_model
 

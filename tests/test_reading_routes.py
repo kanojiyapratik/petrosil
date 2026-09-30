@@ -147,7 +147,7 @@ def build(driver=None, extractions=None, store=None):
             )(),
             driver=driver or StubDriver(),
             default_model="gpt-4o-mini",
-            driver_for=lambda: driver or StubDriver(),
+            driver_for=lambda *_: driver or StubDriver(),
         )
     )
 
@@ -445,7 +445,7 @@ class TestTheReadingIsRecorded:
                 current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True})(),
                 driver=StubDriver(),
                 default_model="gpt-4o-mini",
-                driver_for=lambda: StubDriver(),
+                driver_for=lambda *_: StubDriver(),
                 usage=Usage(),
             )
         )
@@ -468,7 +468,7 @@ class TestTheReadingIsRecorded:
                 current_user=lambda request: type("U", (), {"email": "a@b.test", "name": "A", "is_admin": True, "is_superadmin": True})(),
                 driver=StubDriver(),
                 default_model="gpt-4o-mini",
-                driver_for=lambda: StubDriver(),
+                driver_for=lambda *_: StubDriver(),
                 usage=Exploding(),
             )
         )
