@@ -111,6 +111,13 @@ button[disabled] { opacity:.5; cursor:not-allowed; }
 .flash { padding:.7rem .95rem; border-radius:8px; margin-bottom:1.15rem; font-size:.9rem; border:1px solid transparent; }
 .flash.ok { background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0; }
 .flash.bad { background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
+.flash.toast { position:fixed; top:1.1rem; left:50%; transform:translateX(-50%); z-index:60;
+  display:flex; align-items:flex-start; gap:.75rem; width:max-content; max-width:min(34rem, calc(100vw - 2rem));
+  margin:0; box-shadow:0 10px 30px rgba(15,23,42,.18); transition:opacity .3s, transform .3s; }
+.flash.toast.leaving { opacity:0; transform:translate(-50%, -.6rem); }
+.flash.toast .toast-close { background:none; border:0; padding:0 .1rem; color:inherit; font-size:1.15rem;
+  line-height:1; font-weight:400; opacity:.7; }
+.flash.toast .toast-close:hover { opacity:1; filter:none; }
 
 .hint { color:var(--muted); font-size:.82rem; margin:.4rem 0 0; }
 ul.steps { margin:.5rem 0 0; padding-left:1.1rem; }
@@ -256,7 +263,16 @@ ul.steps li { margin-bottom:.25rem; }
       </form>
     </header>
     <div class="content{% block content_class %}{% endblock %}">
-      {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.text }}</div>{% endif %}
+      {# The answer to a save or a test, as a popup over the page rather than
+         a card pushing the page down. A success fades by itself; a problem
+         stays until it is closed, so it cannot be missed. #}
+      {% if flash %}
+        <div class="flash toast {{ flash.kind }}" role="{{ 'alert' if flash.kind == 'bad' else 'status' }}"
+          id="toast" data-kind="{{ flash.kind }}">
+          <span>{{ flash.text }}</span>
+          <button type="button" class="toast-close" aria-label="Close">&times;</button>
+        </div>
+      {% endif %}
       {% block content %}{% endblock %}
     </div>
   </div>
@@ -270,6 +286,30 @@ ul.steps li { margin-bottom:.25rem; }
   </div>
 </div>
 <script>
+(function () {
+  var toast = document.getElementById('toast');
+  if (!toast) return;
+
+  function dismiss() {
+    toast.classList.add('leaving');
+    setTimeout(function () { toast.remove(); }, 320);
+  }
+
+  toast.querySelector('.toast-close').addEventListener('click', dismiss);
+  if (toast.dataset.kind === 'ok') setTimeout(dismiss, 4000);
+
+  // The message came in the address (?ok=… / ?err=…); take it out, so a
+  // reload or a bookmark does not announce the same save again.
+  try {
+    var url = new URL(window.location.href);
+    if (url.searchParams.has('ok') || url.searchParams.has('err')) {
+      url.searchParams.delete('ok');
+      url.searchParams.delete('err');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch (e) {}
+})();
+
 (function () {
   // Every screen here posts and redirects, and the sites behind them take
   // 10-20 seconds. Without this a click looks like nothing happened, and the
