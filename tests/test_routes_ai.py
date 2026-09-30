@@ -161,7 +161,7 @@ class TestAddingAProviderWithoutPickingAModel:
         providers.create = create
         response = build(providers=providers).post(
             "/console/settings/ai",
-            data={"name": "Main", "provider": "openai", "api_key": "sk-new"},
+            data={"provider": "openai", "api_key": "sk-new"},
             follow_redirects=False,
         )
 
@@ -171,8 +171,14 @@ class TestAddingAProviderWithoutPickingAModel:
         html = build().get("/console/settings/ai").text
 
         assert 'id="model"' not in html
+        assert 'name="name" placeholder' not in html
         assert 'id="add-provider" hidden' in html
         assert 'id="add-provider-open"' in html
+
+    def test_it_is_named_after_the_provider(self, monkeypatch):
+        _, saved = self.added(monkeypatch, ["gpt-4o-mini"])
+
+        assert saved["name"] == PROVIDERS["openai"]["label"]
 
     def test_it_starts_on_the_providers_usual_model(self, monkeypatch):
         usual = PROVIDERS["openai"]["models"][0]

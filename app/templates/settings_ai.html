@@ -18,20 +18,15 @@
   <div class="head"><h2>Add a provider</h2></div>
   <div class="body">
     <form method="post" action="/console/settings/ai">
-      <div class="fields">
-        <div class="field">
-          <label for="name">Name it</label>
-          <input id="name" name="name" placeholder="Gemini — paid key" required>
-          <p class="hint">Just for you, so two keys are tellable apart.</p>
-        </div>
-        <div class="field">
-          <label for="provider">Provider</label>
-          <select id="provider" name="provider" required>
-            {% for key, meta in catalogue.items() %}
-              <option value="{{ key }}">{{ meta.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
+      {# No name field: a new provider is named after itself ("OpenAI"),
+         and can still be renamed on its row below. #}
+      <div class="field">
+        <label for="provider">Provider</label>
+        <select id="provider" name="provider" required>
+          {% for key, meta in catalogue.items() %}
+            <option value="{{ key }}">{{ meta.label }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="field">
         <label for="api_key">API key</label>
@@ -187,7 +182,7 @@
   // button's inline-block would beat [hidden], so it toggles instead.
   open.addEventListener('click', function () {
     card.hidden = !card.hidden;
-    if (!card.hidden) document.getElementById('name').focus();
+    if (!card.hidden) document.getElementById('provider').focus();
   });
   document.getElementById('add-provider-close').addEventListener('click', function () {
     card.hidden = true;
