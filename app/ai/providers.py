@@ -286,10 +286,16 @@ class _Driver:
         characters of nested JSON, and it lands in a table on a screen."""
         detail = ""
         retry = ""
+        code = ""
 
         try:
             body = response.json()
             error = body.get("error")
+
+            # OpenAI (and the OpenAI-style Groq) answer 429 for two different
+            # things: an account out of credit, and too much sent this minute.
+            if isinstance(error, dict):
+                code = str(error.get("code") or error.get("type") or "").lower()
 
             # Gemini says how long to wait; the others do not.
             if isinstance(error, dict):
@@ -308,9 +314,25 @@ class _Driver:
             return f"{self.name} rejected the API key."
 
         if response.status_code == 429:
-            # The commonest failure of all, and the one with a clear action.
+            # The commonest failure of all, and the one with a clear action --
+            # but the action differs: waiting never fixes an empty account.
             # Its own body runs to a thousand characters of nested JSON.
+            if not retry:
+                retry = str((getattr(response, "headers", None) or {}).get("retry-after") or "")
+                retry = f"{retry} seconds" if retry.isdigit() else retry
+
             wait = f" Try again in about {retry}." if retry else ""
+
+            if "insufficient_quota" in code or "billing" in detail.lower():
+                return (
+                    f"{self.name} account is out of credit — add credit on the provider's "
+                    "billing page, then try again."
+                )
+
+            if "rate_limit" in code or "rate limit" in detail.lower():
+                return f"{self.name} rate limit — too much was sent in one minute." + (
+                    wait or " Wait a minute and try again."
+                )
 
             return f"{self.name} quota exceeded — the API key has hit its limit.{wait}"
 

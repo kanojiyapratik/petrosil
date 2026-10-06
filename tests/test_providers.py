@@ -288,3 +288,49 @@ def test_a_quota_refusal_reads_as_one_sentence_for_every_provider():
         driver("openai", FakeSession(FakeResponse({"error": {"message": "rate"}}, 429))).generate("hi")
 
     assert str(error.value) == "OpenAI quota exceeded — the API key has hit its limit."
+
+
+class HeadedResponse(FakeResponse):
+    def __init__(self, payload, status_code, headers):
+        super().__init__(payload, status_code)
+        self.headers = headers
+
+
+def test_an_openai_account_out_of_credit_says_so_and_does_not_say_wait():
+    # OpenAI's real body for an empty account (6 Oct 2026, Argus upload).
+    body = {
+        "error": {
+            "message": "You exceeded your current quota, please check your plan and billing "
+            "details. For more information on this error, read the docs.",
+            "type": "insufficient_quota",
+            "param": None,
+            "code": "insufficient_quota",
+        }
+    }
+
+    with pytest.raises(AiQuotaExhausted) as error:
+        driver("openai", FakeSession(FakeResponse(body, 429))).generate("hi")
+
+    assert "out of credit" in str(error.value)
+    assert "billing page" in str(error.value)
+    assert "Wait" not in str(error.value)
+
+
+def test_an_openai_rate_limit_says_wait_with_the_time_it_gives():
+    body = {
+        "error": {
+            "message": "Rate limit reached for gpt-4.1 in organization org-x on tokens per "
+            "min (TPM): Limit 30000, Used 28000, Requested 9000.",
+            "type": "tokens",
+            "param": None,
+            "code": "rate_limit_exceeded",
+        }
+    }
+    response = HeadedResponse(body, 429, {"retry-after": "20"})
+
+    with pytest.raises(AiQuotaExhausted) as error:
+        driver("openai", FakeSession(response)).generate("hi")
+
+    assert str(error.value) == (
+        "OpenAI rate limit — too much was sent in one minute. Try again in about 20 seconds."
+    )
