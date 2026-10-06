@@ -36,6 +36,24 @@ def looks_like_pdf(content_type: str, body: bytes) -> bool:
     return body[:5] == b"%PDF-"
 
 
+def pdf_needs_password(body: bytes) -> bool:
+    """True only for a PDF that a blank password does not open.
+
+    Argus sends its reports AES-encrypted with no password to open them
+    (copy and print are what is locked). Those read fine; this picks out the
+    rare file that is really locked, so it can be named as such rather than
+    as "could not be read".
+    """
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(body))
+
+        return bool(reader.is_encrypted) and not reader.decrypt("")
+    except Exception:  # noqa: BLE001 - unreadable for some other reason
+        return False
+
+
 def pdf_to_text(body: bytes, max_pages: int = MAX_PAGES) -> str:
     """The PDF's text, or an empty string if it has none to give.
 

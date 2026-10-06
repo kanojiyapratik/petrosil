@@ -23,6 +23,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from scraper.pdf import pdf_needs_password
+
 from ..editorial.extract import document_images, document_to_text
 from ..editorial.reading import parse_reading, reading_prompt
 from .access import make_site_guard
@@ -252,7 +254,11 @@ def create_reading_routes(
 
             if not text.strip():
                 extractions.add_rows(reading.id, filename, [])
-                failures.append(f"{filename} could not be read")
+                failures.append(
+                    f"{filename} is locked with a password — save it unlocked and upload it again"
+                    if filename.lower().endswith(".pdf") and pdf_needs_password(raw)
+                    else f"{filename} could not be read"
+                )
                 continue
 
             # One file failing costs that file. Four reports already read are

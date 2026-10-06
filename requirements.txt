@@ -9,3 +9,4 @@ psycopg-pool==3.2.4
 pypdf==5.1.0
 pypdfium2==5.13.0
 pillow==12.3.0
+cryptography==50.0.2
