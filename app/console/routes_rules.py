@@ -536,6 +536,24 @@ def create_rules_routes(
             if not location:
                 return back(site.slug, "err", "Pick a location.")
 
+            # "Use the price exactly as it is" -- the client's Indonesia,
+            # where the printed 896 must never become 895. Stored as a step
+            # of 0, which apply_rounding already reads as "leave this
+            # location alone" whatever the site default says.
+            exact = str(form.get("exact") or "").strip() == "1"
+
+            if exact:
+                rounding.set_override(site.slug, location, 0.0)
+                store.record(
+                    user.email, "set a location's rounding step", site.slug,
+                    f"{location} is never rounded — the price is used exactly as it is",
+                )
+
+                return back(
+                    site.slug, "ok",
+                    f"{location} is never rounded — its price is used exactly as it is.",
+                )
+
             try:
                 step = _parse_step(str(form.get("round_to_nearest") or ""))
             except ConsoleConfigError as error:

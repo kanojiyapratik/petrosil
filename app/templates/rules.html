@@ -148,7 +148,8 @@
 
     <h3 style="margin-top:1.5rem">Locations that round differently</h3>
     <p class="hint">For the handful that don't follow the site default — for example a
-      local-currency price that rounds to 10 instead of 5.</p>
+      local-currency price that rounds to 10 instead of 5, or a price that must go out
+      exactly as the report prints it.</p>
     <form method="post" action="/console/sites/{{ site.slug }}/rounding/override" data-no-overlay="1">
       <div class="fields">
         <div class="field">
@@ -166,6 +167,10 @@
           </div>
         </div>
       </div>
+      <label style="display:block;margin-top:.5rem">
+        <input type="checkbox" id="rounding-exact" name="exact" value="1">
+        Don't round this location — use its price exactly as it is
+      </label>
       <div class="actions"><button type="submit">Save override</button></div>
     </form>
 
@@ -176,7 +181,7 @@
           {% for override in rounding_overrides %}
             <tr>
               <td>{{ override.location }}</td>
-              <td class="num">{{ step_label(override.round_to_nearest, currencies.get(override.location)) }}</td>
+              <td class="num">{% if override.round_to_nearest %}{{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}</td>
               <td style="white-space:nowrap">
                 <button class="ghost" type="button" data-edit-rounding
                         data-location="{{ override.location }}"
@@ -529,6 +534,21 @@
     roundingSign();
   }
 
+  // "Use the price exactly as it is" makes the step box moot: grey it out
+  // and stop the browser demanding a number that will be ignored.
+  var roundingExact = document.getElementById('rounding-exact');
+  var roundingStepBox = document.getElementById('rounding-step');
+
+  function exactToggled() {
+    roundingStepBox.disabled = roundingExact.checked;
+    roundingStepBox.required = !roundingExact.checked;
+  }
+
+  if (roundingExact && roundingStepBox) {
+    roundingExact.addEventListener('change', exactToggled);
+    exactToggled();
+  }
+
   // Edit fills the form above with the row's values. Saving replaces the row
   // rather than adding a second one: a price has one rule and one rounding
   // step, so a save over it IS the edit.
@@ -564,10 +584,23 @@
 
       roundingPlace.value = place;
       roundingSign();
-      step.value = button.dataset.step;
+
+      // A stored step of 0 is the "exactly as it is" choice, not a number
+      // the editor typed; the checkbox carries it, the box stays empty.
+      var exact = button.dataset.step === '0';
+
+      if (roundingExact) {
+        roundingExact.checked = exact;
+        exactToggled();
+      }
+
+      step.value = exact ? '' : button.dataset.step;
       step.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      step.focus();
-      step.select();
+
+      if (!exact) {
+        step.focus();
+        step.select();
+      }
     });
   });
 

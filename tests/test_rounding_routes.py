@@ -138,6 +138,15 @@ class TestTheScreenShowsTheCurrentSettings:
         assert "Turkey Domestic" in page
         assert "/rounding/override/9/delete" in page
 
+    def test_an_exempt_location_says_so_instead_of_showing_a_zero(self):
+        overrides = [LocationRounding(id=9, location="Indonesia (Rack)", round_to_nearest=0.0)]
+        client, _, _ = build(rounding=FakeRounding(overrides))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert "Never rounded — used exactly as it is" in page
+        assert 'data-step="0"' in page  # Edit restores the checkbox, not a "0"
+
 
 class TestSavingTheSiteDefault:
     def test_saves_the_typed_step(self):
@@ -209,6 +218,32 @@ class TestSavingALocationOverride:
 
         assert rounding.set_calls == []
         assert "err=" in response.headers["location"]
+
+    def test_use_exactly_as_it_is_saves_a_step_of_zero(self):
+        client, _, rounding = build()
+
+        response = client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "exact": "1"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0)]
+        assert "ok=" in response.headers["location"]
+        assert "exactly as it is" in unquote(response.headers["location"])
+
+    def test_the_exact_choice_wins_over_a_typed_step(self):
+        # Ticking the box while a number sits in the (disabled) field must
+        # not round after all -- the tick is the editor's last word.
+        client, _, rounding = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "round_to_nearest": "10", "exact": "1"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0)]
 
     def test_a_blank_step_is_refused_rather_than_silently_doing_nothing(self):
         client, _, rounding = build()

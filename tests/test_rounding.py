@@ -88,6 +88,15 @@ class TestApplyRoundingADirectPrice:
 
         assert row["suggested_price"] == 1640
 
+    def test_an_override_of_zero_exempts_the_location_from_the_site_default(self):
+        # The client's Indonesia: printed 896, and 896 it must stay -- the
+        # "use the price exactly as it is" choice is stored as a step of 0.
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 896, 896)]), 5, {SINGAPORE: 0.0})
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["suggested_price"] == 896
+        assert "Rounded" not in (row.get("rationale") or "")
+
     def test_a_location_with_no_override_still_gets_the_site_default(self):
         rows = apply_rounding(
             draft([suggestion(SINGAPORE, 1640, 1655), suggestion(KOREA, 1640, 1655)]),
