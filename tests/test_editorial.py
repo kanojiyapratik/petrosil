@@ -2424,6 +2424,16 @@ class TestPagesWhoseTablesAreDrawn:
 
         assert damaged_pdf_pages(pdf) == []
 
+    def test_a_line_charts_axis_ticks_are_not_damage(self):
+        from app.editorial.extract import damaged_pdf_pages
+
+        # The 25 Sep Argus PDF has a chart on nearly every page, each tick a
+        # lone figure on its own line -- it flagged 14 of 19 pages and the
+        # picture pass re-read clean tables into duplicate, conflicting rows.
+        chart_page = WHOLE_TABLE + ["300", "400", "500", "600", "700", "800", "900"]
+
+        assert damaged_pdf_pages(build_text_pdf([chart_page, DRAWN_TABLE])) == [1]
+
     def test_the_damaged_page_goes_to_the_vision_model_as_a_picture(self):
         from app.editorial.extract import document_images
 

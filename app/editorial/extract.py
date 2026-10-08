@@ -152,8 +152,14 @@ _ORPHAN_TOKEN = re.compile(r"^(nc|[-+]?[\d,]*\d(\.\d+)?)$", re.IGNORECASE)
 
 # The page is sent as a picture once it shows this many label-less rows, or
 # one long enough (three figures) that it cannot be a page number or footnote.
+# A lone figure on a line is never counted: it is a chart's axis tick (the
+# 25 Sep Argus PDF has a line chart on nearly every page, each leaving
+# "300" "400" ... "900" behind) or a page number, and counting those sent
+# whole clean reports to the vision model page after page -- the duplicate,
+# conflicting rows that came back were the client's "shuffled prices".
 ORPHAN_ROWS_PER_DAMAGED_PAGE = 2
 ORPHAN_FIGURES_IN_ONE_ROW = 3
+MIN_TOKENS_PER_ORPHAN_ROW = 2
 
 # 216 dpi, then cut in two (see _render_damaged_pages): a report's 7-8pt
 # table figures stay legible after the model's own downscaling, and each half
@@ -194,7 +200,8 @@ def damaged_pdf_pages(body: bytes) -> list[int]:
 
         orphans = [
             tokens for tokens in (line.split() for line in text.splitlines())
-            if tokens and all(_ORPHAN_TOKEN.match(token) for token in tokens)
+            if len(tokens) >= MIN_TOKENS_PER_ORPHAN_ROW
+            and all(_ORPHAN_TOKEN.match(token) for token in tokens)
         ]
 
         if len(orphans) >= ORPHAN_ROWS_PER_DAMAGED_PAGE or any(
