@@ -380,16 +380,17 @@
                   </div>
                 {% endif %}
               </td>
-              <td>{{ row.current_price if row.current_price is not none else "—" }}</td>
+              <td>{% if row.current_price is not none %}{{ row.money }}{{ row.current_price }}{% else %}—{% endif %}</td>
               <td>
                 {% if priced %}
-                  {{ row.suggested_min }}&ndash;{{ row.suggested_max }}
+                  {{ row.money }}{{ row.suggested_min }}&ndash;{{ row.suggested_max }}
                   {% if near %}<span class="badge warn">close match?</span>{% endif %}
                   {% if derived %}<span class="badge mute">derived</span>{% endif %}
                 {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>{% endif %}
               </td>
               <td>
                 {% if priced %}
+                  <span class="muted">{{ row.money }}</span>
                   <input type="number" step="any" name="price_{{ loop.index0 }}"
                          value="{{ row.suggested_price }}" style="width:7rem">
                 {% endif %}

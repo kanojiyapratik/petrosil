@@ -38,6 +38,27 @@ from .site_client import SiteClient, SiteError
 MAX_DOCUMENTS = 5
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
+# The sign printed in front of a figure on the editorial screen. Only the
+# four this client actually publishes in get a symbol; anything else prints
+# its three-letter code, because a wrong symbol is worse than no symbol and
+# "¥" cannot tell yen from yuan. Matches app/console/routes_rules.py's
+# _SYMBOL, with GBP added for Southern UK.
+_MONEY_SIGN = {"USD": "$", "EUR": "€", "GBP": "£", "INR": "₹"}
+
+
+def money_sign(code: str | None) -> str:
+    """"$", "€", "₹" -- or "ZAR " for a currency with no sign of its own.
+
+    Never raises on an unexpected code: an unknown currency is a figure the
+    editor still has to read, and a bare number is worse than a prefix.
+    """
+    if not code:
+        return ""
+
+    code = str(code).strip().upper()
+
+    return _MONEY_SIGN.get(code, f"{code} ")
+
 
 def _figure(value: float) -> str:
     """A checked figure as the report printed it, not as a float repr."""
@@ -596,6 +617,17 @@ def create_editorial_routes(
 
             # Last, so neither conversion nor rounding can clear the flag.
             rows = flag_unsupported(rows, unsupported)
+
+            # Every figure on this screen is in its own location's currency,
+            # and "565" beside "565" is unreadable when one is euros and the
+            # other dollars (Italy Domestic and Italy FOB, on the same draft).
+            # A row still printed as the report had it carries its own
+            # currency; a converted one is in the location's home currency.
+            # Carried on the row so the saved draft shows it too.
+            for row in rows:
+                row["money"] = money_sign(
+                    row.get("currency") or home.get(row["location"], "USD")
+                )
 
             # Benchmarks fed the rules; they are not site prices and never stage.
             benchmark_set = set(benchmarks)
