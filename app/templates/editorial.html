@@ -103,7 +103,17 @@
     <form method="post" action="/console/sites/{{ site.slug }}/editorial" data-no-overlay="1">
       <div class="field">
         <label for="instructions">Extra instructions for the AI (optional)</label>
-        <textarea id="instructions" name="instructions" rows="3" maxlength="4000"
+        {#
+          maxlength was 4,000, and bitumart's saved rulebook is over 8,000: a
+          browser renders the whole value but refuses every keystroke once the
+          field is longer than its own limit, so the editor could delete from
+          this box and never add to it. The column is TEXT and the route caps
+          nothing, so the limit was only ever a typo guard -- it is now set
+          well clear of a rulebook that has grown every week since September.
+          rows went 3 -> 14 for the same reason: this is no longer a one-line
+          "ignore the recap section" note.
+        #}
+        <textarea id="instructions" name="instructions" rows="14" maxlength="60000"
           placeholder="e.g. The USA prices are inside the picture table. Ignore last week's recap section."
           style="width:100%">{{ instructions or "" }}</textarea>
         <p class="hint">Anything you want the AI to know about these reports. Remembered for next

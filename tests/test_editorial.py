@@ -8,6 +8,7 @@ code validates every row and computes every number the editor acts on.
 import dataclasses
 import io
 import json
+import re
 import zipfile
 from datetime import datetime
 
@@ -1590,6 +1591,63 @@ class TestTheUploadScreenDescribesWhatActuallyHappens:
             source = handle.read()
 
         assert "image_note" not in source
+
+
+class TestTheInstructionsBoxCanHoldTheRulebookInIt:
+    """A browser renders a textarea's whole value, but once that value is
+    longer than the field's own maxlength it refuses every keystroke -- the
+    box becomes deletable and not typable. bitumart's rulebook passed 4,000
+    characters in September and the box was capped at 4,000, so the editor
+    could no longer add a line to his own instructions and had no way of
+    knowing why. The cap is a typo guard and nothing more: the column is
+    TEXT and save_instructions truncates nothing.
+    """
+
+    def rulebook(self, length: int) -> str:
+        line = "UK South Domestic - take the first pair exactly as printed.\n"
+
+        return (line * (length // len(line) + 1))[:length]
+
+    def showing(self, text: str) -> str:
+        store = AnalyseFakeStore(dataclasses.replace(SITE, editorial_instructions=text))
+        client, _, _ = build_analyse_client([], store=store)
+
+        return client.get("/console/sites/baseoil/editorial").text
+
+    def limit_on(self, page: str) -> int:
+        box = re.search(r'<textarea[^>]*id="instructions"[^>]*>', page)
+
+        assert box, "the instructions box is not on the screen at all"
+
+        found = re.search(r'maxlength="(\d+)"', box.group(0))
+
+        # No limit at all is a pass: the field then accepts anything.
+        return int(found.group(1)) if found else 10**9
+
+    def test_the_box_is_not_smaller_than_the_instructions_it_is_showing(self):
+        text = self.rulebook(9000)
+
+        limit = self.limit_on(self.showing(text))
+
+        assert limit >= len(text), (
+            f"the saved instructions are {len(text):,} characters and the box stops "
+            f"at {limit:,}: the editor cannot type a character into his own rulebook"
+        )
+
+    def test_a_long_rulebook_still_reaches_the_screen_whole(self):
+        text = self.rulebook(9000)
+
+        page = self.showing(text)
+
+        assert text[:200] in page
+        assert text[-200:] in page
+
+    def test_the_box_has_room_for_the_rulebook_to_keep_growing(self):
+        # It has gained a paragraph nearly every week since September; a limit
+        # sitting just above today's text would fail again next month.
+        limit = self.limit_on(self.showing(self.rulebook(9000)))
+
+        assert limit >= 20000, f"only {limit:,} characters, which this text will reach"
 
 
 class StaleReadingExtractions(AnalyseFakeExtractions):
