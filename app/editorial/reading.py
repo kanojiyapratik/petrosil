@@ -111,6 +111,82 @@ Rules:
 - If the report prints no price at all, return []."""
 
 
+# How much of a report goes into one reading. The Argus weekly runs to
+# about 63,000 characters, and asked for all of it at once the model reads
+# the first few pages properly and then loses interest: on 15 Oct 2026 one
+# reading of it returned 60 rows, every one of them from pages 3 to 5, and
+# the Asia, Mediterranean and Sub-Saharan tables -- two thirds of the issue
+# -- were simply not there. Nothing failed and nothing was truncated; the
+# answer was valid JSON that stopped early. Earlier runs of the same file
+# had dropped single lines the same way (South China coast, Taiwan).
+#
+# This is the same lesson the page pictures already taught (see
+# routes_reading.py, where they are read on their own rather than appended
+# to the report): a short prompt is read, a long one is skimmed. 15,000
+# characters is roughly four or five Argus pages -- a few tables, which the
+# model handles completely -- and cuts the weekly into about five readings.
+READING_CHUNK_CHARS = 15_000
+
+# "Issue 26-39 | Friday 25 September 2026 Page 9 of 19" -- the footer every
+# page of the Argus report carries, and the natural place to cut.
+_PAGE_BREAK = re.compile(r"(?=Page\s+\d+\s+of\s+\d+)")
+
+
+def split_for_reading(text: str, limit: int = READING_CHUNK_CHARS) -> list[str]:
+    """One report, cut into pieces each small enough to be read whole.
+
+    Cuts on page footers where the report has them and on line endings
+    where it does not, never inside a line: half a table row is a figure
+    without its name. Pages are packed up to `limit` so a short report is
+    still one reading, and a single page longer than the limit is left
+    whole rather than broken -- a table split down the middle would lose
+    more than the long prompt costs.
+    """
+    body = text or ""
+
+    if len(body) <= limit:
+        return [body] if body.strip() else []
+
+    pieces = [piece for piece in _PAGE_BREAK.split(body) if piece]
+
+    if len(pieces) < 2:
+        pieces = _by_lines(body, limit)
+
+    chunks: list[str] = []
+    current = ""
+
+    for piece in pieces:
+        if current and len(current) + len(piece) > limit:
+            chunks.append(current)
+            current = piece
+        else:
+            current += piece
+
+    if current.strip():
+        chunks.append(current)
+
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def _by_lines(text: str, limit: int) -> list[str]:
+    """A report with no page footers -- a docx, a spreadsheet, a scan's
+    transcription -- cut on line endings instead."""
+    pieces: list[str] = []
+    current = ""
+
+    for line in text.splitlines(keepends=True):
+        if current and len(current) + len(line) > limit:
+            pieces.append(current)
+            current = line
+        else:
+            current += line
+
+    if current:
+        pieces.append(current)
+
+    return pieces
+
+
 def reading_prompt(
     document_text: str, filename: str, instructions: str | None = None
 ) -> str:

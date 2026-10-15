@@ -233,3 +233,86 @@ class TestReadingTheAnswer:
         )
 
         assert rows[0]["price_date"] == "2026-02-28"
+
+
+class TestCuttingAReportIntoReadings:
+    """15 Oct 2026: the 19-page Argus weekly, 63,000 characters, asked for
+    in one go. The answer was valid JSON, nothing failed and nothing was
+    truncated -- and it held 60 rows, every one of them from pages 3 to 5.
+    The Asia, Mediterranean and Sub-Saharan tables were simply not read.
+    Two earlier runs of the same file had dropped single lines (South China
+    coast, Taiwan FOB) the same way.
+    """
+
+    def page(self, number: int, body: str = "") -> str:
+        filler = body or ("Somewhere 100 110 nc 120 130 -1.00\n" * 40)
+
+        return f"Issue 26-39 | Friday 25 September 2026 Page {number} of 19\n{filler}"
+
+    def test_a_short_report_is_still_one_reading(self):
+        from app.editorial.reading import split_for_reading
+
+        assert split_for_reading("Singapore 798 809\n") == ["Singapore 798 809\n"]
+
+    def test_an_empty_report_is_no_reading_at_all(self):
+        from app.editorial.reading import split_for_reading
+
+        assert split_for_reading("") == []
+        assert split_for_reading("   \n  ") == []
+
+    def test_a_long_report_is_cut_into_several(self):
+        from app.editorial.reading import READING_CHUNK_CHARS, split_for_reading
+
+        report = "".join(self.page(number) for number in range(1, 20))
+        chunks = split_for_reading(report)
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= READING_CHUNK_CHARS for chunk in chunks)
+
+    def test_nothing_is_lost_or_duplicated_in_the_cutting(self):
+        from app.editorial.reading import split_for_reading
+
+        report = "".join(self.page(number) for number in range(1, 20))
+
+        assert "".join(split_for_reading(report)) == report
+
+    def test_it_cuts_on_page_footers_not_mid_table(self):
+        from app.editorial.reading import split_for_reading
+
+        report = "".join(self.page(number) for number in range(1, 20))
+
+        for chunk in split_for_reading(report)[1:]:
+            assert chunk.startswith("Page "), chunk[:60]
+
+    def test_no_chunk_ever_ends_mid_line(self):
+        # Half a table row is a figure without the name of the place it
+        # belongs to -- worse than not reading the line at all.
+        from app.editorial.reading import split_for_reading
+
+        report = "Taiwan 25,107 25,425 +3,008.00 790 800 +95.00\n" * 900
+
+        for chunk in split_for_reading(report)[:-1]:
+            assert chunk.endswith("\n")
+
+    def test_a_report_with_no_page_footers_is_cut_on_its_lines(self):
+        # A docx, a spreadsheet, or a scan's transcription.
+        from app.editorial.reading import READING_CHUNK_CHARS, split_for_reading
+
+        report = "Singapore 798 809 nc\n" * 2000
+        chunks = split_for_reading(report)
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= READING_CHUNK_CHARS for chunk in chunks)
+        assert "".join(chunks) == report
+
+    def test_one_page_too_long_to_split_is_left_whole(self):
+        # Cutting it would split a table down the middle; a long prompt for
+        # one page costs less than a table read in halves.
+        from app.editorial.reading import READING_CHUNK_CHARS, split_for_reading
+
+        giant = self.page(4, "Mumbai, India 72,770 77,990 nc 759.00 814.00\n" * 1000)
+        report = self.page(3) + giant + self.page(5)
+        chunks = split_for_reading(report)
+
+        assert any(len(chunk) > READING_CHUNK_CHARS for chunk in chunks)
+        assert "".join(chunks) == report

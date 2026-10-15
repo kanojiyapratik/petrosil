@@ -11,6 +11,8 @@ import io
 import json
 import re
 
+from urllib.parse import unquote_plus
+
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
@@ -1263,3 +1265,81 @@ class TestPicturesOfATextReportAreReadOnTheirOwn:
 
         assert [row["name"] for row in extractions.added[0][1]] == ["FOB Asia SN 150"]
         assert "the figures in its pictures were not read" in page
+
+
+class TestALongReportIsReadInSections:
+    """One call for a 19-page report returns the first few pages and stops
+    (15 Oct 2026: 60 rows, all from pages 3-5, two thirds of the issue
+    missing). Each section now gets its own reading, the way the page
+    pictures already do.
+    """
+
+    def long_report(self) -> bytes:
+        page = "Somewhere 100 110 nc 120 130 -1.00\n" * 40
+        body = "".join(
+            f"Issue 26-39 | Friday 25 September 2026 Page {n} of 19\n{page}"
+            for n in range(1, 20)
+        )
+
+        return body.encode("utf-8")
+
+    def test_each_section_is_its_own_call_carrying_only_its_own_text(self):
+        driver = StubDriver()
+        client, _ = build(driver=driver)
+
+        upload(client, [("argus.txt", self.long_report())])
+
+        assert len(driver.prompts) > 1
+        # Every page of the report reached exactly one of the calls.
+        for number in range(1, 20):
+            footer = f"Page {number} of 19"
+            assert sum(1 for prompt in driver.prompts if footer in prompt) == 1
+
+    def test_every_section_says_which_part_it_is(self):
+        # The model is told what it is holding; the editor sees it in any
+        # failure message, which is otherwise "argus.txt" five times.
+        driver = StubDriver()
+        client, _ = build(driver=driver)
+
+        upload(client, [("argus.txt", self.long_report())])
+
+        assert all("argus.txt (part " in prompt for prompt in driver.prompts)
+
+    def test_the_rows_of_every_section_are_kept_together(self):
+        rows = [
+            json.dumps([{"name": f"Place {n}", "price": 100 + n, "currency": "USD"}])
+            for n in range(1, 9)
+        ]
+        driver = StubDriver(answers=rows)
+        client, extractions = build(driver=driver)
+
+        upload(client, [("argus.txt", self.long_report())])
+
+        found = {row["name"] for _, rows in extractions.added for row in rows}
+        assert len(found) == len(driver.prompts)
+
+    def test_one_section_failing_costs_that_section_only(self):
+        class HalfBrokenDriver(StubDriver):
+            def generate(self, prompt):
+                if "part 2 of" in prompt:
+                    raise AiProviderError("the model timed out")
+
+                return super().generate(prompt)
+
+        client, extractions = build(driver=HalfBrokenDriver())
+
+        response = upload(client, [("argus.txt", self.long_report())])
+        kept = [row for _, rows in extractions.added for row in rows]
+
+        assert kept, "one bad section threw away every other section's prices"
+        # The editor is told which part was lost, not just that something was.
+        assert "part 2 of" in unquote_plus(response.headers["location"])
+
+    def test_a_short_report_is_still_a_single_call(self):
+        driver = StubDriver()
+        client, _ = build(driver=driver)
+
+        upload(client, [("small.txt", b"Singapore 798 809 nc\n")])
+
+        assert len(driver.prompts) == 1
+        assert "(part " not in driver.prompts[0]

@@ -26,7 +26,7 @@ from fastapi.templating import Jinja2Templates
 from scraper.pdf import pdf_needs_password
 
 from ..editorial.extract import document_images, document_to_text
-from ..editorial.reading import parse_reading, reading_prompt
+from ..editorial.reading import parse_reading, reading_prompt, split_for_reading
 from .access import make_site_guard
 from .routes import tone_for
 from .routes_editorial import MAX_DOCUMENTS, MAX_DOCUMENT_BYTES
@@ -261,29 +261,50 @@ def create_reading_routes(
                 )
                 continue
 
-            # One file failing costs that file. Four reports already read are
-            # never thrown away because the fifth timed out.
-            try:
-                prompt = reading_prompt(text, filename, instructions)
-                answer = (
-                    active.generate(prompt) if chosen is not None
-                    else active.generate(model, prompt)
+            # A long report is read a few pages at a time. Asked for all 19
+            # at once the model answers for the first few and stops -- see
+            # split_for_reading. One section failing costs that section.
+            sections = split_for_reading(text)
+            rows = []
+
+            for number, section in enumerate(sections, start=1):
+                part = (
+                    filename if len(sections) == 1
+                    else f"{filename} (part {number} of {len(sections)})"
                 )
-            except Exception as error:  # noqa: BLE001
+
+                # One file failing costs that file. Four reports already read
+                # are never thrown away because the fifth timed out.
+                try:
+                    prompt = reading_prompt(section, part, instructions)
+                    answer = (
+                        active.generate(prompt) if chosen is not None
+                        else active.generate(model, prompt)
+                    )
+                except Exception as error:  # noqa: BLE001
+                    note_usage(
+                        kind="extract_file", provider=provider_name, model=model,
+                        status="failed", site_slug=site.slug,
+                    )
+                    failures.append(f"{part}: {error}")
+                    continue
+
                 note_usage(
                     kind="extract_file", provider=provider_name, model=model,
-                    status="failed", site_slug=site.slug,
+                    status=answer.status, prompt_tokens=answer.prompt_tokens,
+                    completion_tokens=answer.completion_tokens, site_slug=site.slug,
                 )
-                extractions.add_rows(reading.id, filename, [])
-                failures.append(f"{filename}: {error}")
-                continue
 
-            note_usage(
-                kind="extract_file", provider=provider_name, model=model,
-                status=answer.status, prompt_tokens=answer.prompt_tokens,
-                completion_tokens=answer.completion_tokens, site_slug=site.slug,
-            )
-            rows = parse_reading(answer.text) if answer.status == "complete" else []
+                if answer.status == "complete":
+                    rows += parse_reading(answer.text)
+                else:
+                    # A length cap, a refusal or a safety stop is not a part
+                    # with no prices in it, and the screen said the same
+                    # thing for both.
+                    failures.append(
+                        f"{part} was not read to the end — "
+                        + (answer.error or f"the model stopped ({answer.status}).")
+                    )
 
             # The pictures' text gets its own, short reading. Appended to a
             # 20-page report it sat at the end of ~15,000 tokens and was
@@ -294,14 +315,6 @@ def create_reading_routes(
                 rows += read_pictures(filename, pictures)
 
             extractions.add_rows(reading.id, filename, rows)
-
-            # A length cap, a refusal or a safety stop is not a report with no
-            # prices in it, and the screen said the same thing for both.
-            if answer.status != "complete":
-                failures.append(
-                    f"{filename} was not read to the end — "
-                    + (answer.error or f"the model stopped ({answer.status}).")
-                )
 
         store.record(
             user.email, "read reports", site.slug, f"{len(bodies)} file(s), reading #{reading.id}"
