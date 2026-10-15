@@ -42,11 +42,40 @@ from ..price_review.differ import js_number
 # touched.
 ROUNDABLE_STATUSES = ("suggested", "near_match", "derived")
 
+# Which way a price that sits between two multiples is taken. "nearest" is
+# the client's rulebook ("closest multiple of 5") and stays the default
+# everywhere; "up" and "down" are for the locations he always takes one way
+# -- at a step of 5, 97 is 100 rounding up and 95 rounding down, and both
+# leave an exact 95 alone.
+DIRECTIONS = ("nearest", "up", "down")
 
-def round_to_nearest(value: float, step: float | None) -> float:
-    """The nearest multiple of `step`, half away from zero -- the same rule
-    `app.editorial.rules._whole` already uses for a whole USD/MT, so a step
-    of 1 agrees with it exactly.
+# How each direction reads in a rationale and on the settings screen:
+# "to the nearest 5", "up to the next 5", "down to the previous 5".
+DIRECTION_LABELS = {
+    "nearest": "to the nearest",
+    "up": "up to the next",
+    "down": "down to the previous",
+}
+
+
+def normalise_direction(direction: str | None) -> str:
+    """Anything unrecognised -- blank, None, an old row written before this
+    column existed -- means the rulebook's own "closest multiple of"."""
+    chosen = (direction or "").strip().lower()
+
+    return chosen if chosen in DIRECTIONS else "nearest"
+
+
+def round_to_nearest(value: float, step: float | None, direction: str | None = "nearest") -> float:
+    """A multiple of `step`: the nearest one (half away from zero -- the same
+    rule `app.editorial.rules._whole` already uses for a whole USD/MT, so a
+    step of 1 agrees with it exactly), or the one above or below when the
+    location says always to go that way.
+
+    "Up" and "down" are the number line's up and down, not the magnitude's:
+    on a negative figure, down is the more negative multiple. Nothing in
+    this module prices below zero, but a silent sign flip would be worse
+    than an arithmetic that simply reads the way it is named.
 
     A step that is missing, zero or negative means "do not round": today's
     behaviour, and never a crash or a division by zero.
@@ -55,24 +84,46 @@ def round_to_nearest(value: float, step: float | None) -> float:
         return value
 
     scaled = value / step
-    rounded_units = math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
+    way = normalise_direction(direction)
+
+    if way == "up":
+        rounded_units = math.ceil(scaled)
+    elif way == "down":
+        rounded_units = math.floor(scaled)
+    else:
+        rounded_units = math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
 
     return rounded_units * step
+
+
+def _step_and_direction(override) -> tuple[float | None, str]:
+    """An override is either a plain step (how this module was first called,
+    and how every caller that does not care about direction still calls it)
+    or a (step, direction) pair."""
+    if isinstance(override, (tuple, list)):
+        step = override[0]
+        direction = override[1] if len(override) > 1 else "nearest"
+
+        return step, normalise_direction(direction)
+
+    return override, "nearest"
 
 
 def apply_rounding(
     rows: list[dict],
     default_step: float | None,
-    overrides: dict[str, float] | None = None,
+    overrides: dict[str, float | tuple[float, str]] | None = None,
 ) -> list[dict]:
     """Rounds every priced row's suggested price to its location's step.
 
     A location's own step (`overrides`) always beats the site's default;
     either one being empty, zero or negative leaves the row exactly as it
-    was. Never silent: a row whose price actually moves says so in its
-    rationale, the same way a derived price already states its calculation
-    ("Calculated from Singapore Bulk +20 USD") -- an editor must be able to
-    see that 1,647 became 1,645 and why, not just the 1,645.
+    was. An override may carry its own direction as a (step, direction)
+    pair; a bare number, and the site default, mean "nearest". Never
+    silent: a row whose price actually moves says so in its rationale, the
+    same way a derived price already states its calculation ("Calculated
+    from Singapore Bulk +20 USD") -- an editor must be able to see that
+    1,647 became 1,645 and why, not just the 1,645.
     """
     overrides = overrides or {}
 
@@ -86,13 +137,15 @@ def apply_rounding(
         if row.get("currency"):
             continue
 
-        step = overrides.get(row["location"], default_step)
+        step, direction = _step_and_direction(
+            overrides[row["location"]] if row["location"] in overrides else default_step
+        )
 
         if not step or step <= 0:
             continue
 
         original = row["suggested_price"]
-        rounded = round_to_nearest(original, step)
+        rounded = round_to_nearest(original, step, direction)
 
         if rounded == original:
             continue
@@ -112,7 +165,12 @@ def apply_rounding(
             continue
 
         row["suggested_price"] = js_number(rounded)
-        note = f"Rounded to the nearest {js_number(step)} (was {js_number(original)})."
+        # Which way it went matters to an editor checking a figure against
+        # the report, not just that it moved.
+        note = (
+            f"Rounded {DIRECTION_LABELS[direction]} {js_number(step)} "
+            f"(was {js_number(original)})."
+        )
         row["rationale"] = f"{row['rationale']} {note}" if row.get("rationale") else note
 
     return rows

@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import RoundingStore, RulesStore, Store, StoredSite
+from ..editorial.rounding import DIRECTION_LABELS, normalise_direction
 from ..editorial.rules import FIXED, PERCENT, PriceRule, _adjusted, adjustment_label
 from .config import ConsoleConfigError
 from .access import make_site_guard
@@ -292,6 +293,8 @@ def create_rules_routes(
                 "plain_number": plain_number,
                 "rule_notes": build_rule_notes(site_rules, locations),
                 "round_to_nearest": site.round_to_nearest,
+                "round_direction": getattr(site, "round_direction", "nearest"),
+                "direction_labels": DIRECTION_LABELS,
                 "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
             },
         )
@@ -506,18 +509,20 @@ def create_rules_routes(
             except ConsoleConfigError as error:
                 return back(site.slug, "err", str(error))
 
-            store.set_round_to_nearest(site.slug, step)
+            direction = normalise_direction(str(form.get("direction") or ""))
+            shown = f"{DIRECTION_LABELS[direction]} {plain_number(step)}"
+
+            store.set_round_to_nearest(site.slug, step, direction)
             store.record(
                 user.email,
                 "set the site's rounding step",
                 site.slug,
-                f"round to nearest {plain_number(step)}" if step else "no rounding",
+                f"round {shown}" if step else "no rounding",
             )
 
             return back(
                 site.slug, "ok",
-                f"Prices now round to the nearest {plain_number(step)}, in each price's own "
-                "currency." if step
+                f"Prices now round {shown}, in each price's own currency." if step
                 else "Rounding turned off — prices are used exactly as worked out.",
             )
 
@@ -543,7 +548,7 @@ def create_rules_routes(
             exact = str(form.get("exact") or "").strip() == "1"
 
             if exact:
-                rounding.set_override(site.slug, location, 0.0)
+                rounding.set_override(site.slug, location, 0.0, "nearest")
                 store.record(
                     user.email, "set a location's rounding step", site.slug,
                     f"{location} is never rounded — the price is used exactly as it is",
@@ -566,7 +571,9 @@ def create_rules_routes(
                     "instead.",
                 )
 
-            rounding.set_override(site.slug, location, step)
+            direction = normalise_direction(str(form.get("direction") or ""))
+
+            rounding.set_override(site.slug, location, step, direction)
 
             # Said in the location's own currency -- "the nearest Rs 1" -- when
             # the site names it. A site that is down only costs the sign.
@@ -582,13 +589,14 @@ def create_rules_routes(
             except SiteError:
                 currency = None
 
-            shown = step_label(step, currency)
+            # "rounds to the nearest $5", "rounds up to the next $5".
+            shown = f"{DIRECTION_LABELS[direction]} {step_label(step, currency)}"
             store.record(
                 user.email, "set a location's rounding step", site.slug,
-                f"{location} rounds to the nearest {shown}",
+                f"{location} rounds {shown}",
             )
 
-            return back(site.slug, "ok", f"{location} now rounds to the nearest {shown}.")
+            return back(site.slug, "ok", f"{location} now rounds {shown}.")
 
         @router.post("/console/sites/{slug}/rounding/override/{override_id}/delete")
         async def delete_rounding_override(request: Request, slug: str, override_id: int):

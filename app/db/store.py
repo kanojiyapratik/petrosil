@@ -50,6 +50,9 @@ class StoredSite:
     # None or 0 means no rounding -- today's behaviour. A location may
     # override this; see RoundingStore below.
     round_to_nearest: float | None = None
+    # Which way the site-wide step goes: "nearest" (the rulebook's "closest
+    # multiple of"), "up" or "down". A location's override carries its own.
+    round_direction: str = "nearest"
 
 
 @dataclass(frozen=True)
@@ -90,12 +93,14 @@ def _to_site(row) -> StoredSite:
         enabled=bool(row[5]),
         editorial_instructions=row[6],
         round_to_nearest=float(row[7]) if row[7] is not None else None,
+        round_direction=(row[8] or "nearest") if len(row) > 8 else "nearest",
     )
 
 
 USER_COLUMNS = "id, email, name, password_hash, is_admin, disabled_at, is_superadmin"
 SITE_COLUMNS = (
-    "id, slug, name, api_url, api_token, enabled, editorial_instructions, round_to_nearest"
+    "id, slug, name, api_url, api_token, enabled, editorial_instructions, round_to_nearest, "
+    "round_direction"
 )
 
 
@@ -297,14 +302,17 @@ class Store:
             )
             connection.commit()
 
-    def set_round_to_nearest(self, slug: str, step: float | None) -> None:
-        """The site-wide rounding step. None or 0 clears it -- no rounding,
-        today's behaviour -- rather than being refused as invalid."""
+    def set_round_to_nearest(
+        self, slug: str, step: float | None, direction: str = "nearest"
+    ) -> None:
+        """The site-wide rounding step and which way it goes. None or 0
+        clears the step -- no rounding, today's behaviour -- rather than
+        being refused as invalid."""
         with self._pool.connection() as connection:
             connection.execute(
-                "UPDATE console_sites SET round_to_nearest = %s, updated_at = now() "
-                "WHERE slug = %s",
-                (step if step else None, slug),
+                "UPDATE console_sites SET round_to_nearest = %s, round_direction = %s, "
+                "updated_at = now() WHERE slug = %s",
+                (step if step else None, direction, slug),
             )
             connection.commit()
 
@@ -740,6 +748,10 @@ class LocationRounding:
     id: int
     location: str
     round_to_nearest: float
+    # "nearest" | "up" | "down". Defaulted so a row built before this
+    # existed -- and every test that names only a step -- still reads as
+    # the rulebook's "closest multiple of".
+    direction: str = "nearest"
 
 
 class RoundingStore:
@@ -753,39 +765,47 @@ class RoundingStore:
     def __init__(self, pool) -> None:
         self._pool = pool
 
-    def for_site(self, site_slug: str) -> dict[str, float]:
-        """`{location: step}`, the shape apply_rounding wants."""
+    def for_site(self, site_slug: str) -> dict[str, tuple[float, str]]:
+        """`{location: (step, direction)}`, the shape apply_rounding wants."""
         with self._pool.connection() as connection:
             rows = connection.execute(
-                "SELECT location, round_to_nearest FROM console_location_rounding "
+                "SELECT location, round_to_nearest, direction FROM console_location_rounding "
                 "WHERE site_slug = %s",
                 (site_slug,),
             ).fetchall()
 
-        return {row[0]: float(row[1]) for row in rows}
+        return {row[0]: (float(row[1]), row[2] or "nearest") for row in rows}
 
     def list_for_site(self, site_slug: str) -> list[LocationRounding]:
         """The same overrides, with their ids, for the settings screen."""
         with self._pool.connection() as connection:
             rows = connection.execute(
-                "SELECT id, location, round_to_nearest FROM console_location_rounding "
+                "SELECT id, location, round_to_nearest, direction FROM console_location_rounding "
                 "WHERE site_slug = %s ORDER BY location",
                 (site_slug,),
             ).fetchall()
 
         return [
-            LocationRounding(id=int(row[0]), location=row[1], round_to_nearest=float(row[2]))
+            LocationRounding(
+                id=int(row[0]),
+                location=row[1],
+                round_to_nearest=float(row[2]),
+                direction=row[3] or "nearest",
+            )
             for row in rows
         ]
 
-    def set_override(self, site_slug: str, location: str, step: float) -> None:
+    def set_override(
+        self, site_slug: str, location: str, step: float, direction: str = "nearest"
+    ) -> None:
         with self._pool.connection() as connection:
             connection.execute(
                 "INSERT INTO console_location_rounding "
-                "(site_slug, location, round_to_nearest) VALUES (%s, %s, %s) "
+                "(site_slug, location, round_to_nearest, direction) VALUES (%s, %s, %s, %s) "
                 "ON CONFLICT (site_slug, location) DO UPDATE SET "
-                "round_to_nearest = EXCLUDED.round_to_nearest, updated_at = now()",
-                (site_slug, location, step),
+                "round_to_nearest = EXCLUDED.round_to_nearest, "
+                "direction = EXCLUDED.direction, updated_at = now()",
+                (site_slug, location, step, direction),
             )
             connection.commit()
 

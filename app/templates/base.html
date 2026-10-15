@@ -99,6 +99,10 @@ textarea { min-height:8.5rem; font-family:ui-monospace,SFMono-Regular,Menlo,mono
 .pair select { width:auto; flex:none; font-weight:600; }
 .check { display:flex; align-items:center; gap:.45rem; font-size:.88rem; color:var(--ink); font-weight:500; }
 .check input { width:auto; }
+/* A heading over a group of radios: a <label> would claim one of them. */
+.label-like { display:block; font-size:.8rem; font-weight:600; color:var(--muted); margin-bottom:.25rem; }
+/* A form opened inside a table row, in place of the row it edits. */
+.row-edit { background:var(--wash,#f7f8fa); border-radius:8px; padding:.75rem .85rem; }
 
 button,.btn { font:inherit; font-weight:600; font-size:.88rem; padding:.5rem .95rem; border-radius:7px;
   border:1px solid transparent; background:var(--accent); color:#fff; cursor:pointer; display:inline-block; }

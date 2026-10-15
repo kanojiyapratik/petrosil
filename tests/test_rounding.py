@@ -326,3 +326,66 @@ def test_the_reading_prompt_asks_where_each_figure_was_printed():
     flat = " ".join(READING_PREAMBLE.split())
     assert "note must also say WHERE the figure was printed" in flat
     assert '"price map"' in flat
+
+
+class TestWhichWayAPriceGoes:
+    """The rulebook's "closest multiple of 5" is the default, but a handful
+    of locations are always taken one way: at a step of 5, 97 is 100 going
+    up and 95 going down."""
+
+    def test_nearest_is_the_default_when_no_direction_is_named(self):
+        assert round_to_nearest(97, 5) == 95
+        assert round_to_nearest(98, 5) == 100
+
+    def test_up_takes_the_next_multiple(self):
+        assert round_to_nearest(97, 5, "up") == 100
+        assert round_to_nearest(91, 5, "up") == 95
+
+    def test_down_takes_the_one_below(self):
+        assert round_to_nearest(97, 5, "down") == 95
+        assert round_to_nearest(99, 5, "down") == 95
+
+    def test_a_price_already_on_the_step_never_moves_either_way(self):
+        for way in ("nearest", "up", "down"):
+            assert round_to_nearest(95, 5, way) == 95
+
+    def test_an_unknown_direction_falls_back_to_nearest(self):
+        # An empty column on a row written before this existed, or a value
+        # from a hand-edited database -- never a crash, never a silent
+        # change of which way a published price goes.
+        assert round_to_nearest(97, 5, "") == 95
+        assert round_to_nearest(97, 5, None) == 95
+        assert round_to_nearest(97, 5, "sideways") == 95
+
+    def test_an_override_can_carry_its_own_direction(self):
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 1641, 1641)]), 5, {SINGAPORE: (5, "up")})
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["suggested_price"] == 1645
+
+    def test_the_site_default_can_carry_one_too(self):
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 1641, 1641)]), (5, "down"))
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert row["suggested_price"] == 1640
+
+    def test_a_locations_direction_beats_the_sites(self):
+        rows = apply_rounding(
+            draft([suggestion(SINGAPORE, 1641, 1641), suggestion(KOREA, 1641, 1641)]),
+            (5, "down"),
+            {SINGAPORE: (5, "up")},
+        )
+
+        assert next(r for r in rows if r["location"] == SINGAPORE)["suggested_price"] == 1645
+        assert next(r for r in rows if r["location"] == KOREA)["suggested_price"] == 1640
+
+    def test_the_rationale_says_which_way_it_went(self):
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 1641, 1641)]), (5, "up"))
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert "Rounded up to the next 5" in row["rationale"]
+
+        rows = apply_rounding(draft([suggestion(SINGAPORE, 1641, 1641)]), (5, "down"))
+        row = next(r for r in rows if r["location"] == SINGAPORE)
+
+        assert "Rounded down to the previous 5" in row["rationale"]

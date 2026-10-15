@@ -136,12 +136,26 @@
     </p>
     <form method="post" action="/console/sites/{{ site.slug }}/rounding" data-no-overlay="1">
       <div class="field">
-        <label for="round_to_nearest">Round every price to the nearest</label>
+        <label for="round_to_nearest">Round every price to a multiple of</label>
         <input id="round_to_nearest" type="number" step="any" min="0" name="round_to_nearest"
                placeholder="5" value="{{ plain_number(round_to_nearest) }}"
                style="width:8rem">
         <p class="hint">In each price's own currency: 5 means $5 on a dollar price, €5 on a euro
           price and ₹5 on a rupee price.</p>
+      </div>
+      <div class="field">
+        <span class="label-like">Which way</span>
+        {% for value, title, example in [
+          ('nearest', 'Nearest', '97 → 95, 98 → 100'),
+          ('up', 'Always up', '97 → 100'),
+          ('down', 'Always down', '97 → 95')] %}
+          <label class="check">
+            <input type="radio" name="direction" value="{{ value }}"
+                   {% if round_direction == value %}checked{% endif %}>
+            {{ title }} <span class="hint" style="display:inline">— at a step of 5, {{ example }}</span>
+          </label>
+        {% endfor %}
+        <p class="hint">A price already on the step never moves, whichever way this is set.</p>
       </div>
       <div class="actions"><button type="submit">Save</button></div>
     </form>
@@ -159,12 +173,23 @@
           </select>
         </div>
         <div class="field">
-          <label for="rounding-step">Round to the nearest</label>
+          <label for="rounding-step">Round to a multiple of</label>
           <div class="pair">
             <span id="rounding-unit" aria-live="polite"></span>
             <input id="rounding-step" type="number" step="any" min="0" name="round_to_nearest"
                    placeholder="10" required style="width:8rem">
           </div>
+        </div>
+        <div class="field">
+          <span class="label-like">Which way</span>
+          {% for value, title in [
+            ('nearest', 'Nearest'), ('up', 'Always up'), ('down', 'Always down')] %}
+            <label class="check">
+              <input type="radio" name="direction" value="{{ value }}" class="rounding-direction"
+                     {% if value == 'nearest' %}checked{% endif %}>
+              {{ title }}
+            </label>
+          {% endfor %}
         </div>
       </div>
       <label class="check" style="margin-top:.5rem">
@@ -176,21 +201,64 @@
 
     {% if rounding_overrides %}
       <table style="margin-top:1rem">
-        <thead><tr><th>Location</th><th class="num">Rounds to the nearest</th><th></th></tr></thead>
+        <thead><tr><th>Location</th><th class="num">Rounds</th><th></th></tr></thead>
         <tbody>
           {% for override in rounding_overrides %}
-            <tr>
+            <tr data-rounding-row="{{ override.id }}">
               <td>{{ override.location }}</td>
-              <td class="num">{% if override.round_to_nearest %}{{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}</td>
+              <td class="num">{% if override.round_to_nearest %}{{ direction_labels[override.direction] }} {{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}</td>
               <td style="white-space:nowrap">
-                <button class="ghost" type="button" data-edit-rounding
-                        data-location="{{ override.location }}"
-                        data-step="{{ plain_number(override.round_to_nearest) }}">Edit</button>
+                <button class="ghost" type="button" data-edit-rounding="{{ override.id }}">Edit</button>
                 <form method="post"
                       action="/console/sites/{{ site.slug }}/rounding/override/{{ override.id }}/delete"
                       style="display:inline" data-no-overlay="1"
                       onsubmit="return confirm('Remove this override?')">
                   <button class="ghost" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+            {# Editing happens in the row itself: the list is at the bottom of
+               a long screen, and sending the editor back up to the form above
+               loses sight of the line being changed. Saving posts to the same
+               route, which upserts on (site, location) -- so a save over this
+               row IS the edit, exactly as it was before. #}
+            <tr data-rounding-edit="{{ override.id }}" hidden>
+              <td colspan="3">
+                <form method="post" action="/console/sites/{{ site.slug }}/rounding/override"
+                      data-no-overlay="1" class="row-edit">
+                  <input type="hidden" name="location" value="{{ override.location }}">
+                  <div class="fields">
+                    <div class="field">
+                      <label for="rounding-step-{{ override.id }}">Round to a multiple of</label>
+                      <div class="pair">
+                        <span>{{ step_label(None, currencies.get(override.location)) }}</span>
+                        <input id="rounding-step-{{ override.id }}" type="number" step="any" min="0"
+                               name="round_to_nearest" required style="width:8rem"
+                               value="{% if override.round_to_nearest %}{{ plain_number(override.round_to_nearest) }}{% endif %}"
+                               {% if not override.round_to_nearest %}disabled{% endif %}>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <span class="label-like">Which way</span>
+                      {% for value, title in [
+                        ('nearest', 'Nearest'), ('up', 'Always up'), ('down', 'Always down')] %}
+                        <label class="check">
+                          <input type="radio" name="direction" value="{{ value }}"
+                                 {% if override.direction == value %}checked{% endif %}>
+                          {{ title }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+                  <label class="check" style="margin-top:.5rem">
+                    <input type="checkbox" name="exact" value="1" data-row-exact
+                           {% if not override.round_to_nearest %}checked{% endif %}>
+                    Don't round this location — use its price exactly as it is
+                  </label>
+                  <div class="actions">
+                    <button type="submit">Save</button>
+                    <button class="ghost" type="button" data-cancel-rounding="{{ override.id }}">Cancel</button>
+                  </div>
                 </form>
               </td>
             </tr>
@@ -567,40 +635,68 @@
     });
   });
 
+  // A rounding step is edited in its own row rather than in the form above:
+  // the list sits at the bottom of a long screen, so sending the editor up
+  // to the top takes the line they are changing off the screen. The row's
+  // form posts to the same route, which upserts on (site, location).
+  function roundingRow(id) {
+    return {
+      shown: document.querySelector('[data-rounding-row="' + id + '"]'),
+      editor: document.querySelector('[data-rounding-edit="' + id + '"]'),
+    };
+  }
+
+  function closeRoundingEditors() {
+    document.querySelectorAll('[data-rounding-edit]').forEach(function (row) {
+      row.hidden = true;
+    });
+    document.querySelectorAll('[data-rounding-row]').forEach(function (row) {
+      row.hidden = false;
+    });
+  }
+
   document.querySelectorAll('[data-edit-rounding]').forEach(function (button) {
     button.addEventListener('click', function () {
-      var place = button.dataset.location;
-      var step = document.getElementById('rounding-step');
-      var listed = Array.prototype.some.call(roundingPlace.options, function (option) {
-        return option.value === place;
-      });
+      var id = button.dataset.editRounding;
+      var row = roundingRow(id);
 
-      // A step can outlive its location's name (a rename on the site); it
-      // is still editable, so it joins the list rather than silently
-      // becoming whichever location happens to be first.
-      if (!listed) {
-        roundingPlace.add(new Option(place, place));
+      if (!row.editor) {
+        return;
       }
 
-      roundingPlace.value = place;
-      roundingSign();
+      // One at a time: two open editors on the same list invite saving the
+      // one that is no longer in view.
+      var wasOpen = !row.editor.hidden;
+      closeRoundingEditors();
 
-      // A stored step of 0 is the "exactly as it is" choice, not a number
-      // the editor typed; the checkbox carries it, the box stays empty.
-      var exact = button.dataset.step === '0';
-
-      if (roundingExact) {
-        roundingExact.checked = exact;
-        exactToggled();
+      if (wasOpen) {
+        return;
       }
 
-      step.value = exact ? '' : button.dataset.step;
-      step.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.shown.hidden = true;
+      row.editor.hidden = false;
 
-      if (!exact) {
+      var step = row.editor.querySelector('input[name="round_to_nearest"]');
+
+      if (step && !step.disabled) {
         step.focus();
         step.select();
       }
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-rounding]').forEach(function (button) {
+    button.addEventListener('click', closeRoundingEditors);
+  });
+
+  // Same rule as the form above: "use it exactly as it is" makes the step
+  // box moot, so it greys out rather than sending a number that is ignored.
+  document.querySelectorAll('[data-row-exact]').forEach(function (box) {
+    var step = box.closest('form').querySelector('input[name="round_to_nearest"]');
+
+    box.addEventListener('change', function () {
+      step.disabled = box.checked;
+      step.required = !box.checked;
     });
   });
 

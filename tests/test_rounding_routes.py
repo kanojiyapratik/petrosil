@@ -38,11 +38,12 @@ class FakeStore:
     def record(self, *args, **kwargs):
         self.recorded.append(args)
 
-    def set_round_to_nearest(self, slug, step):
+    def set_round_to_nearest(self, slug, step, direction="nearest"):
         self.site = StoredSite(
             db_id=self.site.db_id, slug=self.site.slug, name=self.site.name,
             api_url=self.site.api_url, token=self.site.token, enabled=self.site.enabled,
             editorial_instructions=self.site.editorial_instructions, round_to_nearest=step,
+            round_direction=direction,
         )
 
 
@@ -63,16 +64,19 @@ class FakeRounding:
         self.deleted = []
 
     def for_site(self, slug):
-        return {row.location: row.round_to_nearest for row in self._overrides}
+        return {row.location: (row.round_to_nearest, row.direction) for row in self._overrides}
 
     def list_for_site(self, slug):
         return self._overrides
 
-    def set_override(self, slug, location, step):
-        self.set_calls.append((slug, location, step))
+    def set_override(self, slug, location, step, direction="nearest"):
+        self.set_calls.append((slug, location, step, direction))
         self._overrides = [row for row in self._overrides if row.location != location]
         self._overrides.append(
-            LocationRounding(id=len(self._overrides) + 1, location=location, round_to_nearest=step)
+            LocationRounding(
+                id=len(self._overrides) + 1, location=location, round_to_nearest=step,
+                direction=direction,
+            )
         )
 
     def delete(self, site_slug, override_id):
@@ -145,7 +149,13 @@ class TestTheScreenShowsTheCurrentSettings:
         page = client.get("/console/sites/baseoil/rules").text
 
         assert "Never rounded — used exactly as it is" in page
-        assert 'data-step="0"' in page  # Edit restores the checkbox, not a "0"
+        # Edit opens on the checkbox, not on a step of "0": the box is
+        # ticked and the step field is greyed out.
+        editor = page.split('data-rounding-edit="9"')[1]
+
+        assert "data-row-exact" in editor
+        assert re.search(r'data-row-exact[\s\S]{0,60}checked', editor)
+        assert re.search(r'name="round_to_nearest"[\s\S]{0,160}disabled', editor)
 
 
 class TestSavingTheSiteDefault:
@@ -204,7 +214,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0)]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest")]
         assert "ok=" in response.headers["location"]
 
     def test_a_missing_location_is_refused(self):
@@ -228,7 +238,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0)]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
         assert "ok=" in response.headers["location"]
         assert "exactly as it is" in unquote(response.headers["location"])
 
@@ -243,7 +253,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0)]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
 
     def test_a_blank_step_is_refused_rather_than_silently_doing_nothing(self):
         client, _, rounding = build()
@@ -314,9 +324,9 @@ class TestAStepIsWrittenTheWayAPersonWritesIt:
 
         page = client.get("/console/sites/baseoil/rules").text
 
-        assert ">₹1<" in page
-        assert ">€10<" in page
-        assert ">$5<" in page
+        assert "to the nearest ₹1" in page
+        assert "to the nearest €10" in page
+        assert "to the nearest $5" in page
         assert ">1.0<" not in page
 
     def test_the_site_default_field_has_no_trailing_zero(self):
@@ -345,22 +355,140 @@ class TestAStepIsWrittenTheWayAPersonWritesIt:
 
         page = client.get("/console/sites/baseoil/rules").text
 
-        assert ">10<" in page
+        assert "to the nearest 10" in page
 
 
-class TestEveryRowHasAnEditButton:
-    """Edit fills the form with the row's values; saving replaces the row."""
+class TestEveryRowIsEditedInPlace:
+    """The list sits at the bottom of a long screen, so Edit opens a form in
+    the row itself rather than scrolling the editor back up to the one at
+    the top and taking the line they are changing off the screen."""
 
-    def test_each_rounding_step_offers_edit_with_its_values(self):
+    def test_each_rounding_step_has_its_own_editor_carrying_its_values(self):
         overrides = [
             LocationRounding(id=1, location="BPCL BITUMEN - VG 10 (bulk)", round_to_nearest=1.0),
-            LocationRounding(id=2, location="Turkey Domestic EUR", round_to_nearest=10.0),
+            LocationRounding(
+                id=2, location="Turkey Domestic EUR", round_to_nearest=10.0, direction="up"
+            ),
         ]
         client, _, _ = build_with_currencies(FakeRounding(overrides))
 
         page = client.get("/console/sites/baseoil/rules").text
 
-        assert page.count("type=\"button\" data-edit-rounding") == 2
-        assert 'data-location="BPCL BITUMEN - VG 10 (bulk)"' in page
-        assert 'data-step="1"' in page
-        assert 'data-step="10"' in page
+        assert page.count('type="button" data-edit-rounding') == 2
+        assert 'data-rounding-edit="1"' in page
+        assert 'data-rounding-edit="2"' in page
+        # Each editor posts the row's own location, so nothing depends on the
+        # dropdown above still listing a title the site has since renamed.
+        assert '<input type="hidden" name="location" value="BPCL BITUMEN - VG 10 (bulk)">' in page
+        assert 'value="1"' in page
+        assert 'value="10"' in page
+
+    def test_an_editor_opens_on_the_direction_the_row_already_has(self):
+        overrides = [
+            LocationRounding(
+                id=2, location="Turkey Domestic EUR", round_to_nearest=10.0, direction="up"
+            ),
+        ]
+        client, _, _ = build_with_currencies(FakeRounding(overrides))
+
+        page = client.get("/console/sites/baseoil/rules").text
+        editor = page.split('data-rounding-edit="2"')[1]
+
+        assert re.search(r'value="up"[\s\S]{0,60}checked', editor)
+        assert "up to the next €10" in page
+
+
+class TestSavingWhichWayAPriceRounds:
+    """"Nearest" stays the default everywhere, so a form that does not name
+    a direction -- an old bookmark, a script -- keeps today's behaviour."""
+
+    def test_the_site_default_remembers_the_direction(self):
+        client, store, _ = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding",
+            data={"round_to_nearest": "5", "direction": "up"},
+            follow_redirects=False,
+        )
+
+        assert store.site.round_to_nearest == 5.0
+        assert store.site.round_direction == "up"
+
+    def test_the_site_default_says_which_way_it_now_rounds(self):
+        client, _, _ = build()
+
+        response = client.post(
+            "/console/sites/baseoil/rounding",
+            data={"round_to_nearest": "5", "direction": "down"},
+            follow_redirects=False,
+        )
+
+        assert "down to the previous 5" in unquote(response.headers["location"])
+
+    def test_a_missing_direction_means_nearest(self):
+        client, store, _ = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding", data={"round_to_nearest": "5"},
+            follow_redirects=False,
+        )
+
+        assert store.site.round_direction == "nearest"
+
+    def test_an_override_remembers_its_direction(self):
+        client, _, rounding = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "round_to_nearest": "10", "direction": "down"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "down")]
+
+    def test_an_override_says_which_way_it_now_rounds(self):
+        client, _, _ = build_with_currencies()
+
+        response = client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={
+                "location": "BPCL BITUMEN - VG 10 (bulk)", "round_to_nearest": "1",
+                "direction": "up",
+            },
+            follow_redirects=False,
+        )
+
+        assert "up to the next ₹1" in unquote(response.headers["location"])
+
+    def test_a_junk_direction_falls_back_to_nearest_rather_than_being_stored(self):
+        client, _, rounding = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "round_to_nearest": "10", "direction": "sideways"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest")]
+
+    def test_never_rounded_keeps_a_direction_that_means_nothing_out_of_the_way(self):
+        # A step of 0 is "use it exactly as it is": there is no direction to
+        # choose, so one is never stored against it.
+        client, _, rounding = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "exact": "1", "direction": "up"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
+
+    def test_the_screen_offers_all_three_ways_on_both_forms(self):
+        client, _, _ = build()
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert page.count('name="direction" value="up"') >= 2
+        assert page.count('name="direction" value="down"') >= 2
+        assert page.count('name="direction" value="nearest"') >= 2

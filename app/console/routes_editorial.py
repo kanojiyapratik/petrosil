@@ -607,7 +607,7 @@ def create_editorial_routes(
             # app/editorial/rounding.py.
             rows = apply_rounding(
                 rows,
-                site.round_to_nearest,
+                (site.round_to_nearest, getattr(site, "round_direction", "nearest")),
                 rounding.for_site(site.slug) if rounding is not None else None,
             )
 

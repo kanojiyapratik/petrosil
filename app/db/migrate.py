@@ -389,6 +389,21 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE console_sites ADD COLUMN IF NOT EXISTS ai_model TEXT;
         """,
     ),
+    Migration(
+        id="0015_rounding_direction",
+        sql="""
+        -- Which way a location's price goes when it sits between two
+        -- multiples of its step: the nearest one (the client's rulebook,
+        -- and what every existing override already did), or always up, or
+        -- always down. See app/editorial/rounding.py.
+        ALTER TABLE console_location_rounding
+            ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'nearest';
+
+        -- The same choice for the site-wide step.
+        ALTER TABLE console_sites
+            ADD COLUMN IF NOT EXISTS round_direction TEXT NOT NULL DEFAULT 'nearest';
+        """,
+    ),
 ]
 
 
