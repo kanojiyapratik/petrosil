@@ -211,7 +211,9 @@ class TestTheScreenItself:
     def test_both_fields_are_the_same_control(self):
         page = screen([rule("Korea TOBS", "Singapore SN 150", -10)]).text
 
-        assert page.count('class="combo-field"') == 2
+        # Two in the form at the top, plus one in each rule's own editor --
+        # the row offers the reference, never the derived location.
+        assert page.count('class="combo-field"') == 3
         assert 'data-combo="derived"' in page
         assert 'data-combo="reference"' in page
         # The old mismatched pair: a dropdown on the left, a text box on the right.
@@ -508,20 +510,54 @@ class TestTheWorkedExample:
         assert "New Place" in payload(page, "LOCATIONS")
 
 
-class TestEveryRuleHasAnEditButton:
-    def test_each_rule_offers_edit_with_its_values(self):
-        stored = [
-            PriceRule(id=1, derived_location="Korea TOBS", reference_location="Singapore SN 150",
-                      adjustment_value=-96.5517, adjustment_kind="percent"),
-            PriceRule(id=2, derived_location="Saudi SN 500", reference_location="Europe FOB SN 150",
-                      adjustment_value=5.0, adjustment_kind="eur"),
-        ]
+class TestEveryRuleIsEditedInPlace:
+    """The list sits at the bottom of a long screen, so Edit opens a form in
+    the row itself rather than scrolling back up to the one at the top and
+    taking the rule being changed off the screen."""
 
-        page = screen(stored).text
+    STORED = [
+        PriceRule(id=1, derived_location="Korea TOBS", reference_location="Singapore SN 150",
+                  adjustment_value=-96.5517, adjustment_kind="percent"),
+        PriceRule(id=2, derived_location="Saudi SN 500", reference_location="Europe FOB SN 150",
+                  adjustment_value=5.0, adjustment_kind="eur"),
+    ]
 
-        assert page.count("type=\"button\" data-edit-rule") == 2
-        assert 'data-derived="Korea TOBS"' in page
-        assert 'data-reference="Singapore SN 150"' in page
-        assert 'data-value="-96.5517"' in page
-        assert 'data-value="5"' in page
-        assert 'data-kind="eur"' in page
+    def test_each_rule_has_its_own_editor(self):
+        page = screen(self.STORED).text
+
+        assert page.count('type="button" data-edit-rule') == 2
+        assert 'data-rule-edit="1"' in page
+        assert 'data-rule-edit="2"' in page
+
+    def test_an_editor_opens_on_the_rules_own_values(self):
+        page = screen(self.STORED).text
+        editor = page.split('data-rule-edit="1"')[1].split('data-rule-row="2"')[0]
+
+        assert 'value="Singapore SN 150"' in editor
+        assert 'value="-96.5517"' in editor
+        assert re.search(r'value="percent"[\s\S]{0,60}selected', editor)
+
+    def test_a_fixed_amount_opens_on_its_own_unit(self):
+        page = screen(self.STORED).text
+        editor = page.split('data-rule-edit="2"')[1]
+
+        assert 'value="5"' in editor
+        assert re.search(r'value="eur"[\s\S]{0,60}selected', editor)
+
+    def test_the_editor_posts_the_rules_derived_location_without_offering_it(self):
+        # The rule is stored against its derived location -- one price, one
+        # formula -- so changing that side here would leave the old rule
+        # behind and add a second. The row shows it; the top form moves it.
+        page = screen(self.STORED).text
+        editor = page.split('data-rule-edit="1"')[1].split('data-rule-row="2"')[0]
+
+        assert '<input type="hidden" name="derived_location" value="Korea TOBS">' in editor
+        assert 'data-combo="derived"' not in editor
+
+    def test_the_editor_saves_through_the_same_route_as_the_form_above(self):
+        # Which upserts on (site, derived location), so a save over the row
+        # is the edit rather than a second rule.
+        page = screen(self.STORED).text
+        editor = page.split('data-rule-edit="1"')[1].split('data-rule-row="2"')[0]
+
+        assert 'action="/console/sites/baseoil/rules"' in editor

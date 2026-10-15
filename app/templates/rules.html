@@ -65,7 +65,7 @@
           </div>
           <p class="rulenote mute" id="adjustment-note">
             <span class="mark">ⓘ</span>
-            <span id="adjustment-sum"></span>
+            <span id="adjustment-sum" data-adjustment-sum></span>
           </p>
         </div>
       </div>
@@ -91,7 +91,7 @@
       </tr></thead>
       <tbody>
         {% for rule in rules %}
-          <tr {% if not rule.enabled %}class="muted"{% endif %}>
+          <tr data-rule-row="{{ rule.id }}" {% if not rule.enabled %}class="muted"{% endif %}>
             <td>{{ rule.derived_location }}</td>
             <td>{{ rule.reference_location }}</td>
             <td class="num">{{ label(rule) }}</td>
@@ -101,11 +101,7 @@
               </span>
             </td>
             <td style="white-space:nowrap">
-              <button class="ghost" type="button" data-edit-rule
-                      data-derived="{{ rule.derived_location }}"
-                      data-reference="{{ rule.reference_location }}"
-                      data-value="{{ plain_number(rule.adjustment_value) }}"
-                      data-kind="{{ rule.adjustment_kind }}">Edit</button>
+              <button class="ghost" type="button" data-edit-rule="{{ rule.id }}">Edit</button>
               <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/toggle"
                     style="display:inline" data-no-overlay="1">
                 <input type="hidden" name="enabled" value="{{ '0' if rule.enabled else '1' }}">
@@ -115,6 +111,67 @@
                     style="display:inline" data-no-overlay="1"
                     onsubmit="return confirm('Remove this rule?')">
                 <button class="ghost" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {# Edited in the row itself. The rule is stored against its derived
+             location -- one price, one formula -- so that side is shown
+             rather than offered: changing it here would quietly leave the
+             old rule behind and add a second one. Moving a rule to another
+             price is what the form at the top is for. #}
+          <tr data-rule-edit="{{ rule.id }}" class="row-editing" hidden>
+            <td colspan="5">
+              <form method="post" action="/console/sites/{{ site.slug }}/rules"
+                    data-no-overlay="1" class="row-edit">
+                <input type="hidden" name="derived_location" value="{{ rule.derived_location }}">
+                <div class="fields">
+                  <div class="field">
+                    <span class="label-like">This price</span>
+                    <p class="fixed-value">{{ rule.derived_location }}</p>
+                  </div>
+                  <div class="field">
+                    <label for="reference-button-{{ rule.id }}">&hellip;is calculated from</label>
+                    <div class="combo" data-combo="reference" data-value="{{ rule.reference_location }}">
+                      <input type="hidden" name="reference_location"
+                             value="{{ rule.reference_location }}">
+                      <button type="button" class="combo-field" id="reference-button-{{ rule.id }}"
+                              aria-haspopup="listbox" aria-expanded="false">
+                        <span class="combo-value">{{ rule.reference_location }}</span>
+                        <span class="combo-caret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="combo-pop" hidden>
+                        <input type="text" class="combo-search"
+                               placeholder="Type to search, or type a report price…"
+                               autocomplete="off" spellcheck="false" aria-label="Filter locations">
+                        <div class="combo-list" role="listbox"></div>
+                      </div>
+                    </div>
+                    <p class="rulenote" data-note="reference" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="adjustment-value-{{ rule.id }}">Less or more by</label>
+                    <div class="pair">
+                      <input id="adjustment-value-{{ rule.id }}" type="number" step="any"
+                             name="adjustment_value" required
+                             value="{{ plain_number(rule.adjustment_value) }}">
+                      <select name="adjustment_kind" aria-label="Percent or a fixed amount">
+                        {% for value, shown in [
+                          ('percent', '%'), ('usd', 'US$'), ('eur', '€'), ('inr', '₹')] %}
+                          <option value="{{ value }}"
+                                  {% if rule.adjustment_kind == value %}selected{% endif %}>{{ shown }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <p class="rulenote mute">
+                      <span class="mark">ⓘ</span>
+                      <span data-adjustment-sum></span>
+                    </p>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button type="submit">Save</button>
+                  <button class="ghost" type="button" data-cancel-rule="{{ rule.id }}">Cancel</button>
+                </div>
               </form>
             </td>
           </tr>
@@ -222,7 +279,7 @@
                loses sight of the line being changed. Saving posts to the same
                route, which upserts on (site, location) -- so a save over this
                row IS the edit, exactly as it was before. #}
-            <tr data-rounding-edit="{{ override.id }}" hidden>
+            <tr data-rounding-edit="{{ override.id }}" class="row-editing" hidden>
               <td colspan="3">
                 <form method="post" action="/console/sites/{{ site.slug }}/rounding/override"
                       data-no-overlay="1" class="row-edit">
@@ -292,12 +349,16 @@
   var KIND_FOR = { USD: 'usd', EUR: 'eur', INR: 'inr' };
   var SYMBOL = { usd: '$', eur: '€', inr: '₹' };
 
-  function example() {
-    var kind = document.getElementById('adjustment_kind');
-    var amount = document.getElementById('adjustment_value');
-    var sum = document.getElementById('adjustment-sum');
-    var from = document.querySelector('[data-combo="reference"] input[type=hidden]').value;
-    var to = document.querySelector('[data-combo="derived"] input[type=hidden]').value;
+  // Every one of these lives in a form -- the one at the top, or the one a
+  // row opens in place -- and each must read and write its OWN fields. A
+  // lookup by id would have the row's Save rewriting the example under the
+  // form at the top, or worse, saving the amount typed there.
+  function example(scope) {
+    var kind = scope.querySelector('[name="adjustment_kind"]');
+    var amount = scope.querySelector('[name="adjustment_value"]');
+    var sum = scope.querySelector('[data-adjustment-sum]');
+    var from = scope.querySelector('[name="reference_location"]').value;
+    var to = scope.querySelector('[name="derived_location"]').value;
     var typed = parseFloat(amount.value);
     var fixed = kind.value !== 'percent';
     var sign = fixed ? SYMBOL[kind.value] : '';
@@ -330,8 +391,8 @@
   // Picking a price that is in euros or rupees while a fixed amount is chosen
   // moves the unit to that currency: the save refuses a mismatch anyway, and
   // it is kinder to get it right before than to explain it after.
-  function matchUnit(name) {
-    var kind = document.getElementById('adjustment_kind');
+  function matchUnit(scope, name) {
+    var kind = scope.querySelector('[name="adjustment_kind"]');
     var own = KIND_FOR[(CURRENCIES[name] || '').toUpperCase()];
 
     if (own && kind.value !== 'percent' && kind.value !== own) {
@@ -371,13 +432,14 @@
 
   function combo(root) {
     var side = root.dataset.combo;
+    var scope = root.closest('form');
     var hidden = root.querySelector('input[type=hidden]');
     var button = root.querySelector('.combo-field');
     var value = root.querySelector('.combo-value');
     var pop = root.querySelector('.combo-pop');
     var search = root.querySelector('.combo-search');
     var list = root.querySelector('.combo-list');
-    var note = form.querySelector('[data-note="' + side + '"]');
+    var note = scope.querySelector('[data-note="' + side + '"]');
     var rows = [];
     var active = -1;
 
@@ -404,12 +466,12 @@
       root.classList.remove('missing');
       close();
       if (side === 'derived') {
-        matchUnit(name);
+        matchUnit(scope, name);
       }
 
       // The worked example names both locations and uses the price of the
       // one on the right, so it is rewritten whenever either changes.
-      example();
+      example(scope);
     }
 
     function row(name, label) {
@@ -582,9 +644,16 @@
     };
   }
 
+  // The two at the top are kept by name, because the submit guard below has
+  // to flag whichever was left empty. A row's own combo needs no handle: it
+  // opens already filled in with the rule's reference.
   var combos = {};
   document.querySelectorAll('[data-combo]').forEach(function (root) {
-    combos[root.dataset.combo] = combo(root);
+    var made = combo(root);
+
+    if (root.closest('#rule-form')) {
+      combos[root.dataset.combo] = made;
+    }
   });
 
   // The rounding step is in the picked location's own currency, so the sign
@@ -617,66 +686,97 @@
     exactToggled();
   }
 
-  // Edit fills the form above with the row's values. Saving replaces the row
-  // rather than adding a second one: a price has one rule and one rounding
-  // step, so a save over it IS the edit.
+  // A rule, like a rounding step, is edited in its own row rather than in
+  // the form at the top: both lists sit at the bottom of a long screen, and
+  // scrolling the editor back up takes the line they are changing off it.
+  // The row's form posts to the same route, which upserts on (site, derived
+  // location) -- so a save over the row IS the edit, as it always was.
+  function openInPlace(rowKey, editKey) {
+    function all(name) {
+      return document.querySelectorAll('[' + name + ']');
+    }
+
+    function closeAll() {
+      all(editKey).forEach(function (row) { row.hidden = true; });
+      all(rowKey).forEach(function (row) { row.hidden = false; });
+    }
+
+    return { closeAll: closeAll, open: function (id) {
+      var shown = document.querySelector('[' + rowKey + '="' + id + '"]');
+      var editor = document.querySelector('[' + editKey + '="' + id + '"]');
+
+      if (!editor) {
+        return null;
+      }
+
+      // One at a time: a second editor open further up the list invites
+      // saving the one that is no longer on the screen.
+      var wasOpen = !editor.hidden;
+      closeAll();
+
+      if (wasOpen) {
+        return null;
+      }
+
+      shown.hidden = true;
+      editor.hidden = false;
+
+      return editor;
+    } };
+  }
+
+  var ruleRows = openInPlace('data-rule-row', 'data-rule-edit');
+
   document.querySelectorAll('[data-edit-rule]').forEach(function (button) {
     button.addEventListener('click', function () {
-      var amount = document.getElementById('adjustment_value');
-      // The unit first, so picking the price below keeps it rather than
-      // switching it to the price's currency.
-      document.getElementById('adjustment_kind').value = button.dataset.kind || 'percent';
-      amount.value = button.dataset.value;
-      combos.derived.set(button.dataset.derived);
-      combos.reference.set(button.dataset.reference);
-      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var editor = ruleRows.open(button.dataset.editRule);
+
+      if (!editor) {
+        return;
+      }
+
+      var amount = editor.querySelector('[name="adjustment_value"]');
+
+      // The worked example is only written when something changes, so a
+      // freshly opened editor has to ask for it once.
+      example(editor.querySelector('form'));
       amount.focus();
       amount.select();
     });
   });
 
-  // A rounding step is edited in its own row rather than in the form above:
-  // the list sits at the bottom of a long screen, so sending the editor up
-  // to the top takes the line they are changing off the screen. The row's
-  // form posts to the same route, which upserts on (site, location).
-  function roundingRow(id) {
-    return {
-      shown: document.querySelector('[data-rounding-row="' + id + '"]'),
-      editor: document.querySelector('[data-rounding-edit="' + id + '"]'),
-    };
-  }
+  document.querySelectorAll('[data-cancel-rule]').forEach(function (button) {
+    button.addEventListener('click', ruleRows.closeAll);
+  });
 
-  function closeRoundingEditors() {
-    document.querySelectorAll('[data-rounding-edit]').forEach(function (row) {
-      row.hidden = true;
+  // Each form's own amount and unit drive its own example.
+  document.querySelectorAll('form').forEach(function (scope) {
+    if (!scope.querySelector('[data-adjustment-sum]')) {
+      return;
+    }
+
+    ['[name="adjustment_kind"]', '[name="adjustment_value"]'].forEach(function (selector) {
+      var field = scope.querySelector(selector);
+      var event = selector.indexOf('kind') === -1 ? 'input' : 'change';
+
+      if (field) {
+        field.addEventListener(event, function () { example(scope); });
+      }
     });
-    document.querySelectorAll('[data-rounding-row]').forEach(function (row) {
-      row.hidden = false;
-    });
-  }
+  });
+
+  // A rounding step opens in its row the same way, through the same helper.
+  var roundingRows = openInPlace('data-rounding-row', 'data-rounding-edit');
 
   document.querySelectorAll('[data-edit-rounding]').forEach(function (button) {
     button.addEventListener('click', function () {
-      var id = button.dataset.editRounding;
-      var row = roundingRow(id);
+      var editor = roundingRows.open(button.dataset.editRounding);
 
-      if (!row.editor) {
+      if (!editor) {
         return;
       }
 
-      // One at a time: two open editors on the same list invite saving the
-      // one that is no longer in view.
-      var wasOpen = !row.editor.hidden;
-      closeRoundingEditors();
-
-      if (wasOpen) {
-        return;
-      }
-
-      row.shown.hidden = true;
-      row.editor.hidden = false;
-
-      var step = row.editor.querySelector('input[name="round_to_nearest"]');
+      var step = editor.querySelector('input[name="round_to_nearest"]');
 
       if (step && !step.disabled) {
         step.focus();
@@ -686,7 +786,7 @@
   });
 
   document.querySelectorAll('[data-cancel-rounding]').forEach(function (button) {
-    button.addEventListener('click', closeRoundingEditors);
+    button.addEventListener('click', roundingRows.closeAll);
   });
 
   // Same rule as the form above: "use it exactly as it is" makes the step
@@ -700,9 +800,7 @@
     });
   });
 
-  document.getElementById('adjustment_kind').addEventListener('change', example);
-  document.getElementById('adjustment_value').addEventListener('input', example);
-  example();
+  example(form);
 
   // A hidden input is exempt from the browser's own "please fill this in", so
   // the check has to be made here -- otherwise the first thing an editor sees

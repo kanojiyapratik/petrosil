@@ -77,6 +77,11 @@ thead th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-sp
 tbody td { padding:.6rem .75rem; border-bottom:1px solid var(--line); vertical-align:top; }
 tbody tr:last-child td { border-bottom:0; }
 tbody tr:hover { background:#f8fafc; }
+/* A row that is standing in for another (an editor opened in place) is
+   hidden outright: spelled out, because the rest of this sheet does the
+   same wherever `hidden` has to beat a display of its own. */
+tr[hidden] { display:none; }
+tbody tr.row-editing:hover { background:transparent; }
 td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 .wrap { word-break:break-all; }
 
@@ -103,6 +108,8 @@ textarea { min-height:8.5rem; font-family:ui-monospace,SFMono-Regular,Menlo,mono
 .label-like { display:block; font-size:.8rem; font-weight:600; color:var(--muted); margin-bottom:.25rem; }
 /* A form opened inside a table row, in place of the row it edits. */
 .row-edit { background:var(--wash,#f7f8fa); border-radius:8px; padding:.75rem .85rem; }
+/* A value the row's form shows but does not offer to change. */
+.fixed-value { margin:0; padding:.5rem 0; font-weight:600; color:var(--ink); }
 
 button,.btn { font:inherit; font-weight:600; font-size:.88rem; padding:.5rem .95rem; border-radius:7px;
   border:1px solid transparent; background:var(--accent); color:#fff; cursor:pointer; display:inline-block; }
