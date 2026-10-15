@@ -519,3 +519,99 @@ class TestHomeCurrency:
         rows = convert_rows(home_draft([turkey_row(location=TURKEY_EUR)]), rates, "2026-08-19")
 
         assert row_for(rows, TURKEY_EUR)["suggested_price"] == 1984.6
+
+
+class TestAFigureTakenAsPrinted:
+    """"Uk south is already in euro in argus.. No need to convert" -- the
+    client, 14.10.2026. Argus prints Southern UK's first pair under a £/t
+    heading and his published euro price is that same number, unconverted.
+
+    The model is not wrong to call it GBP: it reads the report correctly,
+    and it is told to report the currency as printed. The judgement that
+    the figure is already this location's price is the editor's, so it is
+    stored against the location and honoured here. Two drafts were run with
+    instructions saying "with currency EUR" and both came back converted,
+    the second narrating "left in GBP as instructed" -- which is why this
+    is a setting and not a sentence.
+    """
+
+    def pounds(self, **overrides):
+        row = turkey_row(
+            location=TURKEY_EUR, suggested_min=465, suggested_max=480, currency="GBP",
+            price_date="2026-09-25",
+        )
+        row.update(overrides)
+
+        return row
+
+    def test_the_printed_figure_is_the_price_and_no_rate_is_fetched(self):
+        rates = FakeRates({("GBP", "2026-09-25"): FxRate(
+            currency="GBP", rate=0.7546, rate_date="2026-09-25", source="ECB")})
+
+        rows = convert_rows(
+            home_draft([self.pounds()]), rates, "2026-09-25",
+            home={TURKEY_EUR: "EUR"}, as_printed={TURKEY_EUR},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert row["suggested_min"] == 465
+        assert row["suggested_max"] == 480
+        assert row["suggested_price"] == 472.5
+        assert row["status"] == "suggested"
+        assert row["currency"] is None
+        assert "conversion" not in row
+        assert rates.asked == []
+
+    def test_the_row_says_it_was_taken_as_printed(self):
+        # The one thing worse than converting it is not converting it
+        # silently: 472 beside a euro sign has to explain itself.
+        rows = convert_rows(
+            home_draft([self.pounds()]), FakeRates({}), "2026-09-25",
+            home={TURKEY_EUR: "EUR"}, as_printed={TURKEY_EUR},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert "as printed" in row["rationale"]
+        assert "GBP" in row["rationale"]
+        assert "EUR" in row["rationale"]
+        assert row["as_printed"] is True
+
+    def test_without_the_setting_the_same_figure_is_converted_as_before(self):
+        rates = FakeRates({
+            ("GBP", "2026-09-25"): FxRate(
+                currency="GBP", rate=0.7546, rate_date="2026-09-25", source="ECB"),
+            ("EUR", "2026-09-25"): FxRate(
+                currency="EUR", rate=0.8797, rate_date="2026-09-25", source="ECB"),
+        })
+
+        rows = convert_rows(
+            home_draft([self.pounds()]), rates, "2026-09-25", home={TURKEY_EUR: "EUR"}
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        # 472.5 / 0.7546 * 0.8797 -- within a few cents of the 550.87 that
+        # reached the client, which used the rate to its fifth decimal.
+        assert row["suggested_price"] == 550.83
+        assert "conversion" in row
+
+    def test_it_touches_only_the_location_it_names(self):
+        rates = FakeRates({("TRY", "2026-08-19"): RATE})
+
+        rows = convert_rows(
+            home_draft([turkey_row(), self.pounds()]), rates, "2026-08-19",
+            home={TURKEY_EUR: "EUR"}, as_printed={TURKEY_EUR},
+        )
+
+        # The lira benchmark still converts; only UK's row is left alone.
+        assert row_for(rows, TURKEY)["suggested_price"] == 1984.6
+        assert row_for(rows, TURKEY_EUR)["suggested_price"] == 472.5
+
+    def test_a_location_with_no_figure_is_not_touched_by_it(self):
+        rows = convert_rows(
+            home_draft([]), FakeRates({}), "2026-09-25",
+            home={TURKEY_EUR: "EUR"}, as_printed={TURKEY_EUR},
+        )
+        row = row_for(rows, TURKEY_EUR)
+
+        assert row["status"] == "no_evidence"
+        assert row.get("as_printed") is not True

@@ -547,16 +547,23 @@ def create_rules_routes(
             # location alone" whatever the site default says.
             exact = str(form.get("exact") or "").strip() == "1"
 
+            # "Uk south is already in euro in argus.. No need to convert" --
+            # whatever currency the report prints this location's figure in,
+            # it is already a price here and the exchange rate never touches
+            # it. See app/editorial/fx.py.
+            as_printed = str(form.get("as_printed") or "").strip() == "1"
+            asked = " and its figure is taken as printed, never converted" if as_printed else ""
+
             if exact:
-                rounding.set_override(site.slug, location, 0.0, "nearest")
+                rounding.set_override(site.slug, location, 0.0, "nearest", as_printed)
                 store.record(
                     user.email, "set a location's rounding step", site.slug,
-                    f"{location} is never rounded — the price is used exactly as it is",
+                    f"{location} is never rounded — the price is used exactly as it is{asked}",
                 )
 
                 return back(
                     site.slug, "ok",
-                    f"{location} is never rounded — its price is used exactly as it is.",
+                    f"{location} is never rounded — its price is used exactly as it is{asked}.",
                 )
 
             try:
@@ -573,7 +580,7 @@ def create_rules_routes(
 
             direction = normalise_direction(str(form.get("direction") or ""))
 
-            rounding.set_override(site.slug, location, step, direction)
+            rounding.set_override(site.slug, location, step, direction, as_printed)
 
             # Said in the location's own currency -- "the nearest Rs 1" -- when
             # the site names it. A site that is down only costs the sign.
@@ -593,10 +600,10 @@ def create_rules_routes(
             shown = f"{DIRECTION_LABELS[direction]} {step_label(step, currency)}"
             store.record(
                 user.email, "set a location's rounding step", site.slug,
-                f"{location} rounds {shown}",
+                f"{location} rounds {shown}{asked}",
             )
 
-            return back(site.slug, "ok", f"{location} now rounds {shown}.")
+            return back(site.slug, "ok", f"{location} now rounds {shown}{asked}.")
 
         @router.post("/console/sites/{slug}/rounding/override/{override_id}/delete")
         async def delete_rounding_override(request: Request, slug: str, override_id: int):

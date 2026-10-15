@@ -107,7 +107,11 @@ class CachedRates:
 
 
 def convert_rows(
-    rows: list[dict], rates, pricedate: str, home: dict[str, str] | None = None
+    rows: list[dict],
+    rates,
+    pricedate: str,
+    home: dict[str, str] | None = None,
+    as_printed: set[str] | None = None,
 ) -> list[dict]:
     """Turns every `foreign` row -- and a dollar figure for a location priced
     in another currency -- into a price in its location's own currency.
@@ -122,11 +126,39 @@ def convert_rows(
     lira for a euro location becomes euros, not dollars. A location with no
     home -- a dollar site, or a report benchmark, which is not a location at
     all -- becomes USD as it always has.
+
+    `as_printed` names the locations the editor has marked "already in this
+    location's currency, convert nothing". UK South is the case: Argus marks
+    that row £/t, the client's published euro price is that number
+    unconverted, and the model is right to report it as GBP -- it is reading
+    the report correctly. The judgement that the printed figure is already
+    the price is the editor's, so it is stored per location and applied
+    here, rather than asked of the model in words that two drafts running
+    ignored. The figure is kept exactly as printed; only its label changes.
     """
     home = {name: code.strip().upper() for name, code in (home or {}).items() if code}
+    as_printed = as_printed or set()
 
     for row in rows:
         target = home.get(row["location"], "USD")
+
+        if row["location"] in as_printed and row.get("status") in ("foreign", "suggested"):
+            # Whatever the report printed it in, here it is already a price.
+            # Nothing is recomputed: the number the editor sees is the number
+            # the report printed, and the rationale says so, because a figure
+            # that silently changed currency is worse than one that did not.
+            if row.get("currency") and row.get("suggested_price") is not None:
+                row["rationale"] = (
+                    f"Taken as printed: {row['currency']} "
+                    f"{row['suggested_price']:,.0f} is read as {target} "
+                    f"{row['suggested_price']:,.0f}, not converted "
+                    f"(this location is set to take the figure as printed). "
+                    + (row.get("rationale") or "")
+                ).strip()
+
+            row.update({"status": "suggested", "currency": None, "as_printed": True})
+
+            continue
 
         if row.get("status") == "foreign":
             currency = row["currency"]

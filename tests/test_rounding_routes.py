@@ -69,15 +69,18 @@ class FakeRounding:
     def list_for_site(self, slug):
         return self._overrides
 
-    def set_override(self, slug, location, step, direction="nearest"):
-        self.set_calls.append((slug, location, step, direction))
+    def set_override(self, slug, location, step, direction="nearest", as_printed=False):
+        self.set_calls.append((slug, location, step, direction, as_printed))
         self._overrides = [row for row in self._overrides if row.location != location]
         self._overrides.append(
             LocationRounding(
                 id=len(self._overrides) + 1, location=location, round_to_nearest=step,
-                direction=direction,
+                direction=direction, as_printed=as_printed,
             )
         )
+
+    def as_printed_for_site(self, slug):
+        return {row.location for row in self._overrides if row.as_printed}
 
     def delete(self, site_slug, override_id):
         # Scoped by site now: an override id on its own is not enough, or one
@@ -214,7 +217,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest", False)]
         assert "ok=" in response.headers["location"]
 
     def test_a_missing_location_is_refused(self):
@@ -238,7 +241,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest", False)]
         assert "ok=" in response.headers["location"]
         assert "exactly as it is" in unquote(response.headers["location"])
 
@@ -253,7 +256,7 @@ class TestSavingALocationOverride:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest", False)]
 
     def test_a_blank_step_is_refused_rather_than_silently_doing_nothing(self):
         client, _, rounding = build()
@@ -444,7 +447,7 @@ class TestSavingWhichWayAPriceRounds:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "down")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "down", False)]
 
     def test_an_override_says_which_way_it_now_rounds(self):
         client, _, _ = build_with_currencies()
@@ -469,7 +472,7 @@ class TestSavingWhichWayAPriceRounds:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 10.0, "nearest", False)]
 
     def test_never_rounded_keeps_a_direction_that_means_nothing_out_of_the_way(self):
         # A step of 0 is "use it exactly as it is": there is no direction to
@@ -482,7 +485,7 @@ class TestSavingWhichWayAPriceRounds:
             follow_redirects=False,
         )
 
-        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest")]
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest", False)]
 
     def test_the_screen_offers_all_three_ways_on_both_forms(self):
         client, _, _ = build()
@@ -492,3 +495,85 @@ class TestSavingWhichWayAPriceRounds:
         assert page.count('name="direction" value="up"') >= 2
         assert page.count('name="direction" value="down"') >= 2
         assert page.count('name="direction" value="nearest"') >= 2
+
+
+class TestTakingAFigureAsPrinted:
+    """UK South: Argus marks that row £/t and the client's published euro
+    price is that same number unconverted. The model reads the report
+    correctly when it says GBP, so the exception is the editor's to declare
+    -- a tick against the location, honoured by app/editorial/fx.py, after
+    two runs of instructions worded "with currency EUR" came back converted
+    anyway.
+    """
+
+    def test_the_form_offers_it(self):
+        client, _, _ = build()
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert 'name="as_printed"' in page
+        assert "never convert it" in page
+
+    def test_ticking_it_saves_it_against_the_location(self):
+        client, _, rounding = build()
+
+        response = client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "round_to_nearest": "5", "as_printed": "1"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 5.0, "nearest", True)]
+        assert "as printed" in unquote(response.headers["location"])
+
+    def test_it_can_be_had_with_no_rounding_at_all(self):
+        # The two are independent: Indonesia is "never rounded" and does
+        # convert; UK South rounds to 5 and does not convert.
+        client, _, rounding = build()
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "exact": "1", "as_printed": "1"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 0.0, "nearest", True)]
+
+    def test_leaving_it_unticked_turns_it_off_again(self):
+        client, _, rounding = build(rounding=FakeRounding([
+            LocationRounding(id=1, location="Korea TOBS", round_to_nearest=5.0,
+                             as_printed=True),
+        ]))
+
+        client.post(
+            "/console/sites/baseoil/rounding/override",
+            data={"location": "Korea TOBS", "round_to_nearest": "5"},
+            follow_redirects=False,
+        )
+
+        assert rounding.set_calls == [("baseoil", "Korea TOBS", 5.0, "nearest", False)]
+        assert rounding.as_printed_for_site("baseoil") == set()
+
+    def test_a_location_already_set_opens_with_the_box_ticked(self):
+        client, _, _ = build(rounding=FakeRounding([
+            LocationRounding(id=1, location="Korea TOBS", round_to_nearest=5.0,
+                             as_printed=True),
+        ]))
+
+        page = client.get("/console/sites/baseoil/rules").text
+        editor = page.split('data-rounding-edit="1"')[1]
+
+        assert re.search(r"data-row-as-printed\s+checked", editor), (
+            "the row's editor opens with the box clear, so saving any other "
+            "change on that row would quietly turn the setting off"
+        )
+
+    def test_the_list_says_which_locations_are_set(self):
+        client, _, _ = build(rounding=FakeRounding([
+            LocationRounding(id=1, location="Korea TOBS", round_to_nearest=5.0,
+                             as_printed=True),
+        ]))
+
+        page = client.get("/console/sites/baseoil/rules").text
+
+        assert "taken as printed, never converted" in page

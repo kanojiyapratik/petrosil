@@ -752,6 +752,11 @@ class LocationRounding:
     # existed -- and every test that names only a step -- still reads as
     # the rulebook's "closest multiple of".
     direction: str = "nearest"
+    # "Whatever currency this figure is printed in, for this location it is
+    # already a price -- convert nothing." UK South, where Argus marks the
+    # row £/t and the client's published euro price is that number as
+    # printed. See app/editorial/fx.py and migration 0016.
+    as_printed: bool = False
 
 
 class RoundingStore:
@@ -776,12 +781,25 @@ class RoundingStore:
 
         return {row[0]: (float(row[1]), row[2] or "nearest") for row in rows}
 
+    def as_printed_for_site(self, site_slug: str) -> set[str]:
+        """The locations whose figures are never to be converted, the shape
+        convert_rows wants. A separate query from for_site because the FX
+        step runs before rounding and has no business reading a step."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT location FROM console_location_rounding "
+                "WHERE site_slug = %s AND as_printed",
+                (site_slug,),
+            ).fetchall()
+
+        return {row[0] for row in rows}
+
     def list_for_site(self, site_slug: str) -> list[LocationRounding]:
         """The same overrides, with their ids, for the settings screen."""
         with self._pool.connection() as connection:
             rows = connection.execute(
-                "SELECT id, location, round_to_nearest, direction FROM console_location_rounding "
-                "WHERE site_slug = %s ORDER BY location",
+                "SELECT id, location, round_to_nearest, direction, as_printed "
+                "FROM console_location_rounding WHERE site_slug = %s ORDER BY location",
                 (site_slug,),
             ).fetchall()
 
@@ -791,21 +809,29 @@ class RoundingStore:
                 location=row[1],
                 round_to_nearest=float(row[2]),
                 direction=row[3] or "nearest",
+                as_printed=bool(row[4]),
             )
             for row in rows
         ]
 
     def set_override(
-        self, site_slug: str, location: str, step: float, direction: str = "nearest"
+        self,
+        site_slug: str,
+        location: str,
+        step: float,
+        direction: str = "nearest",
+        as_printed: bool = False,
     ) -> None:
         with self._pool.connection() as connection:
             connection.execute(
                 "INSERT INTO console_location_rounding "
-                "(site_slug, location, round_to_nearest, direction) VALUES (%s, %s, %s, %s) "
+                "(site_slug, location, round_to_nearest, direction, as_printed) "
+                "VALUES (%s, %s, %s, %s, %s) "
                 "ON CONFLICT (site_slug, location) DO UPDATE SET "
                 "round_to_nearest = EXCLUDED.round_to_nearest, "
-                "direction = EXCLUDED.direction, updated_at = now()",
-                (site_slug, location, step, direction),
+                "direction = EXCLUDED.direction, "
+                "as_printed = EXCLUDED.as_printed, updated_at = now()",
+                (site_slug, location, step, direction, as_printed),
             )
             connection.commit()
 

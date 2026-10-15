@@ -404,6 +404,28 @@ MIGRATIONS: list[Migration] = [
             ADD COLUMN IF NOT EXISTS round_direction TEXT NOT NULL DEFAULT 'nearest';
         """,
     ),
+    Migration(
+        id="0016_currency_as_printed",
+        sql="""
+        -- "Uk south is already in euro in argus.. No need to convert" --
+        -- the client, 14.10.2026. Argus marks that row £/t, but his
+        -- published euro price is that number unconverted, and no wording
+        -- in his instructions could produce it: the model reports the
+        -- currency the figure is printed in (it is told to, and it should),
+        -- and the FX step then does exactly what it is for. Twice the
+        -- instructions were rewritten to say "with currency EUR" and twice
+        -- the draft came back converted, the second time narrating "left in
+        -- GBP as instructed".
+        --
+        -- So it stops being a matter of wording. This is the editor saying,
+        -- per location, that whatever currency a figure is printed in, for
+        -- THIS location it is already a price in the location's own
+        -- currency and nothing is to be converted. Code honours it; the
+        -- model is not asked to.
+        ALTER TABLE console_location_rounding
+            ADD COLUMN IF NOT EXISTS as_printed BOOLEAN NOT NULL DEFAULT FALSE;
+        """,
+    ),
 ]
 
 

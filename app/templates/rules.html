@@ -219,8 +219,9 @@
 
     <h3 style="margin-top:1.5rem">Locations that round differently</h3>
     <p class="hint">For the handful that don't follow the site default — for example a
-      local-currency price that rounds to 10 instead of 5, or a price that must go out
-      exactly as the report prints it.</p>
+      local-currency price that rounds to 10 instead of 5, a price that must go out
+      exactly as the report prints it, or one whose printed figure is already the price
+      and must never be put through an exchange rate.</p>
     <form method="post" action="/console/sites/{{ site.slug }}/rounding/override" data-no-overlay="1">
       <div class="fields">
         <div class="field">
@@ -253,6 +254,15 @@
         <input type="checkbox" id="rounding-exact" name="exact" value="1">
         Don't round this location — use its price exactly as it is
       </label>
+      {# UK South: Argus marks the row £/t, and the editor's published euro
+         price is that same number unconverted. No wording in the AI's
+         instructions can produce that -- the model reports the currency the
+         figure is printed in, correctly -- so the judgement is made here and
+         the exchange rate is simply not applied. #}
+      <label class="check" style="margin-top:.25rem">
+        <input type="checkbox" id="rounding-as-printed" name="as_printed" value="1">
+        Take the figure as printed — never convert it, whatever currency the report marks it in
+      </label>
       <div class="actions"><button type="submit">Save override</button></div>
     </form>
 
@@ -263,7 +273,7 @@
           {% for override in rounding_overrides %}
             <tr data-rounding-row="{{ override.id }}">
               <td>{{ override.location }}</td>
-              <td class="num">{% if override.round_to_nearest %}{{ direction_labels[override.direction] }} {{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}</td>
+              <td class="num">{% if override.round_to_nearest %}{{ direction_labels[override.direction] }} {{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}{% if override.as_printed %}<br><span class="hint">figure taken as printed, never converted</span>{% endif %}</td>
               <td style="white-space:nowrap">
                 <button class="ghost" type="button" data-edit-rounding="{{ override.id }}">Edit</button>
                 <form method="post"
@@ -311,6 +321,12 @@
                     <input type="checkbox" name="exact" value="1" data-row-exact
                            {% if not override.round_to_nearest %}checked{% endif %}>
                     Don't round this location — use its price exactly as it is
+                  </label>
+                  <label class="check" style="margin-top:.25rem">
+                    <input type="checkbox" name="as_printed" value="1" data-row-as-printed
+                           {% if override.as_printed %}checked{% endif %}>
+                    Take the figure as printed — never convert it, whatever currency the report
+                    marks it in
                   </label>
                   <div class="actions">
                     <button type="submit">Save</button>

@@ -593,7 +593,18 @@ def create_editorial_routes(
             # conversion, and the rule below it stays silent. A rupee figure
             # for a rupee location is left as printed. See app/editorial/fx.py.
             rows = convert_rows(
-                rows, fx if fx is not None else FrankfurterRates(), pricedate, home=home
+                rows,
+                fx if fx is not None else FrankfurterRates(),
+                pricedate,
+                home=home,
+                # The locations the editor has marked "take the figure as
+                # printed": UK South, where Argus prints pounds and his
+                # published euro price is that same number.
+                as_printed=(
+                    rounding.as_printed_for_site(site.slug)
+                    if rounding is not None and hasattr(rounding, "as_printed_for_site")
+                    else set()
+                ),
             )
 
             # The rulebook fills what the reports never mention -- code, not the
