@@ -10,7 +10,7 @@ import json
 from app.editorial.fx import convert_rows
 from app.editorial.review import build_rows, parse_suggestions
 from app.editorial.rounding import apply_rounding, round_to_nearest
-from app.editorial.rules import PriceRule, apply_rules
+from app.editorial.rules import EUR, PriceRule, apply_rules
 
 SINGAPORE = "Singapore Bulk FOB"
 KOREA = "South Korea FOB"
@@ -389,3 +389,67 @@ class TestWhichWayAPriceGoes:
         row = next(r for r in rows if r["location"] == SINGAPORE)
 
         assert "Rounded down to the previous 5" in row["rationale"]
+
+
+class TestARuleAndAStepOnTheSameEuroLocation:
+    """Bitumart's Brussels: a rule derives it from Antwerp (+5 EUR) and the
+    editor then wants a step on it too. Both must take effect, in that
+    order -- the rule first, the step on what it produced -- and the euro
+    path must not be mistaken for "still needs converting", which is the
+    one case apply_rounding deliberately leaves alone.
+    """
+
+    ANTWERP = "Belgium - Antwerp Domestic"
+    BRUSSELS = "Brussels Domestic"
+    PLACES = [ANTWERP, BRUSSELS]
+    HOME = {ANTWERP: "EUR", BRUSSELS: "EUR"}
+    RULE = PriceRule(
+        id=1, derived_location=BRUSSELS, reference_location=ANTWERP,
+        adjustment_value=5.0, adjustment_kind=EUR,
+    )
+
+    def staged(self, antwerp_price):
+        rows = draft(
+            [suggestion(self.ANTWERP, antwerp_price, antwerp_price, currency="EUR")],
+            locations=self.PLACES,
+        )
+        # A euro figure for a euro location is left as printed and, crucially,
+        # loses its "currency" marker -- it is now this location's own price.
+        rows = convert_rows(rows, None, "2026-10-15", home=self.HOME)
+
+        return apply_rules(rows, [self.RULE])
+
+    def test_the_derived_euro_price_is_rounded_by_its_own_step(self):
+        rows = self.staged(517)
+        brussels = next(r for r in rows if r["location"] == self.BRUSSELS)
+        assert brussels["status"] == "derived"
+        assert brussels["suggested_price"] == 522  # 517 + 5, not yet stepped
+        assert not brussels.get("currency")
+
+        rows = apply_rounding(rows, 5, {self.BRUSSELS: (5, "nearest")})
+        brussels = next(r for r in rows if r["location"] == self.BRUSSELS)
+
+        assert brussels["suggested_price"] == 520
+        # Both lines survive: where the price came from, and what moved it.
+        assert "Calculated from Belgium - Antwerp Domestic" in brussels["rationale"]
+        assert "Rounded to the nearest 5" in brussels["rationale"]
+
+    def test_the_step_runs_on_the_derived_price_not_on_the_reference(self):
+        # 518 + 5 = 523 -> 525 going up. Rounding the reference first would
+        # give 520 + 5 = 525 too, so the direction is what tells them apart:
+        # 518 -> 520 (nearest) + 5 = 525, against 523 -> 520 going down.
+        rows = self.staged(518)
+        rows = apply_rounding(rows, 5, {self.BRUSSELS: (5, "down")})
+        brussels = next(r for r in rows if r["location"] == self.BRUSSELS)
+
+        assert brussels["suggested_price"] == 520
+
+    def test_the_reference_keeps_its_own_step_independently(self):
+        rows = self.staged(517)
+        rows = apply_rounding(rows, 5, {self.BRUSSELS: (5, "up")})
+
+        antwerp = next(r for r in rows if r["location"] == self.ANTWERP)
+        brussels = next(r for r in rows if r["location"] == self.BRUSSELS)
+
+        assert antwerp["suggested_price"] == 515  # site default, nearest 5
+        assert brussels["suggested_price"] == 525  # 522 -> up to the next 5
