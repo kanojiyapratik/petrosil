@@ -363,6 +363,45 @@ def flag_unsupported(rows: list[dict], unsupported: set[str]) -> list[dict]:
     return rows
 
 
+MISSING_NOTE = (
+    "This location had a price from the reports last time and none was found in these. "
+    "The reading may simply have missed the line -- read the reports again before "
+    "publishing a gap here."
+)
+
+
+def flag_went_missing(rows: list[dict], priced_before: set[str]) -> list[dict]:
+    """Say so when a location that was priced last time comes back empty.
+
+    On 15 Oct 2026 Taiwan FOB came back "not in the reports" from an issue
+    that prints it plainly ("Taiwan 25,107 25,425 +3,008.00 790 800"), and
+    had been priced on the four drafts before it: the reading step emitted
+    96 rows and none of them was Taiwan. Nothing was wrong with the
+    instructions and nothing was wrong with the report -- one pass over
+    sixty thousand characters drops a line now and then, and the screen
+    showed the same blank it shows for the refinery rows, which are blank
+    on purpose.
+
+    So the two are told apart by what happened last time. A location that
+    has never been priced from a report stays quietly blank; one that was
+    priced and now is not says so, and the fix is to read the reports
+    again. `priced_before` is what the previous draft for this site found a
+    figure for -- not what the site holds, which would flag every location
+    the editor fills in by hand, every week.
+    """
+    for row in rows:
+        if (
+            row["location"] in priced_before
+            and row.get("status") == "no_evidence"
+            and MISSING_NOTE not in (row.get("rationale") or "")
+        ):
+            row["flag"] = "check"
+            row["went_missing"] = True
+            row["rationale"] = " ".join(filter(None, [row.get("rationale"), MISSING_NOTE]))
+
+    return rows
+
+
 SCALE_FACTOR = 5.0
 SCALE_SAMPLE = 3
 

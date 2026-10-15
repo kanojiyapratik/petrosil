@@ -494,3 +494,48 @@ class TestAFigureTakenAsPrintedIsNotAnInventedOne:
         rows = draft([suggestion(SINGAPORE, 465, 480, currency="EUR")])
 
         assert unsupported_by_evidence(rows, self.EVIDENCE, {self.UK}) == {SINGAPORE}
+
+
+class TestALocationThatHasGoneQuiet:
+    """15 Oct 2026: Taiwan FOB came back "not in the reports" from an issue
+    that prints it plainly, after four drafts that priced it -- the reading
+    emitted 96 rows and none was Taiwan. On screen that blank looked
+    exactly like the refinery rows, which are blank every week on purpose.
+    """
+
+    def test_a_location_priced_last_time_and_empty_now_says_so(self):
+        from app.editorial.review import MISSING_NOTE, flag_went_missing
+
+        rows = flag_went_missing(draft([]), {TURKEY})
+        row = next(r for r in rows if r["location"] == TURKEY)
+
+        assert row["status"] == "no_evidence"
+        assert row["flag"] == "check"
+        assert row["went_missing"] is True
+        assert MISSING_NOTE in row["rationale"]
+
+    def test_a_location_that_was_never_priced_stays_quiet(self):
+        # The refinery rows, with no circular uploaded: blank on purpose.
+        from app.editorial.review import flag_went_missing
+
+        rows = flag_went_missing(draft([]), set())
+
+        assert all(row.get("flag") is None for row in rows)
+        assert all(row.get("went_missing") is not True for row in rows)
+
+    def test_a_location_priced_again_this_time_is_not_flagged(self):
+        from app.editorial.review import flag_went_missing
+
+        rows = flag_went_missing(draft([suggestion(TURKEY, 500, 520)]), {TURKEY})
+        row = next(r for r in rows if r["location"] == TURKEY)
+
+        assert row["status"] == "suggested"
+        assert row.get("flag") is None
+
+    def test_the_note_is_not_repeated_if_it_runs_twice(self):
+        from app.editorial.review import MISSING_NOTE, flag_went_missing
+
+        rows = flag_went_missing(flag_went_missing(draft([]), {TURKEY}), {TURKEY})
+        row = next(r for r in rows if r["location"] == TURKEY)
+
+        assert row["rationale"].count(MISSING_NOTE) == 1

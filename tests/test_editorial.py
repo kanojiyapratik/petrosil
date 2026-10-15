@@ -2515,3 +2515,60 @@ class TestPagesWhoseTablesAreDrawn:
         pdf = build_text_pdf([DRAWN_TABLE] * (MAX_IMAGES + 2))
 
         assert len(document_images("argus.pdf", pdf)) == MAX_IMAGES
+
+
+class TestTheScreenSaysWhenALocationHasGoneQuiet:
+    """Taiwan FOB, 15 Oct 2026: priced on four drafts, then "not in the
+    reports" from an issue that prints it plainly, because that reading
+    dropped the line. On screen it looked exactly like the refinery rows,
+    which are blank every week on purpose. The difference is what the last
+    draft found, so the draft store is asked.
+    """
+
+    class DraftsThatRemember(FakeDrafts):
+        def __init__(self, priced, **kwargs):
+            super().__init__(**kwargs)
+            self.priced = priced
+            self.asked = []
+
+        def priced_last_time(self, site_slug):
+            self.asked.append(site_slug)
+
+            return self.priced
+
+    def analyse(self, drafts):
+        client, _, _ = build_analyse_client(
+            kept_and_dropped_rows(), locations=DRAFT_LOCATIONS, drafts=drafts,
+        )
+
+        return client.post("/console/sites/baseoil/editorial/analyse", data={"set_id": "7"})
+
+    def test_a_location_priced_last_time_and_empty_now_is_called_out(self):
+        # Europe Domestic SN150 gets no figure from this reading.
+        drafts = self.DraftsThatRemember({"Europe Domestic SN150"})
+
+        page = self.analyse(drafts).text
+        [draft] = drafts.created
+        row = next(r for r in draft["rows"] if r["location"] == "Europe Domestic SN150")
+
+        assert drafts.asked == ["baseoil"]
+        assert row["flag"] == "check"
+        assert "had a price from the reports last time" in row["rationale"]
+        assert "was priced last time" in page
+
+    def test_a_location_blank_every_week_is_left_alone(self):
+        drafts = self.DraftsThatRemember(set())
+
+        page = self.analyse(drafts).text
+        [draft] = drafts.created
+        row = next(r for r in draft["rows"] if r["location"] == "Europe Domestic SN150")
+
+        assert row["flag"] is None
+        assert "was priced last time" not in page
+
+    def test_a_draft_store_without_the_question_is_no_obstacle(self):
+        # A deployment mid-rollout, or any other store: the screen is worth
+        # more than the warning.
+        drafts = FakeDrafts()
+
+        assert self.analyse(drafts).status_code == 200

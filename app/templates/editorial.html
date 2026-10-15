@@ -396,7 +396,13 @@
                   {{ row.money }}{{ row.suggested_min }}&ndash;{{ row.suggested_max }}
                   {% if near %}<span class="badge warn">close match?</span>{% endif %}
                   {% if derived %}<span class="badge mute">derived</span>{% endif %}
-                {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>{% endif %}
+                {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>
+                  {# A blank that was a price last week is a different thing
+                     from a blank that is blank every week on purpose, and
+                     the badge is the only place the difference shows before
+                     the editor reads the rationale. #}
+                  {% if row.went_missing %}<span class="badge warn">was priced last time</span>{% endif %}
+                {% endif %}
               </td>
               <td>
                 {% if priced %}

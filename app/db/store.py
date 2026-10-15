@@ -1353,6 +1353,31 @@ class DraftStore:
             ],
         )
 
+    def priced_last_time(self, site_slug: str) -> set[str]:
+        """The locations the previous draft for this site found a figure for.
+
+        Used to tell a location that has gone quiet (Taiwan FOB, priced on
+        four drafts and then missed by one reading) from one that is blank
+        every week on purpose (the refinery rows, with no circular
+        uploaded). Deliberately the previous DRAFT and not the site's own
+        prices: every location the editor types in by hand has a price, and
+        comparing against those would flag all of them, every week.
+
+        Benchmarks are left out -- they are not site prices -- and so is a
+        row a rule filled in, which says nothing about what was read.
+        """
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT location FROM console_editorial_draft_rows "
+                "WHERE draft_id = (SELECT id FROM console_editorial_drafts "
+                "                  WHERE site_slug = %s ORDER BY id DESC LIMIT 1) "
+                "AND NOT is_benchmark AND status = 'suggested' "
+                "AND suggested_price IS NOT NULL",
+                (site_slug,),
+            ).fetchall()
+
+        return {row[0] for row in rows}
+
     def ids_for_batches(self, site_slug: str, batch_ids: list[int]) -> dict[int, int]:
         """Which draft each price update came from: {batch_id: draft_id}.
         Two drafts saved into one batch (a re-save) answer with the newest."""

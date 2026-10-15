@@ -25,6 +25,7 @@ from ..editorial.review import (
     build_rows,
     editorial_prompt,
     flag_unsupported,
+    flag_went_missing,
     parse_suggestions,
     reject_out_of_scale,
     unsupported_by_evidence,
@@ -634,6 +635,17 @@ def create_editorial_routes(
 
             # Last, so neither conversion nor rounding can clear the flag.
             rows = flag_unsupported(rows, unsupported)
+
+            # A location that was priced from the reports last time and is
+            # empty now: the reading may have dropped the line, as it dropped
+            # Taiwan FOB on 15.10.2026. After the rules, so a location a rule
+            # filled is not called missing.
+            rows = flag_went_missing(
+                rows,
+                drafts.priced_last_time(site.slug)
+                if drafts is not None and hasattr(drafts, "priced_last_time")
+                else set(),
+            )
 
             # Every figure on this screen is in its own location's currency,
             # and "565" beside "565" is unreadable when one is euros and the
