@@ -583,9 +583,22 @@ def create_editorial_routes(
                         )
 
             rows = build_rows(asked, current, parsed)
+
+            # The locations the editor has marked "take the figure as
+            # printed": UK South, where Argus prints pounds and his published
+            # euro price is that same number. Read once -- the evidence check
+            # and the conversion below must agree about which they are, or a
+            # figure left in its printed currency on purpose is flagged for
+            # being in its printed currency.
+            as_printed = (
+                rounding.as_printed_for_site(site.slug)
+                if rounding is not None and hasattr(rounding, "as_printed_for_site")
+                else set()
+            )
+
             # Figures the checked reports never printed -- checked now, while
             # every row still holds the figure the model returned.
-            unsupported = unsupported_by_evidence(rows, evidence)
+            unsupported = unsupported_by_evidence(rows, evidence, as_printed)
 
             # A figure printed in another currency becomes the location's own
             # currency (dollars, unless the site says otherwise) at the rate
@@ -597,14 +610,7 @@ def create_editorial_routes(
                 fx if fx is not None else FrankfurterRates(),
                 pricedate,
                 home=home,
-                # The locations the editor has marked "take the figure as
-                # printed": UK South, where Argus prints pounds and his
-                # published euro price is that same number.
-                as_printed=(
-                    rounding.as_printed_for_site(site.slug)
-                    if rounding is not None and hasattr(rounding, "as_printed_for_site")
-                    else set()
-                ),
+                as_printed=as_printed,
             )
 
             # The rulebook fills what the reports never mention -- code, not the

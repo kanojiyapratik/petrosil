@@ -256,7 +256,9 @@ UNSUPPORTED_NOTE = (
 )
 
 
-def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
+def unsupported_by_evidence(
+    rows: list[dict], evidence: list[dict], as_printed: set[str] | None = None
+) -> set[str]:
     """Locations whose suggested figure appears in none of the checked rows.
 
     On 24 Sep 2026 the draft priced Turkey Domestic EUR from "TRY 81,212" --
@@ -268,7 +270,16 @@ def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
     The currency must match too. On 25 Sep 2026 the draft priced Turkey
     Domestic EUR from "TRY 552": 552 was a real figure, but the report
     printed it in dollars -- so the lira-to-euro conversion gave EUR 9.80.
+
+    `as_printed` names the locations the editor has marked "take the figure
+    as printed, never convert it", where a figure printed in one currency
+    and priced in another is the point rather than a mistake -- UK South,
+    read from a £/t column and published in euros. Those are checked on the
+    number alone. The number still has to be one the editor checked, which
+    is what catches an invented figure; only the currency test is dropped,
+    and only where the editor has said it does not apply.
     """
+    as_printed = as_printed or set()
     allowed: list[tuple[float, str]] = []
 
     for entry in evidence:
@@ -287,7 +298,18 @@ def unsupported_by_evidence(rows: list[dict], evidence: list[dict]) -> set[str]:
             for figure, money in allowed
         )
 
+    def whatever_the_currency(value) -> bool:
+        return value is not None and any(
+            abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001)
+            for figure, _ in allowed
+        )
+
     def supported(row) -> bool:
+        if row["location"] in as_printed:
+            return whatever_the_currency(row.get("suggested_min")) or whatever_the_currency(
+                row.get("suggested_max")
+            )
+
         currency = _money(row.get("currency"))
 
         return known(row.get("suggested_min"), currency) or known(

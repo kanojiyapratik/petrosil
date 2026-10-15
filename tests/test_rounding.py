@@ -453,3 +453,44 @@ class TestARuleAndAStepOnTheSameEuroLocation:
 
         assert antwerp["suggested_price"] == 515  # site default, nearest 5
         assert brussels["suggested_price"] == 525  # 522 -> up to the next 5
+
+
+class TestAFigureTakenAsPrintedIsNotAnInventedOne:
+    """UK South is read from a £/t column and published in euros, on the
+    editor's own ruling. The evidence check compares currencies, so the
+    right answer -- EUR 465-480 against a checked GBP 465-480 -- came back
+    flagged "the AI may have made it up or mixed up the currency". For a
+    location the editor has marked "take the figure as printed", a figure
+    in the printed currency is the point. The number is still checked.
+    """
+
+    EVIDENCE = [
+        {"name": "Southern UK", "price": 465, "price_min": 465, "price_max": 480,
+         "currency": "GBP"},
+    ]
+
+    UK = TURKEY  # any tracked location; the name does not matter here
+
+    def test_the_same_number_in_another_currency_is_accepted(self):
+        from app.editorial.review import unsupported_by_evidence
+
+        rows = draft([suggestion(self.UK, 465, 480, currency="EUR")])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE) == {self.UK}
+        assert unsupported_by_evidence(rows, self.EVIDENCE, {self.UK}) == set()
+
+    def test_a_number_no_report_printed_is_still_flagged(self):
+        # The currency test is dropped; the figure test is not, or the
+        # setting would wave through exactly what this check exists for.
+        from app.editorial.review import unsupported_by_evidence
+
+        rows = draft([suggestion(self.UK, 81212, 81212, currency="EUR")])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE, {self.UK}) == {self.UK}
+
+    def test_other_locations_are_judged_exactly_as_before(self):
+        from app.editorial.review import unsupported_by_evidence
+
+        rows = draft([suggestion(SINGAPORE, 465, 480, currency="EUR")])
+
+        assert unsupported_by_evidence(rows, self.EVIDENCE, {self.UK}) == {SINGAPORE}
