@@ -21,10 +21,17 @@ pages and the dashboard come later.
 | `POST /api/compat/{site}/price-batches/{id}/rollback` | console — undo a published batch |
 | `POST /api/compat/{site}/price-batches/{id}/discard` | console — throw away a draft |
 | `POST /api/compat/{site}/price-summaries` | module — the AI note shown above the price table |
+| `GET /api/compat/{site}/price-crawl/sources` | crawler — what to fetch, with last time's validators |
+| `POST /api/compat/{site}/price-crawl/results` | crawler — one whole pass's findings |
+| `GET`/`PUT /api/compat/{site}/price-crawl/urls` | console — read and replace the watch list |
+| `GET /api/compat/{site}/price-crawl/activity` | console — what the pages have said lately |
+| `POST /api/compat/{site}/price-crawl/activity/stage` | console — turn findings into a draft batch |
+| `POST /api/compat/{site}/price-crawl/activity/clear` | console — forget the findings and the page hashes |
 | `GET /api/health` | Railway |
 
-Not yet built: the crawler endpoints (`/price-crawl/*`), spreadsheet upload
-(`/price-batches/upload`), bulk edit (`/price-batches/bulk`).
+Not yet built: spreadsheet upload (`/price-batches/upload`) and bulk edit
+(`/price-batches/bulk`) — the two paths that take a file or a form rather than
+JSON.
 
 ## The rules this code exists to protect
 
@@ -37,6 +44,10 @@ Not yet built: the crawler endpoints (`/price-crawl/*`), spreadsheet upload
   transaction.
 - **A row that cannot be read does not fail the request.** It is staged as
   `invalid` / `unmatched` / `ambiguous` so an editor sees it.
+- **The crawler never publishes.** A finding is a record of what a page said;
+  it reaches a price only by being staged as an ordinary batch a human commits.
+  A page that could not be read stores no content hash, or every later check
+  would call it unchanged and skip it.
 - **Names are matched exactly** (case folded, whitespace collapsed) and never
   fuzzily. A near miss publishes a wrong price; `unmatched` does not.
 - **Every query is scoped by site.** A token is bound to one brand, and the slug
@@ -50,7 +61,7 @@ npm run db:up        # Postgres on 5434 (5433 is the price module's — untouche
 npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
 npm run dev          # http://127.0.0.1:3100
-npm test             # 47 tests against the real database
+npm test             # 65 tests against the real database
 ```
 
 `npm run db:seed` prints each brand's token once. Only a SHA-256 of it is

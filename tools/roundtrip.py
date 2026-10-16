@@ -72,5 +72,65 @@ try:
 except Exception as error:
     check("bad token refused", "refused the request" in str(error), str(error)[:90])
 
+# ---- the crawler half: the same client, the calls the crawler itself makes ----
+
+replaced = c.replace_watched_urls(
+    "https://example.test/base-oils\nhttps://example.test/weekly",
+    instructions="Read the table headed 'Weekly assessments'.",
+)
+check("replace watched urls", replaced["added"] == 2, replaced)
+
+sources = c.sources()
+check(
+    "sources",
+    sources["interval_minutes"] == 15
+    and len(sources["urls"]) == 2
+    and "Singapore SN 150 FOB Group I" in sources["locations"],
+    f"{len(sources['urls'])} urls, {len(sources['locations'])} locations",
+)
+
+first = sources["urls"][0]["id"]
+reported = c.report(
+    [
+        {
+            "url_id": first,
+            "status": "read",
+            "content_hash": "hash-1",
+            "rows": [
+                {"location": "Singapore SN 150 FOB Group I", "price": 1540, "date": "2099-02-02"},
+                {"location": "Somewhere Nobody Tracks", "price": 101},
+            ],
+        },
+        {"url_id": sources["urls"][1]["id"], "status": "unchanged"},
+    ]
+)
+check(
+    "report a pass",
+    reported[0]["status"] == "updated" and reported[0]["unmatched"] == 1,
+    reported,
+)
+
+watched = c.watched_urls()
+check(
+    "watched urls",
+    len(watched["data"]) == 2 and watched["data"][0]["last_status_text"] == "Price change found",
+    watched["data"][0]["last_status_text"],
+)
+
+found = c.activity(limit=10)["data"]
+check("activity", len(found) == 2, [f["location"] for f in found])
+
+staged_crawl = c.stage(activity_ids=[f["id"] for f in found])
+check(
+    "stage findings",
+    staged_crawl["rows"] == 1 and staged_crawl["skipped"] == 1,
+    staged_crawl,
+)
+check("staged as a crawl batch", c.batch(staged_crawl["batch_id"])["batch"]["source"] == "crawl")
+
+cleared = c.clear_activity()
+check("clear activity", cleared["removed"] == 2, cleared)
+check("activity emptied", c.activity(limit=10)["data"] == [])
+
 print("\nROUND TRIP:", "PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
