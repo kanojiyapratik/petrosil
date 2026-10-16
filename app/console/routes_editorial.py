@@ -32,6 +32,11 @@ from ..editorial.review import (
 )
 from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
+from ..editorial.secondlook import (
+    merge_second_look,
+    missed_locations,
+    second_look_prompt,
+)
 from .access import make_site_guard
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
@@ -550,9 +555,11 @@ def create_editorial_routes(
             # currency symbol, a "/t" unit or a currency code), so the lines
             # are joined directly instead.
             benchmark_note = None
-            digest = "\n".join(_digest_line(row) for row in kept_rows) if benchmarks else ""
+            # Built whether or not this site has benchmarks: the second look
+            # below reads the same lines.
+            digest = "\n".join(_digest_line(row) for row in kept_rows)
 
-            if digest:
+            if digest and benchmarks:
                 try:
                     focused_prompt = benchmark_prompt(benchmarks, digest, instructions or None)
                     focused = (
@@ -580,6 +587,42 @@ def create_editorial_routes(
                     if usage is not None:
                         usage.record(
                             kind="editorial_benchmarks", provider=provider_name, model=model,
+                            status="failed", site_slug=site.slug,
+                        )
+
+            # The locations the main pass skipped, asked once more on their
+            # own -- the same enumerate-and-fill shape as the benchmarks.
+            # See app/editorial/secondlook.py for what made this necessary.
+            # A location the rulebook fills is never asked: a figure here
+            # would occupy the row and apply_rules would then stay silent.
+            missed = missed_locations(
+                names, parsed, {rule.derived_location for rule in site_rules if rule.enabled}
+            )
+
+            if digest and missed:
+                try:
+                    again_prompt = second_look_prompt(missed, digest, instructions or None)
+                    second = (
+                        active.generate(again_prompt)
+                        if chosen is not None
+                        else active.generate(model, again_prompt)
+                    )
+
+                    if usage is not None:
+                        usage.record(
+                            kind="editorial_second_look", provider=provider_name, model=model,
+                            status=second.status, prompt_tokens=second.prompt_tokens,
+                            completion_tokens=second.completion_tokens, site_slug=site.slug,
+                        )
+
+                    if second.status == "complete":
+                        parsed = merge_second_look(
+                            parsed, parse_suggestions(second.text, missed), missed
+                        )
+                except Exception:  # noqa: BLE001 - a second look is a bonus, never the draft
+                    if usage is not None:
+                        usage.record(
+                            kind="editorial_second_look", provider=provider_name, model=model,
                             status="failed", site_slug=site.slug,
                         )
 

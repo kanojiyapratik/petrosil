@@ -1662,6 +1662,165 @@ class StaleReadingExtractions(AnalyseFakeExtractions):
         return dataclasses.replace(reading, used_at=None) if reading is not None else None
 
 
+class ScriptedDriver(StubDriver):
+    """One answer per call, in order -- the last one repeats."""
+
+    def __init__(self, answers):
+        super().__init__()
+        self._answers = [
+            AiCompletion(
+                status="complete", text=text, prompt_tokens=10, completion_tokens=10,
+                error=None,
+            )
+            for text in answers
+        ]
+
+    def generate(self, model, prompt):
+        self.calls.append({"model": model, "prompt": prompt})
+
+        return self._answers[min(len(self.calls) - 1, len(self._answers) - 1)]
+
+
+class TestTheLocationsTheMainPassSkipped:
+    """Prod, 16.10.2026: the main pass was given 187 checked rows and 55
+    names and answered 26. "Northern Germany 525-540 EUR" was in the evidence
+    and Germany North Domestic came back "not in the reports" -- and the
+    IDENTICAL prompt, re-run, answered it. So the empty ones are asked again.
+    """
+
+    GERMANY = [
+        ReadRow(
+            id=1, set_id=7, filename="20260925.pdf", name="Northern Germany",
+            price=525.0, price_min=525.0, price_max=540.0, currency="EUR", unit="t",
+            basis="ex-works", price_date="2026-09-25",
+            note="North and central Europe bitumen prices - Domestic prices, ex-works",
+            kept=True,
+        ),
+    ]
+    FOUND = json.dumps(
+        [
+            {
+                "location": "Germany North Domestic", "suggested_min": 525,
+                "suggested_max": 540, "confidence": "high",
+                "basis": "North and central Europe, euro column, 2026-09-25",
+                "source": "20260925.pdf", "rationale": "Northern Germany, euro column",
+                "currency": "EUR",
+            }
+        ]
+    )
+
+    def client(self, driver):
+        return build_analyse_client(
+            self.GERMANY,
+            driver=driver,
+            locations=[{"title": "Germany North Domestic", "latest_price": 570.0,
+                        "currency": "EUR"}],
+        )
+
+    def test_a_location_the_main_pass_skipped_is_asked_again_and_filled(self):
+        driver = ScriptedDriver(["[]", self.FOUND])
+        client, extractions, store = self.client(driver)
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert response.status_code == 200
+        # Two calls: the main pass, then the second look. No benchmarks here.
+        assert len(driver.calls) == 2
+        second = driver.calls[1]["prompt"]
+        assert "Germany North Domestic" in second
+        assert "Northern Germany" in second
+        assert "525" in second
+        # The gap is filled, not reported as missing.
+        assert "not in the reports" not in response.text
+        assert "525" in response.text
+
+    def test_nothing_is_asked_again_when_the_main_pass_answered_everything(self):
+        driver = ScriptedDriver([self.FOUND])
+        client, extractions, store = self.client(driver)
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert response.status_code == 200
+        assert len(driver.calls) == 1
+
+    def test_a_null_second_look_leaves_the_row_empty_rather_than_guessing(self):
+        empty = json.dumps(
+            [
+                {
+                    "location": "Germany North Domestic", "suggested_min": None,
+                    "suggested_max": None, "confidence": "low", "basis": "",
+                    "source": "", "rationale": "no line for it in these reports",
+                }
+            ]
+        )
+        driver = ScriptedDriver(["[]", empty])
+        client, extractions, store = self.client(driver)
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert response.status_code == 200
+        assert len(driver.calls) == 2
+        assert "not in the reports" in response.text
+
+    def test_a_failed_second_look_still_gives_the_editor_a_draft(self):
+        class Failing(ScriptedDriver):
+            def generate(self, model, prompt):
+                answer = super().generate(model, prompt)
+
+                if len(self.calls) > 1:
+                    raise AiProviderError("the second look could not be made")
+
+                return answer
+
+        driver = Failing(["[]"])
+        client, extractions, store = self.client(driver)
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert response.status_code == 200
+        assert "not in the reports" in response.text
+
+    def test_a_location_the_rulebook_derives_is_not_asked_again(self):
+        # Asking would fill the row, and apply_rules only fills what is empty.
+        rule = PriceRule(
+            id=1, derived_location="Germany North Domestic",
+            reference_location="Belgium - Antwerp Domestic", adjustment_value=5,
+            adjustment_kind="eur",
+        )
+        driver = ScriptedDriver(["[]"])
+        client, extractions, store = build_analyse_client(
+            self.GERMANY,
+            driver=driver,
+            locations=[
+                {"title": "Belgium - Antwerp Domestic", "latest_price": 520.0,
+                 "currency": "EUR"},
+                {"title": "Germany North Domestic", "latest_price": 570.0,
+                 "currency": "EUR"},
+            ],
+            rules_list=[rule],
+        )
+
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse", data={"set_id": "7"}
+        )
+
+        assert response.status_code == 200
+        assert len(driver.calls) == 2
+        # The names asked for, not the preamble, which names Germany as its
+        # worked example.
+        asked_again = driver.calls[1]["prompt"].split("Locations still to fill")[1]
+        assert "Belgium - Antwerp Domestic" in asked_again
+        assert "Germany North Domestic" not in asked_again
+
+
 class TestTheReadingIsClaimedBeforeAnyModelCall:
     def test_the_claim_happens_before_the_model_is_asked_anything(self):
         events = []

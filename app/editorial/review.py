@@ -673,3 +673,32 @@ def _clean(value) -> str | None:
         return None
 
     return value.strip()[:500]
+
+
+def _has_figure(row: dict) -> bool:
+    return row.get("suggested_min") is not None and row.get("suggested_max") is not None
+
+
+def merge_named(
+    main: ParsedSuggestions, focused: ParsedSuggestions, names: list[str]
+) -> ParsedSuggestions:
+    """A focused second pass merged into the main one, over `names` only.
+
+    Shared by the two second passes -- the benchmarks (benchmarks.py) and the
+    locations the main pass skipped (secondlook.py) -- because they settle the
+    same three questions the same way: a figure from the focused pass wins,
+    because it read a short digest with one job; a null never erases a figure
+    the main pass found; and a row about a name that was not asked about is
+    ignored.
+    """
+    merged = ParsedSuggestions(
+        suggestions=dict(main.suggestions), unmatched=list(main.unmatched)
+    )
+
+    for name in names:
+        row = focused.suggestions.get(name)
+
+        if row is not None and _has_figure(row):
+            merged.suggestions[name] = row
+
+    return merged

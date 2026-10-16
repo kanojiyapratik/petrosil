@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import re
 
-from .review import ParsedSuggestions
+from .review import ParsedSuggestions, merge_named
 
 # A line that carries a price: "$1,270/t", "Tl 81,212.00/t", "USD 1,480",
 # "1,290/t-1,330/t", "€2,040/mt". Deliberately broad -- an extra crude-oil
@@ -117,23 +117,10 @@ def benchmark_prompt(benchmarks: list[str], digest: str, instructions: str | Non
     return "\n".join(parts)
 
 
-def _has_figure(row: dict) -> bool:
-    return row.get("suggested_min") is not None and row.get("suggested_max") is not None
-
-
 def merge_benchmarks(
     main: ParsedSuggestions, focused: ParsedSuggestions, benchmarks: list[str]
 ) -> ParsedSuggestions:
     """The focused pass's figures win for benchmark names; its nulls change
-    nothing; anything it says about a non-benchmark is ignored."""
-    merged = ParsedSuggestions(
-        suggestions=dict(main.suggestions), unmatched=list(main.unmatched)
-    )
-
-    for name in benchmarks:
-        row = focused.suggestions.get(name)
-
-        if row is not None and _has_figure(row):
-            merged.suggestions[name] = row
-
-    return merged
+    nothing; anything it says about a non-benchmark is ignored. See
+    review.merge_named, which the second-look pass shares."""
+    return merge_named(main, focused, benchmarks)
