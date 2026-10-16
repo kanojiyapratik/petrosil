@@ -142,6 +142,59 @@ export const memberships = pgTable(
   }),
 );
 
+/**
+ * A signed-in person.
+ *
+ * Opaque random tokens, stored only as a SHA-256, handed out in an httpOnly
+ * cookie — the same reasoning as the API tokens. A stolen database row cannot
+ * be replayed as a session, and signing out revokes server-side rather than
+ * hoping the browser drops a self-contained JWT.
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    userAgent: varchar("user_agent", { length: 255 }),
+    ip: varchar("ip", { length: 64 }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hashUnique: uniqueIndex("sessions_token_hash_unique").on(t.tokenHash),
+    byUser: index("sessions_user_idx").on(t.userId),
+  }),
+);
+
+/**
+ * Every sign-in attempt, good or bad.
+ *
+ * Two jobs: the throttle that stops someone working through 112,000 migrated
+ * accounts with a password list, and the login log the admin screens show —
+ * which the old sites kept in `loginlogs` and the team actually reads.
+ */
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: serial("id").primaryKey(),
+    email: varchar("email", { length: 191 }).notNull(),
+    ip: varchar("ip", { length: 64 }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    succeeded: boolean("succeeded").notNull(),
+    reason: varchar("reason", { length: 64 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byEmail: index("login_attempts_email_idx").on(t.email, t.createdAt),
+    byIp: index("login_attempts_ip_idx").on(t.ip, t.createdAt),
+  }),
+);
+
 /* ----------------------------------------------------- locations and prices */
 
 export const locations = pgTable(

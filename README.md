@@ -31,6 +31,15 @@ pages and the dashboard come later.
 | `POST /api/compat/{site}/price-crawl/activity/clear` | console — forget the findings and the page hashes |
 | `GET /api/health` | Railway |
 
+### The dashboard side
+
+| Endpoint | What it answers |
+|---|---|
+| `POST /api/auth/login` · `/logout` · `GET /api/auth/me` | sign in, out, and who is signed in |
+| `GET /api/dashboard/overview` | estate KPIs, a card per brand, recent commits |
+| `GET /api/dashboard/clients` | one row per person across every brand they hold |
+| `GET /api/dashboard/clients/{id}` | one client in full, with recent sign-ins |
+
 The compat API is complete. One deliberate difference from the PHP sites: an
 old binary **.xls** is refused with a message asking for .xlsx or .csv, because
 every maintained Node reader for that 1997 format is either unmaintained or
@@ -62,7 +71,161 @@ read as before.
 - **Names are matched exactly** (case folded, whitespace collapsed) and never
   fuzzily. A near miss publishes a wrong price; `unmatched` does not.
 - **Every query is scoped by site.** A token is bound to one brand, and the slug
-  in the URL must agree with it.
+  in the URL must agree with it. On the dashboard side the same rule runs through
+  `visibleSites()`: staff see only the brands they were granted, a client of
+  another brand answers **404 rather than 403** (a 403 would confirm they exist),
+  and a client who holds two brands shows only the one the viewer may see.
+- **Migrated passwords keep working.** Laravel's `$2y# Petrosil platform
+
+One application for the whole estate: nine brand sites, one dashboard, one
+database. The Python price module and its AI console stay exactly as they are —
+this app re-implements the **site side** of the API they already speak, so the
+module needs no change when a brand moves over.
+
+Status: **backend, phase 1.** The compat API is built and proven; the brand
+pages and the dashboard come later.
+
+## What works today
+
+| Endpoint | Who calls it |
+|---|---|
+| `GET /api/compat/{site}/locations` | module — what the brand tracks, with its latest published price |
+| `GET /api/compat/{site}/price-batches` | console — the batch list, paginated |
+| `POST /api/compat/{site}/price-batches/rows` | console — stage the rows an editor kept |
+| `POST /api/compat/{site}/price-batches/upload` | console — a spreadsheet, relayed as the editor picked it |
+| `POST /api/compat/{site}/price-batches/bulk` | console — set, adjust or copy across many locations |
+| `GET /api/compat/{site}/price-batches/{id}` | console — the batch with every staged row |
+| `PUT /api/compat/{site}/price-batches/items/{id}` | console — edit one staged row |
+| `POST /api/compat/{site}/price-batches/{id}/commit` | console — publish |
+| `POST /api/compat/{site}/price-batches/{id}/rollback` | console — undo a published batch |
+| `POST /api/compat/{site}/price-batches/{id}/discard` | console — throw away a draft |
+| `POST /api/compat/{site}/price-summaries` | module — the AI note shown above the price table |
+| `GET /api/compat/{site}/price-crawl/sources` | crawler — what to fetch, with last time's validators |
+| `POST /api/compat/{site}/price-crawl/results` | crawler — one whole pass's findings |
+| `GET`/`PUT /api/compat/{site}/price-crawl/urls` | console — read and replace the watch list |
+| `GET /api/compat/{site}/price-crawl/activity` | console — what the pages have said lately |
+| `POST /api/compat/{site}/price-crawl/activity/stage` | console — turn findings into a draft batch |
+| `POST /api/compat/{site}/price-crawl/activity/clear` | console — forget the findings and the page hashes |
+| `GET /api/health` | Railway |
+
+### The dashboard side
+
+| Endpoint | What it answers |
+|---|---|
+| `POST /api/auth/login` · `/logout` · `GET /api/auth/me` | sign in, out, and who is signed in |
+| `GET /api/dashboard/overview` | estate KPIs, a card per brand, recent commits |
+| `GET /api/dashboard/clients` | one row per person across every brand they hold |
+| `GET /api/dashboard/clients/{id}` | one client in full, with recent sign-ins |
+
+The compat API is complete. One deliberate difference from the PHP sites: an
+old binary **.xls** is refused with a message asking for .xlsx or .csv, because
+every maintained Node reader for that 1997 format is either unmaintained or
+carries parser advisories, and these files arrive from outside. .xlsx and .csv
+read as before.
+
+## The rules this code exists to protect
+
+- **Published history is immutable.** An existing price on a past date is
+  `locked`, never overwritten. Backfilling an *empty* past date is still allowed.
+- **The lock is re-derived at commit time.** A row staged while its date was
+  today is history once midnight passes, and is refused.
+- **A price that moved after staging is a conflict, not an overwrite.** The live
+  row is locked (`select … for update`) and re-compared inside the commit
+  transaction.
+- **A row that cannot be read does not fail the request.** It is staged as
+  `invalid` / `unmatched` / `ambiguous` so an editor sees it.
+- **The crawler never publishes.** A finding is a record of what a page said;
+  it reaches a price only by being staged as an ordinary batch a human commits.
+  A page that could not be read stores no content hash, or every later check
+  would call it unchanged and skip it.
+- **A spreadsheet's shape is decided once, not per row.** Deciding per row let
+  a blank price cell in a three-column sheet look like a two-column row and
+  shift-read its DATE cell as the price — and a date serial is a number, so it
+  passed the numeric check and staged as a real price.
+- **A bulk adjustment that would go negative is staged `invalid`, not clamped.**
+  Zero is a plausible-looking figure in a commodity report, so a silent clamp
+  could be published as though it were real.
+- **Names are matched exactly** (case folded, whitespace collapsed) and never
+  fuzzily. A near miss publishes a wrong price; `unmatched` does not.
+ bcrypt hashes verify as
+  they are — checked against hashes generated by the sites' own PHP — and are
+  re-hashed at cost 12 on first sign-in. What we write (`$2a# Petrosil platform
+
+One application for the whole estate: nine brand sites, one dashboard, one
+database. The Python price module and its AI console stay exactly as they are —
+this app re-implements the **site side** of the API they already speak, so the
+module needs no change when a brand moves over.
+
+Status: **backend, phase 1.** The compat API is built and proven; the brand
+pages and the dashboard come later.
+
+## What works today
+
+| Endpoint | Who calls it |
+|---|---|
+| `GET /api/compat/{site}/locations` | module — what the brand tracks, with its latest published price |
+| `GET /api/compat/{site}/price-batches` | console — the batch list, paginated |
+| `POST /api/compat/{site}/price-batches/rows` | console — stage the rows an editor kept |
+| `POST /api/compat/{site}/price-batches/upload` | console — a spreadsheet, relayed as the editor picked it |
+| `POST /api/compat/{site}/price-batches/bulk` | console — set, adjust or copy across many locations |
+| `GET /api/compat/{site}/price-batches/{id}` | console — the batch with every staged row |
+| `PUT /api/compat/{site}/price-batches/items/{id}` | console — edit one staged row |
+| `POST /api/compat/{site}/price-batches/{id}/commit` | console — publish |
+| `POST /api/compat/{site}/price-batches/{id}/rollback` | console — undo a published batch |
+| `POST /api/compat/{site}/price-batches/{id}/discard` | console — throw away a draft |
+| `POST /api/compat/{site}/price-summaries` | module — the AI note shown above the price table |
+| `GET /api/compat/{site}/price-crawl/sources` | crawler — what to fetch, with last time's validators |
+| `POST /api/compat/{site}/price-crawl/results` | crawler — one whole pass's findings |
+| `GET`/`PUT /api/compat/{site}/price-crawl/urls` | console — read and replace the watch list |
+| `GET /api/compat/{site}/price-crawl/activity` | console — what the pages have said lately |
+| `POST /api/compat/{site}/price-crawl/activity/stage` | console — turn findings into a draft batch |
+| `POST /api/compat/{site}/price-crawl/activity/clear` | console — forget the findings and the page hashes |
+| `GET /api/health` | Railway |
+
+### The dashboard side
+
+| Endpoint | What it answers |
+|---|---|
+| `POST /api/auth/login` · `/logout` · `GET /api/auth/me` | sign in, out, and who is signed in |
+| `GET /api/dashboard/overview` | estate KPIs, a card per brand, recent commits |
+| `GET /api/dashboard/clients` | one row per person across every brand they hold |
+| `GET /api/dashboard/clients/{id}` | one client in full, with recent sign-ins |
+
+The compat API is complete. One deliberate difference from the PHP sites: an
+old binary **.xls** is refused with a message asking for .xlsx or .csv, because
+every maintained Node reader for that 1997 format is either unmaintained or
+carries parser advisories, and these files arrive from outside. .xlsx and .csv
+read as before.
+
+## The rules this code exists to protect
+
+- **Published history is immutable.** An existing price on a past date is
+  `locked`, never overwritten. Backfilling an *empty* past date is still allowed.
+- **The lock is re-derived at commit time.** A row staged while its date was
+  today is history once midnight passes, and is refused.
+- **A price that moved after staging is a conflict, not an overwrite.** The live
+  row is locked (`select … for update`) and re-compared inside the commit
+  transaction.
+- **A row that cannot be read does not fail the request.** It is staged as
+  `invalid` / `unmatched` / `ambiguous` so an editor sees it.
+- **The crawler never publishes.** A finding is a record of what a page said;
+  it reaches a price only by being staged as an ordinary batch a human commits.
+  A page that could not be read stores no content hash, or every later check
+  would call it unchanged and skip it.
+- **A spreadsheet's shape is decided once, not per row.** Deciding per row let
+  a blank price cell in a three-column sheet look like a two-column row and
+  shift-read its DATE cell as the price — and a date serial is a number, so it
+  passed the numeric check and staged as a real price.
+- **A bulk adjustment that would go negative is staged `invalid`, not clamped.**
+  Zero is a plausible-looking figure in a commodity report, so a silent clamp
+  could be published as though it were real.
+- **Names are matched exactly** (case folded, whitespace collapsed) and never
+  fuzzily. A near miss publishes a wrong price; `unmatched` does not.
+) still passes
+  PHP's `password_verify`, so a brand could be rolled back.
+- **Sign-ins are throttled and logged.** Eight failures per email (or 24 per IP)
+  in fifteen minutes closes the door; every attempt lands in `login_attempts`,
+  which is also the login log the admin screens show.
 
 ## Running it
 
@@ -71,12 +234,17 @@ npm install
 npm run db:up        # Postgres on 5434 (5433 is the price module's — untouched)
 npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
+npm run db:dev-data  # demo locations, prices and clients to work against
 npm run dev          # http://127.0.0.1:3100
-npm test             # 86 tests against the real database
+npm test             # 114 tests, against their own petrosil_test database
 ```
 
 `npm run db:seed` prints each brand's token once. Only a SHA-256 of it is
 stored, so there is no way to read it back — mint a new one if it is lost.
+
+Tests use a separate `petrosil_test` database, created on first run. They
+truncate between cases, so sharing the development database would have cost you
+your demo data every time you ran them.
 
 ## Proving the contract
 
