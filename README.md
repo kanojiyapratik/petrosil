@@ -39,6 +39,11 @@ pages and the dashboard come later.
 | `GET /api/dashboard/overview` | estate KPIs, a card per brand, recent commits |
 | `GET /api/dashboard/clients` | one row per person across every brand they hold |
 | `GET /api/dashboard/clients/{id}` | one client in full, with recent sign-ins |
+| `PATCH /api/dashboard/clients/{id}/membership` | extend access, approve a trial, disable an account |
+| `GET /api/dashboard/locations` · `/{id}` | tracked locations, and one with its price history |
+| `PATCH /api/dashboard/locations/{id}` | show or hide a location on its brand site |
+| `GET /api/dashboard/batches` · `/{id}` | price updates across every brand, and one in full |
+| `GET /api/dashboard/audit` · `/api/dashboard/logins` | who did what, and every sign-in attempt |
 
 The compat API is complete. One deliberate difference from the PHP sites: an
 old binary **.xls** is refused with a message asking for .xlsx or .csv, because
@@ -236,7 +241,7 @@ npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
 npm run db:dev-data  # demo locations, prices and clients to work against
 npm run dev          # http://127.0.0.1:3100
-npm test             # 114 tests, against their own petrosil_test database
+npm test             # 132 tests, against their own petrosil_test database
 ```
 
 `npm run db:seed` prints each brand's token once. Only a SHA-256 of it is

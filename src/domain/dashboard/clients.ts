@@ -10,7 +10,7 @@
 import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { loginAttempts, memberships, sites, users } from "@/db/schema";
+import { auditLog, loginAttempts, memberships, sites, users } from "@/db/schema";
 
 export type Segment = "premium" | "trial" | "expired" | "free";
 
@@ -290,6 +290,94 @@ export async function segmentCounts(
   }
 
   return counts;
+}
+
+/**
+ * Change what a client gets on one brand: their tier, when it runs out, or
+ * whether the account works at all.
+ *
+ * This is the "extend access" and "approve trial" the team does by hand
+ * today, and the reason the audit trail exists — an access change with no
+ * record of who made it is the thing nobody could answer afterwards.
+ */
+export async function updateMembership(
+  siteIds: number[],
+  userId: number,
+  slug: string,
+  change: { tier?: string; expires_at?: string | null; status?: string },
+  actor: { userId: number; ip?: string | null },
+  database: Database = db(),
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "invalid" }> {
+  const [site] = await database.select().from(sites).where(eq(sites.slug, slug)).limit(1);
+
+  if (!site || (siteIds.length > 0 && !siteIds.includes(site.id))) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const [existing] = await database
+    .select()
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), eq(memberships.siteId, site.id)))
+    .limit(1);
+
+  if (!existing) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  if (change.tier !== undefined && !["free", "premium", "trial"].includes(change.tier)) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  if (change.status !== undefined && !["active", "disabled"].includes(change.status)) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  if (change.expires_at !== undefined && change.expires_at !== null && !/^\d{4}-\d{2}-\d{2}$/.test(change.expires_at)) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  // Role is NOT settable here. Granting staff access is a different decision
+  // from selling a subscription, and mixing them into one endpoint is how a
+  // client-support screen ends up able to make someone an administrator.
+  const values: Partial<typeof memberships.$inferInsert> = { updatedAt: new Date() };
+
+  if (change.tier !== undefined) {
+    values.tier = change.tier;
+  }
+
+  if (change.expires_at !== undefined) {
+    values.expiresAt = change.expires_at;
+  }
+
+  if (Object.keys(values).length > 1) {
+    await database.update(memberships).set(values).where(eq(memberships.id, existing.id));
+  }
+
+  if (change.status !== undefined) {
+    // The account is one person across every brand, so this is estate-wide
+    // by nature — recorded against the brand whose screen made the change.
+    await database
+      .update(users)
+      .set({ status: change.status, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  await database.insert(auditLog).values({
+    siteId: site.id,
+    userId: actor.userId,
+    action: "client.update",
+    entity: "membership",
+    entityId: existing.id,
+    detail: {
+      client: userId,
+      was: { tier: existing.tier, expires_at: existing.expiresAt },
+      now: { tier: values.tier ?? existing.tier, expires_at: values.expiresAt ?? existing.expiresAt },
+      ...(change.status === undefined ? {} : { status: change.status }),
+    },
+    ip: actor.ip ?? null,
+  });
+
+  return { ok: true };
 }
 
 /** Narrow the viewer's brands by the one they asked for; null means "nothing to show". */
