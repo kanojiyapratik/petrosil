@@ -1,0 +1,22 @@
+# The platform's own Postgres. Port 5434 deliberately: 5433 is the price
+# module's database and nothing here may touch it.
+services:
+  platform-db:
+    image: postgres:16-alpine
+    container_name: petrosil-platform-db
+    environment:
+      POSTGRES_USER: petrosil
+      POSTGRES_PASSWORD: petrosil
+      POSTGRES_DB: petrosil
+    ports:
+      - "5434:5432"
+    volumes:
+      - platform-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petrosil"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  platform-db-data:
