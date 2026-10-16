@@ -44,6 +44,15 @@ const BLOCKING: ItemStatus[] = ["ambiguous", "unmatched", "invalid"];
 /** Statuses the commit actually writes. */
 const WRITABLE: ItemStatus[] = ["changed", "new"];
 
+/**
+ * Statuses whose price, date or location an editor may still change. Same
+ * four as the Laravel sites allow, in both their API and their own screens:
+ * `locked` and `unchanged` have nothing to edit, and an `invalid` row — a
+ * date or price that could not be read at all — is excluded rather than
+ * patched, so nobody half-fixes a row the file got wrong.
+ */
+const VALUE_EDITABLE: ItemStatus[] = ["changed", "new", "ambiguous", "unmatched"];
+
 export class BatchError extends Error {
   constructor(
     message: string,
@@ -266,6 +275,19 @@ export async function updateItem(
 
   const values: Partial<typeof priceBatchItems.$inferInsert> = { updatedAt: new Date() };
   let revalue = false;
+
+  // Changing what a row would publish is only allowed where it makes sense.
+  // A `locked` or `unchanged` row has nothing to edit, and an editor who
+  // wants it out of the batch excludes it — which is why `is_included` is
+  // never gated.
+  const wantsValueEdit =
+    patch.new_price !== undefined ||
+    patch.pricedate !== undefined ||
+    (patch.location_id !== undefined && patch.location_id !== null && patch.location_id !== "");
+
+  if (wantsValueEdit && !VALUE_EDITABLE.includes(item.status)) {
+    throw new BatchError("That row cannot be edited.");
+  }
 
   if (patch.is_included !== undefined) {
     values.isIncluded = Boolean(patch.is_included);

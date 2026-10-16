@@ -424,16 +424,35 @@ describe("editing a staged row", () => {
 
     const { items } = await stageRows({
       siteId: brand.siteId,
+      rows: [{ location: "Singapore SN 150 FOB", price: 1540, date: TOMORROW }],
+      now: NOW,
+    });
+
+    expect(items[0]!.status).toBe("changed");
+
+    const updated = await updateItem(brand.siteId, items[0]!.id, { new_price: 1520 }, db(), NOW);
+
+    // Edited back to what is already published: the row now has nothing to do.
+    expect(updated.status).toBe("unchanged");
+    expect(Number(updated.oldPrice)).toBe(1520);
+  });
+
+  it("refuses a value edit on a row that has nothing to change", async () => {
+    await publishPrice(brand, "Singapore SN 150 FOB", 1520, TOMORROW);
+
+    const { items } = await stageRows({
+      siteId: brand.siteId,
       rows: [{ location: "Singapore SN 150 FOB", price: 1520, date: TOMORROW }],
       now: NOW,
     });
 
     expect(items[0]!.status).toBe("unchanged");
 
-    const updated = await updateItem(brand.siteId, items[0]!.id, { new_price: 1555 }, db(), NOW);
-
-    expect(updated.status).toBe("changed");
-    expect(Number(updated.oldPrice)).toBe(1520);
+    // Same rule as the Laravel sites, in their API and their own screens:
+    // only changed / new / ambiguous / unmatched rows take a value edit.
+    await expect(
+      updateItem(brand.siteId, items[0]!.id, { new_price: 1555 }, db(), NOW),
+    ).rejects.toThrow("That row cannot be edited.");
   });
 
   it("resolves an unmatched row when an editor names the location", async () => {

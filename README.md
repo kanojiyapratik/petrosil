@@ -15,6 +15,8 @@ pages and the dashboard come later.
 | `GET /api/compat/{site}/locations` | module — what the brand tracks, with its latest published price |
 | `GET /api/compat/{site}/price-batches` | console — the batch list, paginated |
 | `POST /api/compat/{site}/price-batches/rows` | console — stage the rows an editor kept |
+| `POST /api/compat/{site}/price-batches/upload` | console — a spreadsheet, relayed as the editor picked it |
+| `POST /api/compat/{site}/price-batches/bulk` | console — set, adjust or copy across many locations |
 | `GET /api/compat/{site}/price-batches/{id}` | console — the batch with every staged row |
 | `PUT /api/compat/{site}/price-batches/items/{id}` | console — edit one staged row |
 | `POST /api/compat/{site}/price-batches/{id}/commit` | console — publish |
@@ -29,9 +31,11 @@ pages and the dashboard come later.
 | `POST /api/compat/{site}/price-crawl/activity/clear` | console — forget the findings and the page hashes |
 | `GET /api/health` | Railway |
 
-Not yet built: spreadsheet upload (`/price-batches/upload`) and bulk edit
-(`/price-batches/bulk`) — the two paths that take a file or a form rather than
-JSON.
+The compat API is complete. One deliberate difference from the PHP sites: an
+old binary **.xls** is refused with a message asking for .xlsx or .csv, because
+every maintained Node reader for that 1997 format is either unmaintained or
+carries parser advisories, and these files arrive from outside. .xlsx and .csv
+read as before.
 
 ## The rules this code exists to protect
 
@@ -48,6 +52,13 @@ JSON.
   it reaches a price only by being staged as an ordinary batch a human commits.
   A page that could not be read stores no content hash, or every later check
   would call it unchanged and skip it.
+- **A spreadsheet's shape is decided once, not per row.** Deciding per row let
+  a blank price cell in a three-column sheet look like a two-column row and
+  shift-read its DATE cell as the price — and a date serial is a number, so it
+  passed the numeric check and staged as a real price.
+- **A bulk adjustment that would go negative is staged `invalid`, not clamped.**
+  Zero is a plausible-looking figure in a commodity report, so a silent clamp
+  could be published as though it were real.
 - **Names are matched exactly** (case folded, whitespace collapsed) and never
   fuzzily. A near miss publishes a wrong price; `unmatched` does not.
 - **Every query is scoped by site.** A token is bound to one brand, and the slug
@@ -61,7 +72,7 @@ npm run db:up        # Postgres on 5434 (5433 is the price module's — untouche
 npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
 npm run dev          # http://127.0.0.1:3100
-npm test             # 65 tests against the real database
+npm test             # 86 tests against the real database
 ```
 
 `npm run db:seed` prints each brand's token once. Only a SHA-256 of it is

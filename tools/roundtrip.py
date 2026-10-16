@@ -72,6 +72,54 @@ try:
 except Exception as error:
     check("bad token refused", "refused the request" in str(error), str(error)[:90])
 
+# ---- the two non-JSON paths: a relayed spreadsheet, and a bulk edit ----
+
+sheet = (
+    "Location,Date,Price\n"
+    "Singapore SN 150 FOB Group I,2099-04-04,1565\n"
+    "UAE SN 500 Group II,2099-04-04,1355\n"
+    "Atlantis FOB,2099-04-04,999\n"
+).encode("utf-8")
+uploaded = c.upload_batch("weekly.csv", sheet, "")
+check(
+    "upload a sheet",
+    uploaded["batch"]["source"] == "upload" and uploaded["summary"]["new"] == 2,
+    uploaded["summary"],
+)
+check("upload needs attention", uploaded["needs_attention"] == 1)
+c.discard_batch(uploaded["batch"]["id"])
+
+# Give the bulk edit something to work on.
+seedling = c.stage_rows(
+    rows=[{"location": "Singapore SN 150 FOB Group I", "price": 1500}],
+    price_date="2099-05-05",
+)
+c.commit_batch(seedling["batch"]["id"])
+
+location_id = next(
+    l["id"] for l in c.locations()["data"] if l["title"] == "Singapore SN 150 FOB Group I"
+)
+bulk = c.bulk_batch(
+    {
+        "location_ids": [location_id],
+        "operation": "adjust",
+        "date_from": "2099-05-05",
+        "date_to": "2099-05-05",
+        "value": "25",
+    }
+)
+check(
+    "bulk adjust",
+    bulk["batch"]["source"] == "bulk_edit" and bulk["summary"]["changed"] == 1,
+    bulk["summary"],
+)
+check(
+    "bulk adjusted to the right figure",
+    c.batch(bulk["batch"]["id"])["items"][0]["new_price"] == 1525,
+)
+c.discard_batch(bulk["batch"]["id"])
+c.rollback_batch(seedling["batch"]["id"])
+
 # ---- the crawler half: the same client, the calls the crawler itself makes ----
 
 replaced = c.replace_watched_urls(
