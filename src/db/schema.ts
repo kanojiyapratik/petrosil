@@ -427,6 +427,187 @@ export const siteCrawlSettings = pgTable("site_crawl_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/* ------------------------------------------------------------------ money */
+
+/**
+ * What a brand sells.
+ *
+ * The old sites kept `subscriptions` (the plan) and `subscription_users` (who
+ * bought one) in one place and multi-year pricing in a second table reached
+ * through `getPrice/{plan_id}/{year}`. The split is kept, because a plan
+ * priced for one, two and three years is the shape the estate actually sells,
+ * but the money is `numeric` here rather than the old float columns.
+ */
+export const plans = pgTable(
+  "plans",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 64 }).notNull(),
+    name: varchar("name", { length: 191 }).notNull(),
+    description: text("description"),
+    currency: varchar("currency", { length: 3 }).default("USD").notNull(),
+    /** Hidden plans still honour the orders already placed against them. */
+    visible: boolean("visible").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    codePerSite: uniqueIndex("plans_site_code_unique").on(t.siteId, t.code),
+  }),
+);
+
+/** One row per term a plan can be bought for: 1 year, 2 years, 3 years. */
+export const planPrices = pgTable(
+  "plan_prices",
+  {
+    id: serial("id").primaryKey(),
+    planId: integer("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    years: integer("years").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    termPerPlan: uniqueIndex("plan_prices_plan_years_unique").on(t.planId, t.years),
+  }),
+);
+
+/**
+ * A discount code.
+ *
+ * `redeemed` is a counter on the row rather than a count over orders, so the
+ * cap can be enforced in the same statement that spends it — two people
+ * holding the last redemption of a code must not both get it.
+ */
+export const coupons = pgTable(
+  "coupons",
+  {
+    id: serial("id").primaryKey(),
+    /** Null means it works on every brand. */
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 64 }).notNull(),
+    percentOff: integer("percent_off"),
+    amountOff: numeric("amount_off", { precision: 12, scale: 2 }),
+    currency: varchar("currency", { length: 3 }),
+    maxRedemptions: integer("max_redemptions"),
+    redeemed: integer("redeemed").default(0).notNull(),
+    startsAt: date("starts_at"),
+    expiresAt: date("expires_at"),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // Stored upper-cased, matched upper-cased: "WELCOME10" and "welcome10"
+    // are one code, which is how people actually type them.
+    codeUnique: uniqueIndex("coupons_code_unique").on(t.code),
+  }),
+);
+
+export const ORDER_STATUSES = ["pending", "paid", "failed", "cancelled"] as const;
+
+/**
+ * An order.
+ *
+ * The amounts are written by the server from the plan and the coupon, never
+ * read from the request. The old checkout posted the price it had been shown
+ * and the controller trusted it.
+ */
+export const orders = pgTable(
+  "orders",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planId: integer("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    /** Copied, not joined: a plan renamed next year must not rewrite an invoice. */
+    planName: varchar("plan_name", { length: 191 }).notNull(),
+    years: integer("years").notNull(),
+    currency: varchar("currency", { length: 3 }).notNull(),
+    listAmount: numeric("list_amount", { precision: 12, scale: 2 }).notNull(),
+    discount: numeric("discount", { precision: 12, scale: 2 }).default("0").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    couponId: integer("coupon_id").references(() => coupons.id, { onDelete: "set null" }),
+    couponCode: varchar("coupon_code", { length: 64 }),
+    status: varchar("status", { length: 24 }).default("pending").notNull(),
+    /** "razorpay" | "coupon" (nothing left to pay) | "manual" (staff marked it paid). */
+    provider: varchar("provider", { length: 32 }).default("razorpay").notNull(),
+    providerOrderId: varchar("provider_order_id", { length: 191 }),
+    providerPaymentId: varchar("provider_payment_id", { length: 191 }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** What the membership's expiry became, so an invoice can state the term it bought. */
+    grantedUntil: date("granted_until"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("orders_user_idx").on(t.userId, t.createdAt),
+    bySite: index("orders_site_idx").on(t.siteId, t.status),
+    providerOrderUnique: uniqueIndex("orders_provider_order_unique").on(t.providerOrderId),
+  }),
+);
+
+/**
+ * Every attempt to settle an order, successful or not — the old admin's
+ * "transaction" screen. Kept separate from `orders` because a failed attempt
+ * followed by a successful one is two records and one order.
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    provider: varchar("provider", { length: 32 }).notNull(),
+    providerPaymentId: varchar("provider_payment_id", { length: 191 }),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: varchar("currency", { length: 3 }).notNull(),
+    status: varchar("status", { length: 24 }).notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOrder: index("payments_order_idx").on(t.orderId, t.createdAt),
+  }),
+);
+
+/**
+ * A free-trial request, which staff approve. The old sites had `freetrial` →
+ * `freeTrialRequest` and an admin who granted it by editing the user row;
+ * the decision is a record here, because "who gave them a trial" was asked.
+ */
+export const trialRequests = pgTable(
+  "trial_requests",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 24 }).default("pending").notNull(),
+    note: text("note"),
+    days: integer("days").default(14).notNull(),
+    decidedBy: integer("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("trial_requests_site_idx").on(t.siteId, t.status),
+    byUser: index("trial_requests_user_idx").on(t.userId),
+  }),
+);
+
 /* ------------------------------------- one-shot links, and the mail that carries them */
 
 /**

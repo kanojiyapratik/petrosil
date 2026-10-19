@@ -21,7 +21,7 @@ import { checkPassword, readEmail, readName, readText } from "./policy";
 export class AccountError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 401 | 404 | 422,
+    readonly status: 400 | 401 | 404 | 409 | 422,
     readonly field?: string,
   ) {
     super(message);

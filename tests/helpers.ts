@@ -13,6 +13,7 @@ export async function resetDatabase(): Promise<void> {
       audit_log, mail_outbox, auth_tokens, price_summaries,
       price_crawl_activities, price_crawl_urls, site_crawl_settings,
       price_batch_items, price_batches, prices, locations, memberships,
+      trial_requests, payments, orders, plan_prices, plans, coupons,
       site_api_tokens, users, sites
     restart identity cascade
   `);

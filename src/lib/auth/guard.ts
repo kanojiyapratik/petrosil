@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 
 import { identify, type Identity } from "./session";
 import { COOKIE } from "./session";
+import { AccountError } from "@/domain/accounts/register";
 
 export type Guarded = { identity: Identity; siteIds: number[]; isSuperadmin: boolean };
 
@@ -100,6 +101,18 @@ export function dashboard(
     } catch (error) {
       if (error instanceof AccessError) {
         return NextResponse.json({ message: error.message }, { status: error.status });
+      }
+
+      // Billing and account rules are raised as AccountError from the domain,
+      // and some of them (a trial already decided, for instance) surface on
+      // dashboard endpoints too.
+      if (error instanceof AccountError) {
+        return NextResponse.json(
+          error.field
+            ? { message: error.message, errors: { [error.field]: [error.message] } }
+            : { message: error.message },
+          { status: error.status },
+        );
       }
 
       console.error("dashboard endpoint failed", {
