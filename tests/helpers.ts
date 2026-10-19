@@ -14,6 +14,7 @@ export async function resetDatabase(): Promise<void> {
       price_crawl_activities, price_crawl_urls, site_crawl_settings,
       price_batch_items, price_batches, prices, locations, memberships,
       trial_requests, payments, orders, plan_prices, plans, coupons,
+      announcements, pages, articles, article_categories,
       site_api_tokens, users, sites
     restart identity cascade
   `);

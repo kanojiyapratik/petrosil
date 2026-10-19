@@ -427,6 +427,108 @@ export const siteCrawlSettings = pgTable("site_crawl_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/* ---------------------------------------------------------------- content */
+
+export const articleCategories = pgTable(
+  "article_categories",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 191 }).notNull(),
+    name: varchar("name", { length: 191 }).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    slugPerSite: uniqueIndex("article_categories_site_slug_unique").on(t.siteId, t.slug),
+  }),
+);
+
+/**
+ * An article. 119,000 of them across the estate, so the published-list query
+ * is the one to keep honest: `(site_id, status, published_at)` is the index it
+ * reads, and the body is never selected for a list.
+ *
+ * `premiumOnly` is per article, not per brand: the old sites paywalled some
+ * analysis and left the news open, and that mix is a selling point rather
+ * than an accident.
+ */
+export const articles = pgTable(
+  "articles",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    categoryId: integer("category_id").references(() => articleCategories.id, {
+      onDelete: "set null",
+    }),
+    slug: varchar("slug", { length: 191 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    /** Shown to everyone, including on a locked article: it is the hook. */
+    excerpt: text("excerpt"),
+    body: text("body").notNull(),
+    heroImage: varchar("hero_image", { length: 512 }),
+    status: varchar("status", { length: 24 }).default("draft").notNull(),
+    premiumOnly: boolean("premium_only").default(false).notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    authorId: integer("author_id").references(() => users.id, { onDelete: "set null" }),
+    views: integer("views").default(0).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    slugPerSite: uniqueIndex("articles_site_slug_unique").on(t.siteId, t.slug),
+    published: index("articles_site_status_idx").on(t.siteId, t.status, t.publishedAt),
+  }),
+);
+
+/**
+ * The DB-backed content pages — about, methodology, advertise, terms. Fourteen
+ * per site in the dumps, edited by staff rather than deployed.
+ */
+export const pages = pgTable(
+  "pages",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 191 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    body: text("body").notNull(),
+    visible: boolean("visible").default(true).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    slugPerSite: uniqueIndex("pages_site_slug_unique").on(t.siteId, t.slug),
+  }),
+);
+
+/** The strip across the top of a brand site, with a window it shows in. */
+export const announcements = pgTable(
+  "announcements",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    link: varchar("link", { length: 512 }),
+    startsAt: date("starts_at"),
+    endsAt: date("ends_at"),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("announcements_site_idx").on(t.siteId, t.enabled),
+  }),
+);
+
 /* ------------------------------------------------------------------ money */
 
 /**
