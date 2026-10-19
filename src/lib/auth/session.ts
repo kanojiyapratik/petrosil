@@ -217,6 +217,31 @@ export async function signOut(token: string | null | undefined, database: Databa
     .where(eq(sessions.tokenHash, hash(token)));
 }
 
+/**
+ * Throw out every session this account holds.
+ *
+ * Called after a password reset: whoever took the password may also be
+ * holding a stolen cookie, and a reset that leaves old sessions alive fixes
+ * nothing. `keep` spares the session making the change, so someone changing
+ * their own password from a settings screen is not signed out of it.
+ */
+export async function revokeSessions(
+  userId: number,
+  keep: number | null = null,
+  database: Database = db(),
+): Promise<void> {
+  await database
+    .update(sessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        isNull(sessions.revokedAt),
+        keep === null ? undefined : sql`${sessions.id} <> ${keep}`,
+      ),
+    );
+}
+
 export async function membershipsFor(userId: number, database: Database = db()): Promise<Membership[]> {
   const rows = await database
     .select({

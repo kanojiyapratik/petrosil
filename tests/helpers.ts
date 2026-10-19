@@ -10,9 +10,10 @@ export async function resetDatabase(): Promise<void> {
   // One statement, so no ordering problem with the foreign keys.
   await db().execute(sql`
     truncate table
-      audit_log, price_summaries, price_crawl_activities, price_crawl_urls,
-      site_crawl_settings, price_batch_items, price_batches, prices,
-      locations, memberships, site_api_tokens, users, sites
+      audit_log, mail_outbox, auth_tokens, price_summaries,
+      price_crawl_activities, price_crawl_urls, site_crawl_settings,
+      price_batch_items, price_batches, prices, locations, memberships,
+      site_api_tokens, users, sites
     restart identity cascade
   `);
 }

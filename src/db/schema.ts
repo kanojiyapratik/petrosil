@@ -427,6 +427,75 @@ export const siteCrawlSettings = pgTable("site_crawl_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/* ------------------------------------- one-shot links, and the mail that carries them */
+
+/**
+ * A single-use link: confirm an address, or set a new password.
+ *
+ * Only the SHA-256 is stored, for the same reason as sessions and API tokens
+ * — a leaked table must not be a bag of working password-reset links. The
+ * plaintext exists for exactly as long as it takes to put it in an email.
+ */
+export const authTokens = pgTable(
+  "auth_tokens",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Which brand the person was on when they asked, so the mail can be branded. */
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "set null" }),
+    /** "verify_email" | "reset_password". Checked on use: a confirmation link must not set a password. */
+    purpose: varchar("purpose", { length: 32 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hashUnique: uniqueIndex("auth_tokens_hash_unique").on(t.tokenHash),
+    byUser: index("auth_tokens_user_idx").on(t.userId, t.purpose),
+  }),
+);
+
+/**
+ * Mail waiting to go out.
+ *
+ * Writing the row and sending it are deliberately separate. The estate's
+ * credentials live in the old sites' settings table (Brevo, SendGrid, SMTP)
+ * and are not ours to use yet, so nothing here talks to a mail server: a
+ * registration queues its verification mail and the endpoint answers. When a
+ * sender is wired up it drains this table, and the newsletter and
+ * report-mailing screens the old admin had will queue into the same place.
+ *
+ * It doubles as the record of what was sent to whom, which is what the old
+ * `sent_emails` table was for.
+ */
+export const mailOutbox = pgTable(
+  "mail_outbox",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "set null" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Named `recipient` in the database: `to` is a reserved word. */
+    to: varchar("recipient", { length: 191 }).notNull(),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    template: varchar("template", { length: 64 }).notNull(),
+    /** Everything the template needs, including any one-shot link. */
+    payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // The sender's query: oldest unsent first.
+    pending: index("mail_outbox_pending_idx").on(t.sentAt, t.id),
+    byUser: index("mail_outbox_user_idx").on(t.userId),
+  }),
+);
+
 /* ------------------------------------------------------------- audit trail */
 
 /**

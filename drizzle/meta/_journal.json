@@ -15,6 +15,13 @@
       "when": 1792148575801,
       "tag": "0001_skinny_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792408080960,
+      "tag": "0002_graceful_nomad",
+      "breakpoints": true
     }
   ]
 }
