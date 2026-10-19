@@ -8,7 +8,21 @@
 import { eq } from "drizzle-orm";
 
 import { closeDb, db } from "@/db";
-import { locations, memberships, prices, sites, users } from "@/db/schema";
+import {
+  announcements,
+  articleCategories,
+  articles,
+  coupons,
+  locations,
+  memberships,
+  pages,
+  planPrices,
+  plans,
+  priceSummaries,
+  prices,
+  sites,
+  users,
+} from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 
 const PASSWORD = process.env.DEV_PASSWORD ?? "petrosil-dev";
@@ -144,9 +158,124 @@ async function main(): Promise<void> {
     }
   }
 
+  // Everything the brand sites read: something to sell, something to read,
+  // and the pages the footer links to. Without these the public API answers
+  // correctly but with empty arrays, which looks the same as broken.
+  for (const slug of Object.keys(BRANDS)) {
+    const [site] = await database.select().from(sites).where(eq(sites.slug, slug)).limit(1);
+
+    if (!site) {
+      continue;
+    }
+
+    const [plan] = await database
+      .insert(plans)
+      .values({
+        siteId: site.id,
+        code: "annual",
+        name: `${site.name} Price Service`,
+        description: "Full access to every assessment, the history and the weekly note.",
+        currency: site.defaultCurrency,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (plan) {
+      await database
+        .insert(planPrices)
+        .values([
+          { planId: plan.id, years: 1, amount: "1200.00" },
+          { planId: plan.id, years: 2, amount: "2100.00" },
+          { planId: plan.id, years: 3, amount: "2900.00" },
+        ])
+        .onConflictDoNothing();
+    }
+
+    const [category] = await database
+      .insert(articleCategories)
+      .values({ siteId: site.id, slug: "market-news", name: "Market news" })
+      .onConflictDoNothing()
+      .returning();
+
+    await database
+      .insert(articles)
+      .values([
+        {
+          siteId: site.id,
+          categoryId: category?.id ?? null,
+          slug: "weekly-wrap-asia-holds-firm",
+          title: "Weekly wrap: Asia holds firm as cargoes thin out",
+          excerpt: "Buyers stayed on the sidelines, and sellers saw no reason to move.",
+          body: "The week opened quietly and ended quieter still. " .repeat(20),
+          status: "published",
+          publishedAt: new Date(Date.now() - 2 * 86_400_000),
+        },
+        {
+          siteId: site.id,
+          categoryId: category?.id ?? null,
+          slug: "quarterly-outlook",
+          title: "Quarterly outlook: where margins go from here",
+          excerpt: "Our read on the next three months, and what would change it.",
+          body: "SUBSCRIBER ANALYSIS. " .repeat(40),
+          status: "published",
+          premiumOnly: true,
+          publishedAt: new Date(Date.now() - 86_400_000),
+        },
+        {
+          siteId: site.id,
+          categoryId: category?.id ?? null,
+          slug: "not-published-yet",
+          title: "A draft nobody outside should see",
+          excerpt: "If this is reachable from /api/public, something is wrong.",
+          body: "Draft.",
+          status: "draft",
+        },
+      ])
+      .onConflictDoNothing();
+
+    await database
+      .insert(pages)
+      .values([
+        {
+          siteId: site.id,
+          slug: "methodology",
+          title: "Methodology",
+          body: "How each assessment is made, and what goes into it.",
+        },
+        {
+          siteId: site.id,
+          slug: "about-us",
+          title: "About us",
+          body: "Petrosil has published price assessments since 1996.",
+        },
+      ])
+      .onConflictDoNothing();
+
+    await database
+      .insert(announcements)
+      .values({ siteId: site.id, body: "Assessments now published twice weekly." })
+      .onConflictDoNothing();
+
+    await database
+      .insert(priceSummaries)
+      .values({
+        siteId: site.id,
+        source: "editorial",
+        summary:
+          "Prices were mostly steady this week, with the Asian markers firmer and Europe unchanged.",
+      })
+      .onConflictDoNothing();
+  }
+
+  await database
+    .insert(coupons)
+    .values({ code: "WELCOME10", percentOff: 10, maxRedemptions: 100 })
+    .onConflictDoNothing();
+
   console.log(`demo data in place — every account's password is: ${PASSWORD}`);
   console.log("  editor@petrosil.example  staff, baseoil only");
   console.log("  tanvi@ebo.example        premium on two brands");
+  console.log("coupon WELCOME10 (10%), one annual plan per brand, 2 published articles + 1 draft");
 
   await closeDb();
 }
