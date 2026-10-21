@@ -406,7 +406,13 @@
             <th>&#8470;</th>
             <th>Keep</th><th>Location</th><th>Current</th><th>Suggested range</th>
             <th>Price to save</th><th>Change</th><th>Confidence</th>
-            <th>Basis</th><th>Source</th><th>Rationale</th>
+            <th>Basis</th><th>Source</th>
+            {# The arithmetic, in the client's own terms. The rows queried in
+               every mismatch round were the ones whose figure is printed
+               nowhere in the report -- a midpoint, a rounded midpoint, a
+               rule on another row. See app/editorial/workings.py. #}
+            <th>Workings</th>
+            <th>Rationale</th>
           </tr>
         </thead>
         <tbody>
@@ -465,6 +471,7 @@
               <td>{{ row.confidence or "" }}</td>
               <td class="small muted">{{ row.basis or "" }}</td>
               <td class="small muted">{{ row.source or "" }}</td>
+              <td class="small muted">{{ row.workings or "" }}</td>
               <td class="small muted">{{ row.rationale or "" }}</td>
             </tr>
           {% endfor %}
@@ -472,6 +479,14 @@
       </table>
       <div class="actions">
         <button type="submit">Save ticked prices to {{ site.name }}</button>
+        {% if draft_id %}
+        {# The sheet that argues for itself. Send this instead of a column of
+           bare numbers: every figure carries the report, the range it printed
+           and the arithmetic in between. #}
+        <a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ draft_id }}/workings.csv">
+          Download workings (CSV)
+        </a>
+        {% endif %}
       </div>
       <p class="hint">
         Saving opens the review page, where you check everything once more and press

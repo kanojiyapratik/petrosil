@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from .rounding import normalise_direction, round_to_nearest
+from .rounding import normalise_direction, round_to_nearest, settings_for
 from .rules import FIXED, PERCENT, PriceRule, adjustment_label
 
 # Statuses that carry a figure about to be published. The same tuple the
@@ -63,29 +63,10 @@ class Finding:
     actual: float | None = None
 
 
-def _step_and_direction(setting) -> tuple[float | None, str]:
-    """A step on its own, or a (step, direction) pair.
-
-    Both the site default and a location override arrive in either shape --
-    the analyse route passes the site's default as a pair so a site that
-    always rounds one way says so once, and `rounding.for_site` returns
-    pairs for the locations that override it. A bare number means the
-    rulebook's own "closest multiple of".
-    """
-    if isinstance(setting, (tuple, list)):
-        step = setting[0]
-        direction = setting[1] if len(setting) > 1 else "nearest"
-
-        return step, normalise_direction(direction)
-
-    return setting, "nearest"
-
-
 def _settings(location: str, default_step, overrides: dict) -> tuple[float | None, str]:
-    """A location's own setting always beats the site default."""
-    return _step_and_direction(
-        overrides[location] if location in overrides else default_step
-    )
+    """Shared with the pass that does the rounding and the one that explains
+    it, so a check cannot disagree with what actually happened."""
+    return settings_for(location, default_step, overrides)
 
 
 def _priced(row: dict) -> bool:

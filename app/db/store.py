@@ -1181,6 +1181,10 @@ class DraftRow:
     derived_from: str | None
     ticked: bool | None
     saved_price: float | None
+    #: The whole row as the screen got it -- conversion, fx rate, rule unit,
+    #: and the workings line. Read back so a saved draft can be exported with
+    #: its arithmetic intact; the columns above cannot carry all of it.
+    detail: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -1326,7 +1330,7 @@ class DraftStore:
             rows = connection.execute(
                 "SELECT location, is_benchmark, status, reported_as, current_price, "
                 "suggested_min, suggested_max, suggested_price, change_pct, confidence, "
-                "basis, source, rationale, flag, derived_from, ticked, saved_price "
+                "basis, source, rationale, flag, derived_from, ticked, saved_price, detail "
                 "FROM console_editorial_draft_rows WHERE draft_id = %s ORDER BY position",
                 (draft_id,),
             ).fetchall()
@@ -1348,6 +1352,7 @@ class DraftStore:
                     confidence=row[9], basis=row[10], source=row[11], rationale=row[12],
                     flag=row[13], derived_from=row[14], ticked=row[15],
                     saved_price=_number(row[16]),
+                    detail=row[17] if isinstance(row[17], dict) else None,
                 )
                 for row in rows
             ],

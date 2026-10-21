@@ -109,6 +109,23 @@ def _step_and_direction(override) -> tuple[float | None, str]:
     return override, "nearest"
 
 
+def settings_for(location: str, default_step, overrides: dict | None) -> tuple[float | None, str]:
+    """What step and direction one location is rounded on.
+
+    A location's own setting always beats the site default; either may be a
+    bare step or a (step, direction) pair. Public because three modules have
+    to agree on the answer: this one applies it, preflight checks a published
+    figure against it, and workings tells the client what was applied. Three
+    copies of the lookup would be three chances for the check and the
+    explanation to disagree with what actually happened.
+    """
+    overrides = overrides or {}
+
+    return _step_and_direction(
+        overrides[location] if location in overrides else default_step
+    )
+
+
 def apply_rounding(
     rows: list[dict],
     default_step: float | None,

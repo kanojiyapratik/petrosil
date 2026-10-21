@@ -10,11 +10,13 @@ gains no UI and the module still holds no site database credentials.
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import date, datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
@@ -32,6 +34,7 @@ from ..editorial.review import (
 )
 from ..editorial.preflight import preflight
 from ..editorial.rounding import apply_rounding
+from ..editorial.workings import export_columns, workings_for
 from ..editorial.rules import apply_rules, benchmark_names
 from ..editorial.secondlook import (
     merge_second_look,
@@ -180,6 +183,9 @@ def create_editorial_routes(
             "reuse": None,
             # The kept copy of this draft (DraftStore), so saving links back to it.
             "draft_id": None,
+            # What the sheet says about itself. See app/editorial/preflight.py.
+            "findings": None,
+            "blockers": 0,
             # A reading already read and not yet used, so a closed tab does
             # not strand it. See ExtractionStore.latest_open.
             "waiting": None,
@@ -736,6 +742,28 @@ def create_editorial_routes(
                 else None
             )
 
+            # Every figure, with the arithmetic that produced it. Attached to
+            # the row, so it rides into the draft's `detail` and can leave
+            # again as the sheet the client reads beside the report -- the
+            # rows they queried in all four October rounds were the ones
+            # whose figure is printed nowhere in it. See
+            # app/editorial/workings.py.
+            rounding_overrides = rounding.for_site(site.slug) if rounding is not None else None
+            site_default = (
+                site.round_to_nearest,
+                getattr(site, "round_direction", "nearest"),
+            )
+            by_location = {row["location"]: row for row in rows + benchmark_rows}
+
+            for row in rows + benchmark_rows:
+                row["workings"] = workings_for(
+                    row,
+                    by_location=by_location,
+                    rules=site_rules,
+                    default_step=site_default,
+                    overrides=rounding_overrides,
+                ).line
+
             # Last of all, once every figure on the draft is final: ask the
             # sheet whether it contradicts itself. Four rounds of mismatch
             # files with the client in October 2026 were all explained by
@@ -746,11 +774,8 @@ def create_editorial_routes(
             findings = preflight(
                 rows + benchmark_rows,
                 rules=site_rules,
-                default_step=(
-                    site.round_to_nearest,
-                    getattr(site, "round_direction", "nearest"),
-                ),
-                overrides=rounding.for_site(site.slug) if rounding is not None else None,
+                default_step=site_default,
+                overrides=rounding_overrides,
                 price_date=pricedate,
             )
 
@@ -772,6 +797,64 @@ def create_editorial_routes(
                     },
                 },
             )
+
+    @router.get("/console/sites/{slug}/editorial/drafts/{draft_id}/workings.csv")
+    def workings_csv(request: Request, slug: str, draft_id: int):
+        """The draft as a sheet that argues for itself.
+
+        One line per published price: the figure, the report it came from,
+        the range that report printed, every step of the arithmetic, and
+        whether those steps reach the figure. This is what goes to the
+        client instead of a bare column of numbers -- the rows queried in
+        all four October rounds were the ones whose figure appears nowhere
+        in the report, and a row that explains itself is not queried.
+        """
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        draft = drafts.draft(draft_id, site.slug) if drafts is not None else None
+
+        if draft is None:
+            return screen(
+                request, user, site,
+                {"error": "That draft is no longer here."},
+                status=404,
+            )
+
+        columns = export_columns()
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+
+        for row in draft.rows:
+            if row.is_benchmark or row.suggested_price is None:
+                continue
+
+            detail = row.detail or {}
+            writer.writerow(
+                {
+                    "Location": row.location,
+                    "Published": row.suggested_price,
+                    "Source": row.source or "",
+                    "Report date": detail.get("price_date") or "",
+                    "Quoted low": row.suggested_min,
+                    "Quoted high": row.suggested_max,
+                    "Workings": detail.get("workings") or row.rationale or "",
+                    # A draft kept before this column existed has no workings
+                    # to check, and saying "no" would read as a fault.
+                    "Checks out": "" if not detail.get("workings") else "yes",
+                }
+            )
+
+        filename = f"{site.slug}-{draft.price_date or draft.id}-workings.csv"
+
+        return Response(
+            content=buffer.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"content-disposition": f'attachment; filename="{filename}"'},
+        )
 
     @router.post("/console/sites/{slug}/editorial/stage")
     async def stage(request: Request, slug: str):

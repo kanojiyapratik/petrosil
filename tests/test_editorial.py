@@ -2794,3 +2794,123 @@ class TestThePreflightPanelOnTheDraftScreen:
         # The prices themselves are still there: the panel is an addition,
         # not a replacement.
         assert 'name="price_0"' in page
+
+
+class TestTheWorkingsThatGoToTheClient:
+    """Every price with the arithmetic that produced it, on the screen and
+    out as a sheet.
+
+    app/editorial/workings.py is unit-tested in tests/test_workings.py.
+    What is proved here is the wiring: that the workings reach the draft
+    screen, ride into the kept draft, and come back out as a CSV.
+    """
+
+    class DraftsThatKeepRows(FakeDrafts):
+        """FakeDrafts, plus the read-back the export needs."""
+
+        def draft(self, draft_id, site_slug):
+            if draft_id != self._draft_id or site_slug != self._owner:
+                return None
+
+            kept = self.created[-1]
+
+            return type(
+                "Draft",
+                (),
+                {
+                    "id": draft_id,
+                    "price_date": kept.get("price_date"),
+                    "rows": [
+                        type(
+                            "Row",
+                            (),
+                            {
+                                "location": row.get("location"),
+                                "is_benchmark": False,
+                                "status": row.get("status"),
+                                "suggested_min": row.get("suggested_min"),
+                                "suggested_max": row.get("suggested_max"),
+                                "suggested_price": row.get("suggested_price"),
+                                "source": row.get("source"),
+                                "rationale": row.get("rationale"),
+                                "detail": row,
+                            },
+                        )()
+                        for row in kept.get("rows", [])
+                    ],
+                },
+            )()
+
+    def analyse(self, drafts, pricedate="2026-10-16"):
+        answer = json.dumps(
+            [
+                {
+                    "location": "Europe Domestic SN150",
+                    "suggested_min": 832,
+                    "suggested_max": 842,
+                    "confidence": "high",
+                    "basis": "Argus, page 6",
+                    "source": "Argus Bitumen 26-41",
+                    "rationale": "checked by the editor",
+                }
+            ]
+        )
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=answer, prompt_tokens=5,
+                completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=5)
+        client, _extractions, _store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 1000.0}],
+            drafts=drafts,
+        )
+        response = client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": pricedate},
+        )
+
+        return client, response
+
+    def test_the_draft_screen_shows_how_the_figure_was_reached(self):
+        _client, response = self.analyse(self.DraftsThatKeepRows())
+
+        # 832-842, mid 837, nearest 5 -> 835.
+        assert "Argus Bitumen 26-41 quoted 832-842" in response.text
+        assert "mid 837" in response.text
+        assert "nearest 5" in response.text
+
+    def test_the_workings_ride_into_the_kept_draft(self):
+        drafts = self.DraftsThatKeepRows()
+        self.analyse(drafts)
+        [kept] = drafts.created
+        row = next(r for r in kept["rows"] if r["location"] == "Europe Domestic SN150")
+
+        assert "mid 837" in row["workings"]
+
+    def test_the_draft_comes_back_out_as_a_sheet_that_argues_for_itself(self):
+        drafts = self.DraftsThatKeepRows()
+        client, _response = self.analyse(drafts)
+
+        download = client.get("/console/sites/baseoil/editorial/drafts/12/workings.csv")
+
+        assert download.status_code == 200
+        assert "text/csv" in download.headers["content-type"]
+        assert "attachment" in download.headers["content-disposition"]
+        assert "Location,Published,Source,Report date" in download.text
+        assert "mid 837" in download.text
+
+    def test_the_download_is_offered_on_the_screen(self):
+        _client, response = self.analyse(self.DraftsThatKeepRows())
+
+        assert "/editorial/drafts/12/workings.csv" in response.text
+
+    def test_another_site_s_draft_is_not_downloadable(self):
+        drafts = self.DraftsThatKeepRows(owner="bitumart")
+        client, _response = self.analyse(drafts)
+
+        download = client.get("/console/sites/baseoil/editorial/drafts/12/workings.csv")
+
+        assert download.status_code == 404
