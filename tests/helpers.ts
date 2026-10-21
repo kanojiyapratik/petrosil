@@ -15,6 +15,9 @@ export async function resetDatabase(): Promise<void> {
       price_batch_items, price_batches, prices, locations, memberships,
       trial_requests, payments, orders, plan_prices, plans, coupons,
       announcements, pages, articles, article_categories,
+      reports, offers, impex_sheets, trade_quantities, trade_locations,
+      ads, ad_placements, newsletters, newsletter_templates,
+      role_permissions, roles, settings, form_fields, media_files, currencies,
       site_api_tokens, users, sites
     restart identity cascade
   `);

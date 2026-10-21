@@ -11,10 +11,11 @@
  * gallery, invoice, lock-screen, sweet-alert, forty more). They are roughly
  * 45% of the old route table and none of them is a feature.
  *
- * `built: false` means the old admin had this screen and this one does not
- * yet. They are shown greyed rather than hidden: hiding them would
- * misrepresent the shape of the system to someone who knows it, and
- * pretending they work would be worse than either.
+ * `built` is honest signposting rather than decoration: a screen marked
+ * false is listed and greyed, because hiding it would misrepresent the shape
+ * of the system to somebody who knows the old admin, and pretending it works
+ * would be worse than either. All 31 are built now; the flag stays for the
+ * next one somebody asks for.
  */
 
 export type NavItem = { label: string; href: string; built: boolean };
@@ -30,20 +31,20 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Locations", href: "/dashboard/locations", built: true },
       { label: "Price update", href: "/dashboard/batches", built: true },
-      { label: "Watched URLs", href: "/dashboard/crawl", built: false },
-      { label: "Manage qty trend", href: "/dashboard/qty", built: false },
-      { label: "Trade analysis", href: "/dashboard/trade-analysis", built: false },
+      { label: "Watched URLs", href: "/dashboard/crawl", built: true },
+      { label: "Manage qty trend", href: "/dashboard/qty", built: true },
+      { label: "Trade analysis", href: "/dashboard/trade-analysis", built: true },
     ],
   },
   {
     group: "Content",
     items: [
       { label: "Articles", href: "/dashboard/articles", built: true },
-      { label: "Pages", href: "/dashboard/pages", built: false },
-      { label: "Announcements", href: "/dashboard/announcements", built: false },
-      { label: "Reports", href: "/dashboard/reports", built: false },
-      { label: "Offers", href: "/dashboard/offers", built: false },
-      { label: "Impex data", href: "/dashboard/impex", built: false },
+      { label: "Pages", href: "/dashboard/pages", built: true },
+      { label: "Announcements", href: "/dashboard/announcements", built: true },
+      { label: "Reports", href: "/dashboard/reports", built: true },
+      { label: "Offers", href: "/dashboard/offers", built: true },
+      { label: "Impex data", href: "/dashboard/impex", built: true },
     ],
   },
   {
@@ -57,47 +58,47 @@ export const NAV: NavGroup[] = [
   {
     group: "Subscription",
     items: [
-      { label: "Plans", href: "/dashboard/plans", built: false },
-      { label: "Transactions", href: "/dashboard/transactions", built: false },
-      { label: "Coupons", href: "/dashboard/coupons", built: false },
+      { label: "Plans", href: "/dashboard/plans", built: true },
+      { label: "Transactions", href: "/dashboard/transactions", built: true },
+      { label: "Coupons", href: "/dashboard/coupons", built: true },
     ],
   },
   {
     group: "Masters",
     items: [
-      { label: "Currencies", href: "/dashboard/currencies", built: false },
-      { label: "Categories", href: "/dashboard/categories", built: false },
-      { label: "File manager", href: "/dashboard/files", built: false },
+      { label: "Currencies", href: "/dashboard/currencies", built: true },
+      { label: "Categories", href: "/dashboard/categories", built: true },
+      { label: "File manager", href: "/dashboard/files", built: true },
     ],
   },
   {
     group: "Newsletter",
     items: [
-      { label: "Templates", href: "/dashboard/templates", built: false },
-      { label: "Newsletters", href: "/dashboard/newsletters", built: false },
+      { label: "Templates", href: "/dashboard/templates", built: true },
+      { label: "Newsletters", href: "/dashboard/newsletters", built: true },
     ],
   },
   {
     group: "Ads",
     items: [
-      { label: "Ad locations", href: "/dashboard/ad-locations", built: false },
-      { label: "Ads", href: "/dashboard/ads", built: false },
+      { label: "Ad locations", href: "/dashboard/ad-locations", built: true },
+      { label: "Ads", href: "/dashboard/ads", built: true },
     ],
   },
   {
     group: "Users",
     items: [
-      { label: "Staff", href: "/dashboard/staff", built: false },
-      { label: "Roles", href: "/dashboard/roles", built: false },
+      { label: "Staff", href: "/dashboard/staff", built: true },
+      { label: "Roles", href: "/dashboard/roles", built: true },
       { label: "Audit trail", href: "/dashboard/audit", built: true },
     ],
   },
   {
     group: "Settings",
     items: [
-      { label: "General", href: "/dashboard/settings", built: false },
-      { label: "Directory fields", href: "/dashboard/settings/directory", built: false },
-      { label: "Offer fields", href: "/dashboard/settings/offers", built: false },
+      { label: "General", href: "/dashboard/settings", built: true },
+      { label: "Directory fields", href: "/dashboard/settings/directory", built: true },
+      { label: "Offer fields", href: "/dashboard/settings/offers", built: true },
     ],
   },
 ];

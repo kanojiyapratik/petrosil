@@ -468,3 +468,260 @@ button.ghost,
     padding: 1rem;
   }
 }
+
+/* ------------------------------------------------- list screens: the parts
+ *
+ * Everything below is what a list screen is made of: a filter bar that is a
+ * plain GET form, segment chips, a pager, a key/value sheet for detail
+ * screens, and a bar chart drawn with divs. No JavaScript in any of it --
+ * filtering reloads the page, which is what the PHP admin did and what makes
+ * every view a shareable URL.
+ */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.bar .field {
+  margin: 0;
+  min-width: 150px;
+}
+
+.bar .field.grow {
+  flex: 1 1 220px;
+}
+
+.bar label {
+  font-size: 0.75rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.chip:hover {
+  border-color: var(--brand);
+}
+
+.chip.on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+.chip b {
+  font-weight: 650;
+}
+
+.chip.on b {
+  color: var(--brand-ink);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.pager .spacer {
+  flex: 1;
+}
+
+.pager a,
+.pager span.off {
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+.pager span.off {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.empty {
+  padding: 28px 14px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.crumb {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.heading .spacer {
+  flex: 1;
+}
+
+.sub {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.cols {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+
+.cols.wide {
+  grid-template-columns: 2fr 1fr;
+}
+
+.kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) 1fr;
+}
+
+.kv dt,
+.kv dd {
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.kv dt {
+  color: var(--muted);
+}
+
+.kv dd {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.kv dt:last-of-type,
+.kv dd:last-of-type {
+  border-bottom: 0;
+}
+
+.up {
+  color: var(--ok);
+}
+
+.down {
+  color: var(--bad);
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  padding: 0 2px;
+}
+
+.chart .bar-col {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--brand);
+  border-radius: 2px 2px 0 0;
+  opacity: 0.85;
+}
+
+.chart .bar-col:hover {
+  opacity: 1;
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+button.small,
+.button.small {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+button.danger {
+  background: var(--bad);
+}
+
+form.inline {
+  display: inline;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+table.tight tbody td,
+table.tight thead th {
+  padding: 7px 14px;
+}
+
+textarea {
+  min-height: 120px;
+  font: inherit;
+  resize: vertical;
+}
+
+textarea.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
+
+.note {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .cols,
+  .cols.wide {
+    grid-template-columns: 1fr;
+  }
+}

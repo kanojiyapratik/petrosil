@@ -36,6 +36,13 @@
       "when": 1792409155600,
       "tag": "0004_previous_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792581831316,
+      "tag": "0005_clean_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

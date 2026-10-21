@@ -19,7 +19,8 @@
     "db:down": "docker compose down",
     "db:dev-data": "tsx --env-file-if-exists=.env scripts/dev-data.ts",
     "migrate:site": "tsx --env-file-if-exists=.env scripts/migrate-site.ts",
-    "sweep:expiries": "tsx --env-file-if-exists=.env scripts/sweep-expiries.ts"
+    "sweep:expiries": "tsx --env-file-if-exists=.env scripts/sweep-expiries.ts",
+    "migrate:content": "tsx --env-file-if-exists=.env scripts/migrate-content.ts"
   },
   "dependencies": {
     "bcryptjs": "2.4.3",

@@ -1,0 +1,172 @@
+/**
+ * Transactions.
+ *
+ * The list amount, the discount and what was actually charged are all three
+ * shown, because the old checkout posted the price it had been shown and the
+ * controller trusted it — so "what did they really pay" needed a database
+ * query. `attempts` is how many times settling was tried, which is the
+ * difference between a failed card and a failed order.
+ */
+
+import Link from "next/link";
+
+import { currentViewer } from "@/lib/auth/server";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { listTransactions } from "@/domain/dashboard/catalogue";
+import { ORDER_STATUSES } from "@/db/schema";
+import {
+  BrandField,
+  Empty,
+  Filters,
+  Heading,
+  Pager,
+  Panel,
+  count,
+  money,
+  one,
+  pageParam,
+  when,
+  type Search,
+} from "../../ui";
+
+export const metadata = { title: "Transactions · Petrosil" };
+export const dynamic = "force-dynamic";
+
+const TONE: Record<string, string> = {
+  paid: "ok",
+  pending: "warn",
+  failed: "bad",
+  cancelled: "",
+};
+
+export default async function TransactionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Search>;
+}) {
+  const viewer = (await currentViewer())!;
+  const search = await searchParams;
+
+  const site = one(search, "site");
+  const status = one(search, "status");
+  const page = pageParam(one(search, "page"));
+
+  const [brands, paged] = await Promise.all([
+    brandsFor(viewer.siteIds),
+    listTransactions(viewer.siteIds, { site, status, page }),
+  ]);
+
+  const takings = paged.rows
+    .filter((row) => row.status === "paid")
+    .reduce((sum, row) => sum + row.amount, 0);
+
+  return (
+    <>
+      <Heading
+        title="Transactions"
+        sub="Every order, with what it listed at, what was taken off, and what was charged."
+      />
+
+      <Panel flush={false}>
+        <Filters action="/dashboard/transactions">
+          <BrandField brands={brands} value={site} />
+          <div className="field">
+            <label htmlFor="status">Status</label>
+            <select id="status" name="status" defaultValue={status ?? ""}>
+              <option value="">Any status</option>
+              {ORDER_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Filters>
+      </Panel>
+
+      <Panel
+        title={`${count(paged.total)} order${paged.total === 1 ? "" : "s"}`}
+        hint={`${money(takings)} paid on this page`}
+      >
+        <table className="tight">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Buyer</th>
+              <th>Plan</th>
+              <th className="num">Listed</th>
+              <th className="num">Off</th>
+              <th className="num">Charged</th>
+              <th>Status</th>
+              <th>When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>#{row.id}</strong>
+                  <div className="small muted">{row.site}</div>
+                </td>
+                <td>
+                  <Link href={`/dashboard/clients/${row.user_id}`}>{row.who}</Link>
+                  <div className="small muted">{row.email}</div>
+                </td>
+                <td>
+                  {row.plan_name}
+                  <div className="small muted">
+                    {row.years} year{row.years === 1 ? "" : "s"}
+                    {row.granted_until ? ` · to ${row.granted_until}` : ""}
+                  </div>
+                </td>
+                <td className="num">{money(row.list_amount, row.currency)}</td>
+                <td className="num">
+                  {row.discount > 0 ? (
+                    <>
+                      <span className="down">−{money(row.discount)}</span>
+                      {row.coupon_code ? (
+                        <div className="small muted">{row.coupon_code}</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
+                <td className="num">
+                  <strong>{money(row.amount, row.currency)}</strong>
+                </td>
+                <td>
+                  <span className={`badge ${TONE[row.status] ?? ""}`}>{row.status}</span>
+                  <div className="small muted">
+                    {row.provider}
+                    {row.attempts > 1 ? ` · ${row.attempts} attempts` : ""}
+                  </div>
+                </td>
+                <td>
+                  {when(row.created_at)}
+                  {row.paid_at ? (
+                    <div className="small muted">paid {when(row.paid_at)}</div>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+            {paged.rows.length === 0 ? (
+              <tr>
+                <td colSpan={8}>
+                  <Empty>No orders match those filters.</Empty>
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        <Pager
+          base="/dashboard/transactions"
+          here={{ site, status }}
+          page={paged.page}
+          perPage={paged.per_page}
+          total={paged.total}
+        />
+      </Panel>
+    </>
+  );
+}

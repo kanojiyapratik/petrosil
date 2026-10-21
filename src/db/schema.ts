@@ -131,6 +131,13 @@ export const memberships = pgTable(
       .notNull()
       .references(() => sites.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 24 }).default("subscriber").notNull(),
+    /**
+     * A named role on top of the three built-in ones, when the team wants a
+     * narrower grant than "staff". Optional on purpose: the built-in role is
+     * what the code checks, and a row in a table cannot grant a capability
+     * nothing looks for.
+     */
+    roleId: integer("role_id"),
     tier: varchar("tier", { length: 24 }).default("free").notNull(),
     expiresAt: date("expires_at"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -803,6 +810,441 @@ export const auditLog = pgTable(
   },
   (t) => ({
     bySite: index("audit_log_site_idx").on(t.siteId, t.createdAt),
+  }),
+);
+
+/* ----------------------------------------------------------- the masters
+ *
+ * Currencies are estate-wide, and that is a change from the old schema on
+ * purpose: nine sites each kept their own three-row `currencies` table, so
+ * "USD" existed nine times and nothing guaranteed the nine agreed. A
+ * location still names its currency as text, because that is what the price
+ * module and the compat API already speak.
+ */
+export const currencies = pgTable(
+  "currencies",
+  {
+    id: serial("id").primaryKey(),
+    code: varchar("code", { length: 3 }).notNull(),
+    title: varchar("title", { length: 96 }).notNull(),
+    symbol: varchar("symbol", { length: 8 }).notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    codeUnique: uniqueIndex("currencies_code_unique").on(t.code),
+  }),
+);
+
+/**
+ * Uploaded files, indexed.
+ *
+ * The old sites had a `file_manager` directory and a PHP file browser over
+ * it, so what was in it was whatever happened to be on disk — including
+ * 200MB of orphans nobody could attribute. Here every file is a row: who put
+ * it there, how big it is, and what refers to it.
+ */
+export const mediaFiles = pgTable(
+  "media_files",
+  {
+    id: serial("id").primaryKey(),
+    /** Null means the file is the estate's rather than one brand's. */
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    path: varchar("path", { length: 512 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    kind: varchar("kind", { length: 96 }).notNull(),
+    bytes: integer("bytes").default(0).notNull(),
+    uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pathUnique: uniqueIndex("media_files_path_unique").on(t.path),
+    bySite: index("media_files_site_idx").on(t.siteId, t.createdAt),
+  }),
+);
+
+/* ------------------------------------------------------- published things
+ *
+ * Reports, offers and impex sheets are the three things the brand sites
+ * publish besides prices and articles. All three were separate tables with
+ * identical Laravel audit columns and an `attach_file` pointing into the
+ * file manager; here the audit columns are gone and the file is a path that
+ * `media_files` knows about.
+ */
+
+/** A PDF the brand sells or gives away — 584 of them on baseoil alone. */
+export const reports = pgTable(
+  "reports",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 191 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    /** "weekly" | "monthly" | "annual" | "sample" — the old `report_type`. */
+    reportType: varchar("report_type", { length: 64 }).notNull(),
+    file: varchar("file", { length: 512 }),
+    thumbnail: varchar("thumbnail", { length: 512 }),
+    /** "published" | "premium" | "draft": premium means subscribers only. */
+    status: varchar("status", { length: 24 }).default("draft").notNull(),
+    authoredOn: date("authored_on"),
+    clicks: integer("clicks").default(0).notNull(),
+    metaTitle: varchar("meta_title", { length: 255 }),
+    metaDescription: text("meta_description"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    slugPerSite: uniqueIndex("reports_site_slug_unique").on(t.siteId, t.slug),
+    bySite: index("reports_site_status_idx").on(t.siteId, t.status, t.authoredOn),
+  }),
+);
+
+/**
+ * A buy or sell offer from the trade — the old `offers` table, 2,719 rows on
+ * baseoil and 11,094 on bitumart.
+ *
+ * `userId` is nullable because most of them were posted by staff on behalf
+ * of somebody who phoned in, and the old table recorded the contact details
+ * separately from any account. Those fields are kept as they are.
+ */
+export const offers = pgTable(
+  "offers",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    /** "buy" | "sell". */
+    offerType: varchar("offer_type", { length: 16 }).notNull(),
+    keywords: varchar("keywords", { length: 255 }),
+    description: text("description"),
+    contactPerson: varchar("contact_person", { length: 191 }),
+    contactEmail: varchar("contact_email", { length: 191 }),
+    contactPhone: varchar("contact_phone", { length: 64 }),
+    companyName: varchar("company_name", { length: 191 }),
+    city: varchar("city", { length: 96 }),
+    state: varchar("state", { length: 96 }),
+    country: varchar("country", { length: 96 }),
+    offerValue: varchar("offer_value", { length: 64 }),
+    image: varchar("image", { length: 512 }),
+    file: varchar("file", { length: 512 }),
+    /** "published" | "premium" | "draft". */
+    status: varchar("status", { length: 24 }).default("premium").notNull(),
+    clicks: integer("clicks").default(0).notNull(),
+    authoredOn: date("authored_on"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("offers_site_idx").on(t.siteId, t.status, t.createdAt),
+  }),
+);
+
+/** An import/export data sheet. The old `impexes`, 1,167 rows on baseoil. */
+export const impexSheets = pgTable(
+  "impex_sheets",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 191 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    file: varchar("file", { length: 512 }),
+    status: varchar("status", { length: 24 }).default("draft").notNull(),
+    authoredOn: date("authored_on"),
+    clicks: integer("clicks").default(0).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    slugPerSite: uniqueIndex("impex_sheets_site_slug_unique").on(t.siteId, t.slug),
+  }),
+);
+
+/* ------------------------------------------------------------ trade flows
+ *
+ * The old schema had three near-identical quantity tables (`globalqties`,
+ * `globalimportqties`, `globalexportqties`) and three near-identical
+ * location tables (`qtylocations`, `importlocations`, `exportlocations`).
+ *
+ * The quantity tables are genuinely three things — a standing quantity, an
+ * import and an export — so they are one table with a `kind`.
+ *
+ * The location tables were not. All three quantity tables reference
+ * `qtylocations`, all 146 rows of it, on both ends; `importlocations` and
+ * `exportlocations` hold four rows each whose names duplicate the first four
+ * qty locations and which nothing references. They are not carried. So a
+ * place here is just a place, and what kind of flow it took part in is a
+ * property of the flow.
+ */
+export const TRADE_KINDS = ["qty", "import", "export"] as const;
+export type TradeKind = (typeof TRADE_KINDS)[number];
+
+export const tradeLocations = pgTable(
+  "trade_locations",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 191 }).notNull(),
+    visible: boolean("visible").default(true).notNull(),
+    clicks: integer("clicks").default(0).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    titlePerSite: uniqueIndex("trade_locations_site_title_unique").on(t.siteId, t.title),
+  }),
+);
+
+/**
+ * A quantity moved between two places on a date.
+ *
+ * `numeric` rather than the old `bigint(11)`: the sheets carry tonnages with
+ * decimals and the old column silently truncated them.
+ */
+export const tradeQuantities = pgTable(
+  "trade_quantities",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 16 }).$type<TradeKind>().notNull(),
+    fromLocationId: integer("from_location_id").references(() => tradeLocations.id, {
+      onDelete: "cascade",
+    }),
+    toLocationId: integer("to_location_id").references(() => tradeLocations.id, {
+      onDelete: "cascade",
+    }),
+    qty: numeric("qty", { precision: 18, scale: 3 }),
+    qtyDate: date("qty_date"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("trade_quantities_site_idx").on(t.siteId, t.kind, t.qtyDate),
+    cell: uniqueIndex("trade_quantities_cell_unique").on(
+      t.siteId,
+      t.kind,
+      t.fromLocationId,
+      t.toLocationId,
+      t.qtyDate,
+    ),
+  }),
+);
+
+/* ------------------------------------------------------------------- ads */
+
+/** Where an ad can go: 6 slots per site in the old `adlocations`. */
+export const adPlacements = pgTable(
+  "ad_placements",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 191 }).notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    titlePerSite: uniqueIndex("ad_placements_site_title_unique").on(t.siteId, t.title),
+  }),
+);
+
+export const ads = pgTable(
+  "ads",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    placementId: integer("placement_id").references(() => adPlacements.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 191 }).notNull(),
+    /** "image" | "video" | "code". */
+    adType: varchar("ad_type", { length: 16 }).default("image").notNull(),
+    image: varchar("image", { length: 512 }),
+    video: varchar("video", { length: 512 }),
+    code: text("code"),
+    url: text("url"),
+    startsAt: date("starts_at"),
+    endsAt: date("ends_at"),
+    enabled: boolean("enabled").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    clicks: integer("clicks").default(0).notNull(),
+    onDashboard: boolean("on_dashboard").default(false).notNull(),
+    onNewsletter: boolean("on_newsletter").default(false).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byPlacement: index("ads_placement_idx").on(t.siteId, t.placementId, t.sortOrder),
+  }),
+);
+
+/* ------------------------------------------------------------ newsletters */
+
+/** The wrapper a newsletter is sent in. Four per site in the old schema. */
+export const newsletterTemplates = pgTable(
+  "newsletter_templates",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 191 }).notNull(),
+    body: text("body").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    titlePerSite: uniqueIndex("newsletter_templates_site_title_unique").on(t.siteId, t.title),
+  }),
+);
+
+/**
+ * One newsletter.
+ *
+ * `sentAt` and `recipients` are new: the old table recorded what was written
+ * and `sent_emails` recorded six rows in total, so "did the 14 March issue
+ * actually go out, and to how many" was unanswerable.
+ */
+export const newsletters = pgTable(
+  "newsletters",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    templateId: integer("template_id").references(() => newsletterTemplates.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 255 }).notNull(),
+    body: text("body").notNull(),
+    /** "draft" | "scheduled" | "sent". */
+    status: varchar("status", { length: 24 }).default("draft").notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    recipients: integer("recipients").default(0).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("newsletters_site_idx").on(t.siteId, t.status, t.createdAt),
+  }),
+);
+
+/* ------------------------------------------------------- roles and settings */
+
+/**
+ * A named set of permissions.
+ *
+ * The old sites had 8 roles and 93 permission rows each, maintained nine
+ * times; the permissions themselves are a code constant here (`PERMISSIONS`
+ * in `src/domain/dashboard/permissions.ts`) because a permission is a thing
+ * the code can or cannot do, and a row in a table cannot grant a capability
+ * nothing checks for.
+ */
+export const roles = pgTable(
+  "roles",
+  {
+    id: serial("id").primaryKey(),
+    /** Null means the role is available on every brand. */
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 96 }).notNull(),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    nameUnique: uniqueIndex("roles_name_unique").on(t.name),
+  }),
+);
+
+export const rolePermissions = pgTable(
+  "role_permissions",
+  {
+    id: serial("id").primaryKey(),
+    roleId: integer("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+    permission: varchar("permission", { length: 96 }).notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("role_permissions_unique").on(t.roleId, t.permission),
+  }),
+);
+
+/**
+ * Settings, as key and value.
+ *
+ * 69 rows per site in the old schema, `name`/`val`/`type` — and 69 × 9 of
+ * them, so the nine sites' "items per page" could and did differ. A null
+ * `siteId` is the estate's default and a row with a brand overrides it, so
+ * one setting can be shared by eight brands and special on the ninth.
+ */
+export const settings = pgTable(
+  "settings",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 96 }).notNull(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    keyPerSite: uniqueIndex("settings_site_key_unique").on(t.siteId, t.key),
+  }),
+);
+
+export const FORM_KINDS = ["directory", "offer"] as const;
+export type FormKind = (typeof FORM_KINDS)[number];
+
+/**
+ * Which fields of a directory entry or an offer each tier gets to see.
+ *
+ * This is the paywall, and the old schema kept it as 44 loose settings rows
+ * per site named `city_free`, `city_premium`, `offer_phone_free` and so on
+ * — 396 rows across the estate, with nothing to say what a name meant or
+ * which of them were read. One row per field per form, with the two flags
+ * side by side, is the same information in the shape the question is asked:
+ * "does a free reader see the phone number?"
+ */
+export const formFields = pgTable(
+  "form_fields",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    form: varchar("form", { length: 16 }).$type<FormKind>().notNull(),
+    key: varchar("key", { length: 96 }).notNull(),
+    label: varchar("label", { length: 191 }).notNull(),
+    /** Shown to someone who has not paid. */
+    showFree: boolean("show_free").default(false).notNull(),
+    /** Shown to a subscriber. */
+    showPremium: boolean("show_premium").default(true).notNull(),
+    /** Collected at all. A field switched off here is on neither form. */
+    enabled: boolean("enabled").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    keyPerForm: uniqueIndex("form_fields_site_form_key_unique").on(t.siteId, t.form, t.key),
   }),
 );
 

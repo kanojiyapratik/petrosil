@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  columnList,
   dedupeByEmail,
   dedupePrices,
   readDate,
@@ -253,5 +254,50 @@ describe("prices that cannot be believed", () => {
 
     expect(result.kept).toHaveLength(1);
     expect(result.outOfRange.map((row) => row.id)).toEqual([3, 2]);
+  });
+});
+
+/**
+ * Three dumps of the nine have a `mobile` column holding pasted spam, and
+ * two were built before `locations.show_on_dashboard` existed. Both stopped
+ * a migration dead the first time it was run across the whole estate.
+ */
+describe("fields the old schema let overflow", () => {
+  it("drops a phone number that cannot be one, rather than truncating it", () => {
+    const junk =
+      "Thank you so much for this newsletter Thank you so much for this newsletter 2994386 https://t.me !";
+
+    expect(readUser(user({ mobile: junk })).phone).toBeNull();
+  });
+
+  it("keeps a phone number that fits", () => {
+    expect(readUser(user({ mobile: "+91 22 2345 6789" })).phone).toBe("+91 22 2345 6789");
+  });
+
+  it("trims an over-long name to what the column holds", () => {
+    const long = "A".repeat(400);
+
+    expect(readUser(user({ name: long })).name).toHaveLength(191);
+  });
+
+  it("trims an over-long company and country the same way", () => {
+    const read = readUser(user({ company_name: "C".repeat(400), country: "D".repeat(400) }));
+
+    expect(read.company).toHaveLength(191);
+    expect(read.country).toHaveLength(96);
+  });
+});
+
+describe("selecting columns a dump may not have", () => {
+  it("asks for the column when the dump has it", () => {
+    expect(columnList(["id", "title", "show_on_dashboard"], ["id", "title", "show_on_dashboard"])).toBe(
+      "id, title, show_on_dashboard",
+    );
+  });
+
+  it("substitutes null for one the dump never had, keeping the name", () => {
+    expect(columnList(["id", "title", "show_on_dashboard"], ["id", "title"])).toBe(
+      "id, title, null as show_on_dashboard",
+    );
   });
 });

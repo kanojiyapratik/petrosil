@@ -23,6 +23,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import { closeDb, db } from "@/db";
 import { locations, memberships, prices, sites, users } from "@/db/schema";
 import {
+  columnList,
   dedupeByEmail,
   dedupePrices,
   readDate,
@@ -113,8 +114,19 @@ async function main(): Promise<void> {
 
     /* ---------------------------------------------------------- locations */
 
+    // Two of the nine dumps predate `show_on_dashboard`, so ask the dump
+    // what it has before asking it for columns.
+    const [columnRows] = await source.query<mysql.RowDataPacket[]>(
+      "select column_name from information_schema.columns where table_schema = ? and table_name = ?",
+      [opts.from, "locations"],
+    );
+    const have = columnRows.map((row) => String(row.column_name ?? row.COLUMN_NAME));
+
     const [locationRows] = await source.query<mysql.RowDataPacket[]>(
-      "select id, title, currency_id, show_on_dashboard, deleted_at, created_at from locations order by id",
+      `select ${columnList(
+        ["id", "title", "currency_id", "show_on_dashboard", "deleted_at", "created_at"],
+        have,
+      )} from locations order by id`,
     );
 
     const locationMap = new Map<number, number>();

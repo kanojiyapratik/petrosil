@@ -7,9 +7,10 @@ module needs no change when a brand moves over.
 
 Everything runs locally. There is no deployment and no remote.
 
-Status: **backend.** The compat API is complete and proven against the module.
-The brand sites' read API, accounts, billing and content are built and tested.
-No UI yet.
+Status: **admin complete, all nine brands loaded.** The compat API is complete
+and proven against the module. The brand sites' read API, accounts, billing and
+content are built and tested. The admin is all 31 screens the nine PHP admins
+had, over one database holding every brand's real data.
 
 ---
 
@@ -22,7 +23,7 @@ npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
 npm run db:dev-data  # demo locations, prices, clients, plans, articles, pages
 npm run dev          # http://127.0.0.1:3100
-npm test             # 310 tests, against their own petrosil_test database
+npm test             # against its own petrosil_test database
 ```
 
 `npm run db:seed` prints each brand's token once. Only a SHA-256 is stored, so
@@ -47,8 +48,9 @@ Demo accounts after `db:dev-data` (password `petrosil-dev`):
 Other scripts:
 
 ```bash
-npm run migrate:site -- --from <mysql db> --site <slug> [--fresh]   # a dump into the platform
-npm run sweep:expiries                                             # end the terms that have run out
+npm run migrate:site    -- --from <mysql db> --site <slug> [--fresh]  # locations, prices, people
+npm run migrate:content -- --from <mysql db> --site <slug> [--fresh]  # everything else the admin shows
+npm run sweep:expiries                                                # end the terms that have run out
 ```
 
 ---
@@ -96,10 +98,50 @@ agree.
 `POST /api/account/orders`, `POST /api/account/orders/{id}/confirm`,
 `GET /api/account/orders`, `POST /api/account/trial`.
 
-### The dashboard side
+### The dashboard API
 
 `overview`, `clients[/id]`, `clients/{id}/membership`, `locations[/id]`,
 `batches[/id]`, `articles[/id]`, `trials[/id]`, `audit`, `logins`.
+
+### The admin — 31 screens
+
+The menu is lifted from `htdocs/baseoil/.../layouts/app.blade.php`: the same
+groups in the same order the team has opened every working day since 2015. The
+purchased theme's demo pages — chat, calendar, gallery, invoice, lock-screen
+and some seventy more, about 45% of the old route table — are not carried,
+because not one of them is a feature.
+
+| Group | Screens |
+|---|---|
+| Dashboard | Estate overview |
+| Prices | Locations · Price update · Watched URLs · Manage qty trend · Trade analysis |
+| Content | Articles · Pages · Announcements · Reports · Offers · Impex data |
+| Clients | Directory · Free trials · Login log |
+| Subscription | Plans · Transactions · Coupons |
+| Masters | Currencies · Categories · File manager |
+| Newsletter | Templates · Newsletters |
+| Ads | Ad locations · Ads |
+| Users | Staff · Roles · Audit trail |
+| Settings | General · Directory fields · Offer fields |
+
+Every screen reads its domain function directly rather than calling this app's
+own HTTP API: the same scoping (`visibleSites`), one less round trip, and the
+type survives. Every list is a GET form, so every view is a URL you can paste
+to a colleague.
+
+Four of them answer a question the old admin could not:
+
+- **Locations** and **Price update** link each published figure to the batch
+  that set it, which is how a wrong price is traced without opening the
+  database.
+- **Coupons** says *why* a code is not working — off, expired, spent, not yet
+  started — where the old screen showed the enabled flag alone.
+- **Ads** and **Announcements** judge "running" against today's date, not the
+  publish flag, so a slot full of ads that ended in 2021 reads as empty.
+- **Settings → Directory fields** and **Offer fields** state the paywall once:
+  one row per field with "a free reader sees" and "a subscriber sees" side by
+  side, rebuilt from 44 loose `city_free` / `offer_phone_premium` settings
+  rows per site.
 
 ---
 
@@ -184,13 +226,39 @@ the whole flow works offline; when the live keys arrive, one function body in
 **Old binary `.xls` is refused** with "save as .xlsx or .csv". There is no safe
 maintained Node reader for it.
 
-**The migration carries locations, prices and people only.** Articles, reports,
-offers and the directory wait for their tables; reports, offers and the
-directory are not built yet.
+**No editors yet.** Every admin screen reads, and the mutations that exist are
+the ones the team does daily: hold or publish a location, change a
+subscription, decide a trial, save a setting, move a paywalled field. Creating
+and editing articles, reports and offers goes through the API, which is built
+and tested, but has no form over it.
+
+**Authorship is not carried.** The old `authored_by` is a legacy user id and
+nothing here carries legacy ids, so 93,000 migrated articles have no author
+rather than the wrong one. Transactions *are* attributed, by matching the
+email on the old row to the person already on the platform; the handful whose
+buyer no longer exists are counted and skipped rather than orphaned.
+
+**A payment nobody recorded arrives pending, not paid.** 255 of baseoil's 635
+subscription rows have a null `payment_status`, and "Paid" and "success" are
+both spellings in use. Only the two spellings of success become `paid`.
+
+**Newsletters arrive as drafts.** 2,136 issues came across; the old
+`sent_emails` table held six rows between nine sites, so nothing is recorded
+as sent, because nothing can be.
+
+**`importlocations` and `exportlocations` are not carried.** All three of the
+old quantity tables reference `qtylocations` on both ends — checked against
+the id ranges, not assumed. Those two four-row tables duplicate the first qty
+locations by name and nothing points at them.
+
+**Files are indexed, not moved.** `media_files` is the table and the File
+manager screen reads it; the PDFs that reports and offers reference still sit
+on the old sites' disks.
 
 **Still open for the owner:** are the three conference sites and `trade-ai` in
-scope; which phase gets impex/qty (630k rows), offers and the directory; and
-what happens to the 756k click rows.
+scope; what happens to the 756k click rows; and who among the 34 accounts that
+held a role on the old sites should be granted access here (the migration
+granted nobody, deliberately).
 
 ---
 
@@ -223,7 +291,8 @@ src/domain/public/        the paywall, and what a brand site publishes
 src/domain/accounts/      registering, one-shot links, profiles
 src/domain/billing/       plans, coupons, orders, terms, trials, the sweep
 src/domain/content/       articles, pages, announcements
-src/domain/dashboard/     the team's own screens
+src/domain/dashboard/     the team's own screens, one module per group
+src/app/(admin)/          the 31 admin screens, the rail, the shared pieces
 src/domain/migrate/       the decisions a migration has to make
 src/lib/compat/           token auth and the shapes the module expects
 src/lib/public/           the brand-site route wrapper

@@ -94,10 +94,13 @@ export function readUser(row: LegacyUser): MigratedUser {
   return {
     legacyIds: [row.id],
     email: row.email.trim().toLowerCase(),
-    name,
-    company: nullable(row.company_name),
-    phone: nullable(row.mobile),
-    country: nullable(row.country),
+    name: name.slice(0, 191),
+    company: fit(row.company_name, 191),
+    // A "phone number" longer than the column is not one: three of the nine
+    // dumps have newsletter spam pasted into `mobile`. Truncating would
+    // leave a plausible-looking wrong number, so it is dropped instead.
+    phone: within(row.mobile, 64),
+    country: fit(row.country, 96),
     status: (row.user_status ?? "Active").toLowerCase() === "active" ? "active" : "disabled",
     // Carried as it is: Laravel's $2y$ hashes verify unchanged, which is what
     // lets every subscriber keep the password they already have.
@@ -280,4 +283,31 @@ function nullable(value: string | null | undefined): string | null {
   const text = (value ?? "").trim();
 
   return text === "" ? null : text;
+}
+
+/** Trimmed to what the column holds. A clipped company name is still useful. */
+function fit(value: string | null | undefined, max: number): string | null {
+  const text = nullable(value);
+
+  return text === null ? null : text.slice(0, max);
+}
+
+/** Kept only if it fits. For fields where a clipped value would mislead. */
+function within(value: string | null | undefined, max: number): string | null {
+  const text = nullable(value);
+
+  return text === null || text.length > max ? null : text;
+}
+
+/**
+ * The column list for a SELECT against a dump that may predate a column.
+ *
+ * bitumart and waxreport were built before `locations.show_on_dashboard`
+ * existed, and asking for it stops the migration dead. Naming it as `null`
+ * keeps the reading code identical for all nine brands.
+ */
+export function columnList(wanted: string[], available: string[]): string {
+  const has = new Set(available);
+
+  return wanted.map((name) => (has.has(name) ? name : `null as ${name}`)).join(", ");
 }
