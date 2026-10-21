@@ -168,7 +168,11 @@ def create_reading_routes(
         model = getattr(chosen, "model", default_model) if chosen is not None else default_model
         provider_name = getattr(chosen or driver, "provider_key", "gemini")
 
-        reading = extractions.open_set(site.slug, user.email)
+        # Kept as it was sent, not as it is saved: the rulebook is edited in
+        # place, so a week later console_sites no longer says what this run
+        # saw. "Did the model disobey, or was it never told?" is now a
+        # question with an answer.
+        reading = extractions.open_set(site.slug, user.email, instructions)
         failures = []
 
         def read_pictures(filename: str, pictures: str) -> list[dict]:

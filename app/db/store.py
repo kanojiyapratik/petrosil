@@ -944,12 +944,18 @@ class ExtractionStore:
     def __init__(self, pool) -> None:
         self._pool = pool
 
-    def open_set(self, site_slug: str, created_by: str) -> ReadingSet:
+    def open_set(
+        self, site_slug: str, created_by: str, instructions: str | None = None
+    ) -> ReadingSet:
+        """`instructions` is what this reading was actually told, kept as it
+        was sent. The saved rulebook is edited in place, so a week later it
+        no longer says what a given run saw -- see migration
+        0017_instructions_used."""
         with self._pool.connection() as connection:
             row = connection.execute(
-                "INSERT INTO console_reading_sets (site_slug, created_by) "
-                "VALUES (%s, %s) RETURNING id, site_slug, created_by, created_at",
-                (site_slug, created_by),
+                "INSERT INTO console_reading_sets (site_slug, created_by, instructions) "
+                "VALUES (%s, %s, %s) RETURNING id, site_slug, created_by, created_at",
+                (site_slug, created_by, instructions),
             ).fetchone()
             connection.commit()
 
@@ -1202,6 +1208,9 @@ class StoredDraft:
     saved_by: str | None
     saved_at: object
     rows: list[DraftRow]
+    #: What this run was told, as it was sent. None for a draft from before
+    #: the column existed, or one built with the instructions left out.
+    instructions: str | None = None
 
 
 def _number(value) -> float | None:
@@ -1231,6 +1240,7 @@ class DraftStore:
         provider: str | None = None,
         model: str | None = None,
         analysis_status: str | None = None,
+        instructions: str | None = None,
     ) -> int | None:
         entries = [(row, False) for row in rows] + [
             (row, True) for row in benchmark_rows or []
@@ -1240,10 +1250,10 @@ class DraftStore:
             with self._pool.connection() as connection:
                 draft = connection.execute(
                     "INSERT INTO console_editorial_drafts (site_slug, reading_set_id, "
-                    "created_by, price_date, provider, model, analysis_status) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    "created_by, price_date, provider, model, analysis_status, instructions) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                     (site_slug, reading_set_id, created_by, price_date or None, provider,
-                     model, analysis_status),
+                     model, analysis_status, instructions),
                 ).fetchone()
                 draft_id = int(draft[0])
 
@@ -1319,7 +1329,7 @@ class DraftStore:
         with self._pool.connection() as connection:
             head = connection.execute(
                 "SELECT id, site_slug, reading_set_id, created_by, created_at, price_date, "
-                "provider, model, analysis_status, batch_id, saved_by, saved_at "
+                "provider, model, analysis_status, batch_id, saved_by, saved_at, instructions "
                 "FROM console_editorial_drafts WHERE id = %s AND site_slug = %s",
                 (draft_id, site_slug),
             ).fetchone()
@@ -1343,6 +1353,7 @@ class DraftStore:
             provider=head[6], model=head[7], analysis_status=head[8],
             batch_id=int(head[9]) if head[9] is not None else None,
             saved_by=head[10], saved_at=head[11],
+            instructions=head[12] if len(head) > 12 else None,
             rows=[
                 DraftRow(
                     location=row[0], is_benchmark=bool(row[1]), status=row[2],

@@ -426,6 +426,35 @@ MIGRATIONS: list[Migration] = [
             ADD COLUMN IF NOT EXISTS as_printed BOOLEAN NOT NULL DEFAULT FALSE;
         """,
     ),
+    Migration(
+        id="0017_instructions_used",
+        sql="""
+        -- What a run was actually told.
+        --
+        -- Four rounds of mismatch files with the client in October 2026
+        -- turned on exactly this: whether the model knew to leave the Iran
+        -- locations blank, whether it knew to read Japan's dollar column.
+        -- Going back afterwards, it could not be answered. The instructions
+        -- live in console_sites and are edited in place, so by the time
+        -- anyone asks "what was this run told?", the column holds whatever
+        -- it was last edited to -- not what was sent a week ago. The
+        -- question "did the model disobey, or was it never told?" had no
+        -- answer at all, and those are very different faults.
+        --
+        -- Recorded in both places, because the instructions are sent twice
+        -- and the two can now differ: once when the reports are read, and
+        -- again when the draft is built.
+        --
+        -- NULL means a run from before this column, or an upload where the
+        -- editor untticked the box. The screens tell those apart by the
+        -- reading set's own age, not by guessing here.
+        ALTER TABLE console_reading_sets
+            ADD COLUMN IF NOT EXISTS instructions TEXT;
+
+        ALTER TABLE console_editorial_drafts
+            ADD COLUMN IF NOT EXISTS instructions TEXT;
+        """,
+    ),
 ]
 
 

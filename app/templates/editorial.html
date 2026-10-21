@@ -418,6 +418,14 @@
       {{ summary.no_evidence }} had no evidence in the reports;
       {{ summary.flagged }} flagged for a manual check.
       {% if analysis and analysis.model %} Model: {{ analysis.model }}.{% endif %}
+      {# What this run was told, recorded with the draft. Without it, "did
+         the model disobey or was it never told?" has no answer a week
+         later -- the saved rulebook is edited in place. #}
+      {% if instructions_used %}
+        Instructions: {{ instructions_used | length }} characters sent.
+      {% else %}
+        <strong>Instructions: none sent with this run.</strong>
+      {% endif %}
       {% if analysis and analysis.error %} <strong>{{ analysis.error }}</strong>{% endif %}
       Every suggested price starts at the middle of the AI's range — you can edit it before saving.
     </p>

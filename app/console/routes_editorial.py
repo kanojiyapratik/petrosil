@@ -186,6 +186,7 @@ def create_editorial_routes(
             # What the sheet says about itself. See app/editorial/preflight.py.
             "findings": None,
             "blockers": 0,
+            "instructions_used": None,
             # A reading already read and not yet used, so a closed tab does
             # not strand it. See ExtractionStore.latest_open.
             "waiting": None,
@@ -737,6 +738,10 @@ def create_editorial_routes(
                     benchmark_rows=benchmark_rows, reading_set_id=set_id,
                     price_date=pricedate, provider=provider_name, model=model,
                     analysis_status=completion.status,
+                    # What this analyse run was told. Recorded beside the
+                    # prices it produced, because the two are only
+                    # explicable together.
+                    instructions=instructions or None,
                 )
                 if drafts is not None
                 else None
@@ -788,6 +793,8 @@ def create_editorial_routes(
                     "summary": summary,
                     "findings": findings,
                     "blockers": sum(1 for f in findings if f.severity == "blocker"),
+                    # What this run was told, shown beside what it produced.
+                    "instructions_used": instructions or None,
                     "pricedate": pricedate,
                     "benchmark_note": benchmark_note,
                     "analysis": {

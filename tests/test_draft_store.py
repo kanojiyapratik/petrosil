@@ -144,3 +144,54 @@ class TestMarkingADraftSaved:
         assert DraftStore(pool).mark_saved(
             42, "s", batch_id=31, saved_by="e", prices={}
         ) is False
+
+
+class TestWhatTheRunWasTold:
+    """Four rounds of mismatch files in October 2026 turned on whether the
+    model had been told to leave the Iran locations blank and to read
+    Japan's dollar column. Afterwards it could not be answered: the rulebook
+    lives in console_sites and is edited in place, so by the time anyone
+    asks, that column holds whatever it was last edited to -- not what was
+    sent a week ago. "Did the model disobey, or was it never told?" had no
+    answer, and those are very different faults.
+    """
+
+    def test_the_instructions_are_written_with_the_draft(self):
+        pool = FakePool()
+
+        DraftStore(pool).create(
+            site_slug="bitumart", created_by="editor@local.test", rows=[],
+            instructions="Iran - report the benchmark, not the location.",
+        )
+
+        insert = next(
+            (sql, params) for sql, params in pool.statements
+            if "INSERT INTO console_editorial_drafts" in sql
+        )
+
+        assert "instructions" in insert[0]
+        assert "Iran - report the benchmark, not the location." in insert[1]
+
+    def test_a_run_told_nothing_records_that_too(self):
+        pool = FakePool()
+
+        DraftStore(pool).create(site_slug="bitumart", created_by="e@x.test", rows=[])
+
+        insert = next(
+            (sql, params) for sql, params in pool.statements
+            if "INSERT INTO console_editorial_drafts" in sql
+        )
+
+        assert insert[1][-1] is None
+
+    def test_reading_it_back_is_part_of_the_draft(self):
+        pool = FakePool()
+
+        DraftStore(pool).draft(7, "bitumart")
+
+        select = next(
+            sql for sql, _ in pool.statements
+            if "FROM console_editorial_drafts WHERE id" in sql
+        )
+
+        assert "instructions" in select

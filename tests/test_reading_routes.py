@@ -64,7 +64,8 @@ class FakeExtractions:
         self._next_file = 1
         self._next_row = 1
 
-    def open_set(self, site_slug, created_by):
+    def open_set(self, site_slug, created_by, instructions=None):
+        self.opened_with = instructions
         made = ReadingSet(
             id=self._next_set, site_slug=site_slug, created_by=created_by,
             created_at=None, files=[],
@@ -334,7 +335,8 @@ class ScopedExtractions:
         self._next_set = 1
         self._next_row = 1
 
-    def open_set(self, site_slug, created_by):
+    def open_set(self, site_slug, created_by, instructions=None):
+        self.opened_with = instructions
         made = ReadingSet(
             id=self._next_set, site_slug=site_slug, created_by=created_by,
             created_at=None, files=[],
@@ -1425,3 +1427,25 @@ class TestTheEditorChoosesWhetherTheInstructionsApply:
         )
 
         assert store.site.editorial_instructions == self.INSTRUCTED
+
+
+class TestTheReadingSetRemembersWhatItWasTold:
+    def test_the_instructions_sent_are_kept_with_the_set(self):
+        store = FakeStore(
+            dataclasses.replace(SITE, editorial_instructions="Iran - the benchmark only.")
+        )
+        client, extractions = build(store=store)
+
+        upload(client, [("r.txt", b"FOB Asia SN 150 1260")])
+
+        assert extractions.opened_with == "Iran - the benchmark only."
+
+    def test_an_unticked_box_is_recorded_as_nothing_sent(self):
+        store = FakeStore(
+            dataclasses.replace(SITE, editorial_instructions="Iran - the benchmark only.")
+        )
+        client, extractions = build(store=store)
+
+        upload(client, [("r.txt", b"x")], use_instructions=False)
+
+        assert extractions.opened_with is None
