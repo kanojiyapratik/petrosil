@@ -57,7 +57,7 @@ import {
   type FormKind,
   type TradeKind,
 } from "@/db/schema";
-import { readDate, readDay } from "@/domain/migrate/transform";
+import { columnList, readDate, readDay } from "@/domain/migrate/transform";
 import {
   excerptFrom,
   readPaymentStatus,
@@ -127,6 +127,20 @@ async function tablesIn(source: mysql.Connection, schema: string): Promise<Set<s
   );
 
   return new Set(rows.map((row) => String(row.table_name ?? row.TABLE_NAME)));
+}
+
+/** What columns that table has. Three of the nine dumps predate several. */
+async function columnsIn(
+  source: mysql.Connection,
+  schema: string,
+  table: string,
+): Promise<string[]> {
+  const [rows] = await source.query<Row[]>(
+    "select column_name from information_schema.columns where table_schema = ? and table_name = ?",
+    [schema, table],
+  );
+
+  return rows.map((row) => String(row.column_name ?? row.COLUMN_NAME));
 }
 
 function text(value: unknown): string | null {
@@ -805,9 +819,21 @@ async function main(): Promise<void> {
 
     if (have.has("subscriptions")) {
       const [rows] = await source.query<Row[]>(
-        `select id, title, cost, cost2, cost3, currency_id, members, description,
-                publish_options, sequence
-           from subscriptions where deleted_at is null order by sequence, id`,
+        `select ${columnList(
+          [
+            "id",
+            "title",
+            "cost",
+            "cost2",
+            "cost3",
+            "currency_id",
+            "members",
+            "description",
+            "publish_options",
+            "sequence",
+          ],
+          await columnsIn(source, opts.from, "subscriptions"),
+        )} from subscriptions where deleted_at is null order by sequence, id`,
       );
 
       const seen = new Set<string>();
@@ -848,11 +874,33 @@ async function main(): Promise<void> {
     if (have.has("subscription_users")) {
       // Legacy user ids are not carried, so the buyer is found by the email
       // on their old row and matched to the person already on the platform.
+      // Three of the nine dumps have no `payment_order_id`, and asking for it
+      // threw — which aborted every step after this one and quietly cost
+      // those brands their roles and settings.
+      const columns = columnList(
+        [
+          "subscription_id",
+          "plan_name",
+          "cost",
+          "currency_code",
+          "no_year",
+          "payment_method",
+          "transaction_no",
+          "razorpay_payment_id",
+          "payment_date",
+          "payment_status",
+          "payment_order_id",
+          "expiry_date",
+          "created_at",
+        ],
+        await columnsIn(source, opts.from, "subscription_users"),
+      )
+        .split(", ")
+        .map((column) => (column.startsWith("null as ") ? column : `su.${column}`))
+        .join(", ");
+
       const [rows] = await source.query<Row[]>(
-        `select su.subscription_id, su.plan_name, su.cost, su.currency_code, su.no_year,
-                su.payment_method, su.transaction_no, su.razorpay_payment_id, su.payment_date,
-                su.payment_status, su.payment_order_id, su.expiry_date, su.created_at,
-                lower(trim(u.email)) as email
+        `select ${columns}, lower(trim(u.email)) as email
            from subscription_users su
            join users u on u.id = su.user_id
           where u.email is not null and u.email <> ''
