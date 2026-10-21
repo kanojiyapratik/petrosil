@@ -156,11 +156,27 @@ def build(driver=None, extractions=None, store=None):
     return TestClient(app), extractions
 
 
-def upload(client, files, pricedate=None):
+def upload(client, files, pricedate=None, use_instructions=True):
+    """An upload as the form sends one.
+
+    `use_instructions` is the tick on the upload screen, which is on by
+    default: the saved rulebook is what an editor normally wants sent, and
+    the box exists so they can see it and say otherwise. An unticked
+    checkbox posts nothing at all, which is why "off" means leaving the
+    field out rather than sending a false.
+    """
+    data = {}
+
+    if pricedate:
+        data["pricedate"] = pricedate
+
+    if use_instructions:
+        data["use_instructions"] = "on"
+
     return client.post(
         "/console/sites/baseoil/reading",
         files=[("documents", (name, io.BytesIO(body), "text/plain")) for name, body in files],
-        data={"pricedate": pricedate} if pricedate else None,
+        data=data or None,
         follow_redirects=False,
     )
 
@@ -1343,3 +1359,69 @@ class TestALongReportIsReadInSections:
 
         assert len(driver.prompts) == 1
         assert "(part " not in driver.prompts[0]
+
+
+class TestTheEditorChoosesWhetherTheInstructionsApply:
+    """The saved rulebook used to ride along silently on every upload.
+
+    Four rounds of mismatch files in October 2026 turned on what the model
+    was or was not told, and afterwards nobody could say which instructions
+    had been in force for a given run -- there was no record and no moment
+    where anyone had looked at them. The upload form now shows them and
+    carries an explicit tick, so an editor sees the rulebook before it is
+    sent and can leave it out of a run.
+    """
+
+    INSTRUCTED = "Japan FOB - give the DOLLAR Low and the High exactly as printed."
+
+    def store(self):
+        store = FakeStore()
+        store.site = dataclasses.replace(store.site, editorial_instructions=self.INSTRUCTED)
+
+        return store
+
+    def upload_with(self, driver, **extra):
+        client, _ = build(driver, store=self.store())
+
+        return client.post(
+            "/console/sites/baseoil/reading",
+            files=[("documents", ("r.txt", io.BytesIO(b"FOB Asia SN 150 1260"), "text/plain"))],
+            data={"pricedate": "2026-10-16", **extra},
+            follow_redirects=False,
+        )
+
+    def test_a_ticked_box_sends_the_saved_instructions(self):
+        driver = StubDriver()
+        self.upload_with(driver, use_instructions="on")
+
+        assert any(self.INSTRUCTED in prompt for prompt in driver.prompts)
+
+    def test_an_absent_box_leaves_them_out(self):
+        # An unticked checkbox posts nothing at all, which is the whole point
+        # of asking: the rulebook rides along only when someone says so.
+        driver = StubDriver()
+        self.upload_with(driver)
+
+        assert not any(self.INSTRUCTED in prompt for prompt in driver.prompts)
+
+    def test_the_editor_can_send_an_edited_version_for_this_run_only(self):
+        driver = StubDriver()
+        self.upload_with(
+            driver, use_instructions="on", instructions="Japan FOB - read the YEN column."
+        )
+
+        assert any("read the YEN column" in prompt for prompt in driver.prompts)
+        assert not any(self.INSTRUCTED in prompt for prompt in driver.prompts)
+
+    def test_an_edit_for_one_run_does_not_overwrite_what_is_saved(self):
+        store = self.store()
+        client, _ = build(StubDriver(), store=store)
+
+        client.post(
+            "/console/sites/baseoil/reading",
+            files=[("documents", ("r.txt", io.BytesIO(b"x"), "text/plain"))],
+            data={"use_instructions": "on", "instructions": "just for today"},
+            follow_redirects=False,
+        )
+
+        assert store.site.editorial_instructions == self.INSTRUCTED

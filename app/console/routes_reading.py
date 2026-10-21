@@ -127,7 +127,22 @@ def create_reading_routes(
 
         form_data = await request.form()
         uploads = [f for f in form_data.getlist("documents") if getattr(f, "filename", "")]
-        instructions = (site.editorial_instructions or "").strip() or None
+        # The saved rulebook used to ride along on every upload without
+        # anyone looking at it. Four rounds of mismatch files in October 2026
+        # turned on what the model was or was not told, and afterwards nobody
+        # could say which instructions had been in force for a given run.
+        #
+        # So it is now an explicit tick on the upload form, with the text
+        # shown beside it. An unticked box posts nothing at all, which is
+        # what "leave them out of this run" looks like over HTTP; a box the
+        # editor has typed into sends that version for this run WITHOUT
+        # changing what is saved, so trying something once cannot quietly
+        # rewrite the rulebook.
+        if form_data.get("use_instructions") is None:
+            instructions = None
+        else:
+            typed = str(form_data.get("instructions") or "").strip()
+            instructions = typed or (site.editorial_instructions or "").strip() or None
         # The date the editor picked on this form -- carried to the analyse
         # step over the redirect below, never silently replaced by today's.
         pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()

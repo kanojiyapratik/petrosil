@@ -92,11 +92,37 @@
           <input id="pricedate" type="date" name="pricedate" value="{{ pricedate or today }}">
         </div>
       </div>
+      {# The rulebook used to ride along on every upload with nobody looking
+         at it, and afterwards nobody could say what a given run had been
+         told. It is an explicit tick now, with the text beside it: an
+         editor sees what is about to be sent and can change it for this run
+         or leave it out. Editing here does NOT save -- that is the form
+         below -- so trying something once cannot quietly rewrite the
+         rulebook. #}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="use_instructions" value="on" checked
+                 id="use-instructions">
+          Send your saved instructions with these reports
+        </label>
+        {% if instructions %}
+        <p class="hint">
+          {{ instructions | length }} characters. The AI is told this before it reads anything.
+          Edit below to change it <em>for this run only</em>; untick to read the reports
+          without it.
+        </p>
+        <textarea name="instructions" rows="10" maxlength="60000" style="width:100%"
+          aria-label="Instructions sent with this upload">{{ instructions }}</textarea>
+        {% else %}
+        <p class="hint">
+          Nothing saved for {{ site.name }} yet. Use <strong>Save instructions</strong> below to
+          keep notes for next time, or type them into the box there before reading.
+        </p>
+        {% endif %}
+      </div>
       <p class="hint">
         Nothing changes on the website from this step &mdash; you'll check what was read on the next
-        screen before choosing what to use. The AI is given the instructions <em>as saved</em>: if
-        you have just typed something in the box below, press <strong>Save instructions</strong>
-        first.
+        screen before choosing what to use.
       </p>
     </form>
 

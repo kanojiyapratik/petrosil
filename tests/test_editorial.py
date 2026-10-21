@@ -1493,21 +1493,30 @@ class TestTheInstructionsBoxSavesOnItsOwn:
         assert response.headers["location"].startswith("/console/sites/baseoil/editorial?ok=")
         assert store.site.editorial_instructions == "The USA prices are in the picture table."
 
-    def test_the_instructions_box_is_not_nested_inside_the_upload_form(self):
-        # The upload form now posts to /reading -- if the instructions box
-        # were still inside it, whatever the editor typed would travel there
-        # and be silently discarded (routes_reading.py never reads it).
+    def test_the_upload_form_carries_its_own_copy_of_the_instructions(self):
+        # This used to assert the opposite: the box had to sit OUTSIDE the
+        # upload form, because read_files ignored it and anything typed there
+        # would be silently discarded. read_files reads it now -- that is the
+        # whole point of the tick -- so the upload form carries its own copy,
+        # which is what the editor is being asked to approve.
         client, extractions, store = build_analyse_client([])
 
         page = client.get("/console/sites/baseoil/editorial").text
 
         upload_form_at = page.index('action="/console/sites/baseoil/reading"')
         upload_form_closes_at = page.index("</form>", upload_form_at)
-        instructions_at = page.index('name="instructions"')
 
-        assert instructions_at > upload_form_closes_at
-        # It has become its own form, posting back to the save-instructions route.
+        assert upload_form_at < page.index('name="use_instructions"') < upload_form_closes_at
+
+    def test_saving_instructions_is_still_a_form_of_its_own(self):
+        # Editing for one run must not rewrite the rulebook, so the save
+        # route keeps its own form and its own button.
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
         assert 'action="/console/sites/baseoil/editorial"' in page
+        assert "Save instructions" in page
 
 
 class TestTheAnalyseRouteGuardsTheReadingsOwnership:
@@ -2022,15 +2031,20 @@ class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
         for banned in ("drafting", "derived", "parsed", "extraction", "rulebook"):
             assert banned not in lede.lower()
 
-    def test_the_read_button_warns_that_unsaved_instructions_are_ignored(self):
-        # read_files reads site.editorial_instructions from the database, so
-        # text typed into the box and never saved is simply thrown away.
-        client, extractions, store = build_analyse_client([])
+    def test_the_screen_says_an_edit_here_applies_to_this_run_only(self):
+        # It used to warn the opposite -- that unsaved text was thrown away,
+        # because read_files only ever read the database. It reads the form
+        # now, so the warning that matters is the other one: editing here
+        # does not change what is saved for next week.
+        site = dataclasses.replace(SITE, editorial_instructions="a saved rulebook")
+        client, extractions, store = build_analyse_client(
+            [], store=AnalyseFakeStore(site=site)
+        )
 
         page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
 
-        assert "as saved" in page
-        assert "press <strong>Save instructions</strong> first" in page
+        assert "for this run only" in page
+        assert "untick to read the reports without it" in page
 
 
 class TestReportsCanBeAddedOneAtATime:
@@ -2914,3 +2928,29 @@ class TestTheWorkingsThatGoToTheClient:
         download = client.get("/console/sites/baseoil/editorial/drafts/12/workings.csv")
 
         assert download.status_code == 404
+
+
+class TestTheUploadScreenShowsWhatWillBeSent:
+    """The editor sees the rulebook before it is sent, not after a round of
+    mismatch files. See app/console/routes_reading.py's read_files."""
+
+    def screen(self, instructions):
+        site = dataclasses.replace(SITE, editorial_instructions=instructions)
+        client, _extractions, _store = build_analyse_client(
+            kept_and_dropped_rows(), store=AnalyseFakeStore(site=site)
+        )
+
+        return client.get("/console/sites/baseoil/editorial").text
+
+    def test_the_saved_instructions_are_on_the_page_before_anything_runs(self):
+        page = self.screen("Iran - report the benchmark, not the location.")
+
+        assert "Iran - report the benchmark" in page
+
+    def test_there_is_a_tick_to_decide_with(self):
+        assert "use_instructions" in self.screen("anything at all")
+
+    def test_a_site_with_no_rulebook_says_so_rather_than_showing_an_empty_box(self):
+        page = self.screen("")
+
+        assert "Nothing saved for" in page
