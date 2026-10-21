@@ -1,6 +1,9 @@
-/* The brand sites and the dashboard arrive in later phases; the backend is
-   what runs today, so this is deliberately bare. */
-export const metadata = { title: "Petrosil Platform" };
+import "./globals.css";
+
+export const metadata = {
+  title: "Petrosil Platform",
+  description: "One admin for the whole estate.",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
