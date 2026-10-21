@@ -64,6 +64,17 @@ comma-separated list to narrow it to named machines.
 subscriber's name, email and company.** Fine on a network you control, not
 something to leave reachable from a café.
 
+The sign-in page offers these accounts as buttons, so you do not type the
+password forty times a day. They go through the same `signIn` as the form, so
+the throttle still applies and the attempt still lands in the login log.
+
+The panel is gated on `NODE_ENV`: never in production, and refused when
+`NODE_ENV` is unset rather than assumed safe — `quickSignInAllowed` returns
+before it reads anything else, so no flag can turn it back on there. It also
+only offers accounts whose password really is the development one, verified
+against the hash, because a button that fails is worse than no button. Set
+`DEV_QUICK_SIGN_IN=off` to hide it here too and test the real sign-in path.
+
 Demo accounts after `db:dev-data` (password `petrosil-dev`):
 
 | Account | What they are |
