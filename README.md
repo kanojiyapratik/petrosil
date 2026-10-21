@@ -22,7 +22,7 @@ npm run db:up        # Postgres on 5434 (5433 is the price module's — untouche
 npm run db:migrate
 npm run db:seed      # nine brands, a superadmin, one API token each (printed once)
 npm run db:dev-data  # demo locations, prices, clients, plans, articles, pages
-npm run dev          # http://127.0.0.1:3100
+npm run dev          # http://127.0.0.1:3100 — and on this machine's LAN IP
 npm test             # against its own petrosil_test database
 ```
 
@@ -35,7 +35,34 @@ its demo data.
 
 Use `npm run dev`, not `npm start`, for local browser and curl work: `next
 start` runs with `NODE_ENV=production`, which makes the session cookie `Secure`,
-and it will not come back over plain http.
+and it will not come back over plain http. That applies over the LAN too —
+`npm start` on an `http://192.168.x.x` address will take a password and then
+refuse to stay signed in.
+
+### Reaching it from another machine
+
+The server binds `0.0.0.0`, so it answers on this machine's LAN address as
+well as localhost. Two things stand between that and a colleague's browser:
+
+```powershell
+# in an elevated PowerShell, once
+Set-NetConnectionProfile -InterfaceAlias WiFi -NetworkCategory Private
+New-NetFirewallRule -DisplayName "Petrosil admin (dev) 3100" `
+  -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3100 `
+  -Profile Private -RemoteAddress LocalSubnet
+```
+
+`-RemoteAddress LocalSubnet` is the part that matters: it keeps the rule to
+the network you are on rather than opening the port wherever this laptop next
+connects.
+
+Next refuses cross-origin dev requests unless the origin is allowed, so
+`next.config.ts` permits the private ranges. Set `DEV_ORIGINS` to a
+comma-separated list to narrow it to named machines.
+
+**This is a development server with no TLS, and the admin holds every
+subscriber's name, email and company.** Fine on a network you control, not
+something to leave reachable from a café.
 
 Demo accounts after `db:dev-data` (password `petrosil-dev`):
 
