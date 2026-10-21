@@ -280,40 +280,74 @@ def unsupported_by_evidence(
     and only where the editor has said it does not apply.
     """
     as_printed = as_printed or set()
-    allowed: list[tuple[float, str]] = []
 
-    for entry in evidence:
-        currency = _money(entry.get("currency"))
-        low, high = entry.get("price_min"), entry.get("price_max")
-        allowed += [
-            (float(v), currency) for v in (entry.get("price"), low, high) if v is not None
+    def figures_of(entries) -> list[tuple[float, str]]:
+        found: list[tuple[float, str]] = []
+
+        for entry in entries:
+            currency = _money(entry.get("currency"))
+            low, high = entry.get("price_min"), entry.get("price_max")
+            found += [
+                (float(v), currency) for v in (entry.get("price"), low, high) if v is not None
+            ]
+
+            if low is not None and high is not None:
+                found.append(((float(low) + float(high)) / 2, currency))
+
+        return found
+
+    everywhere = figures_of(evidence)
+
+    # The lines that are about this location, by name. Without this the test
+    # is location-blind -- it asks "is this number printed somewhere in the
+    # reports", pooling every figure from every row, so one location's figure
+    # vouches for another's. On 16 October 2026 Japan published 840 against a
+    # printed 759-791, and 840 is a real number in that issue: it is in the
+    # Singapore commentary.
+    #
+    # The bar is deliberately low (one shared word that is not structural
+    # filler, so "Japan FOB" reaches the report's "Japan"), and a location no
+    # line resembles falls back to the whole pool. Narrowing can only ever
+    # tighten the test where we can tell which lines belong to a location,
+    # and never flags a row it would have passed before on that ground alone.
+    def lines_about(location: str) -> list[tuple[float, str]]:
+        words = _tokens(location) - FILLER_TOKENS
+
+        if not words:
+            return everywhere
+
+        near = [
+            entry
+            for entry in evidence
+            if (_tokens(entry.get("name") or "") - FILLER_TOKENS) & words
         ]
 
-        if low is not None and high is not None:
-            allowed.append(((float(low) + float(high)) / 2, currency))
+        return figures_of(near) if near else everywhere
 
-    def known(value, currency: str) -> bool:
+    def known(value, currency: str, allowed) -> bool:
         return value is not None and any(
             money == currency and abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001)
             for figure, money in allowed
         )
 
-    def whatever_the_currency(value) -> bool:
+    def whatever_the_currency(value, allowed) -> bool:
         return value is not None and any(
             abs(float(value) - figure) <= max(0.5, abs(figure) * 0.001)
             for figure, _ in allowed
         )
 
     def supported(row) -> bool:
+        allowed = lines_about(row["location"])
+
         if row["location"] in as_printed:
-            return whatever_the_currency(row.get("suggested_min")) or whatever_the_currency(
-                row.get("suggested_max")
-            )
+            return whatever_the_currency(
+                row.get("suggested_min"), allowed
+            ) or whatever_the_currency(row.get("suggested_max"), allowed)
 
         currency = _money(row.get("currency"))
 
-        return known(row.get("suggested_min"), currency) or known(
-            row.get("suggested_max"), currency
+        return known(row.get("suggested_min"), currency, allowed) or known(
+            row.get("suggested_max"), currency, allowed
         )
 
     return {

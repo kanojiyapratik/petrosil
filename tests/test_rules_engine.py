@@ -84,14 +84,26 @@ class TestApplyRules:
         assert next(r for r in rows if r["location"] == SINGAPORE)["status"] == "near_match"
         assert next(r for r in rows if r["location"] == KOREA)["status"] == "no_evidence"
 
-    def test_a_direct_price_beats_a_derived_one(self):
+    def test_the_rule_beats_a_direct_price_and_says_it_did(self):
+        # This used to go the other way: a direct suggestion won and the rule
+        # silently did not run. That is how Brussels published 580 on 16
+        # October 2026 instead of Antwerp + 5 EUR = 575, and Iran Bulk 325
+        # instead of its benchmark + 15 USD = 330 -- the site's instructions
+        # warned about the bypass in prose and nothing enforced it.
+        #
+        # A rule IS the client's price for that location; a figure read off a
+        # page is not a second opinion about it. The rule wins, and the row
+        # is flagged with both figures, because a disagreement means one of
+        # the two readings is wrong.
         rows = apply_rules(
             draft([suggestion(SINGAPORE, 800, 800), suggestion(KOREA, 750, 750)]), [RULE]
         )
         row = next(r for r in rows if r["location"] == KOREA)
 
-        assert row["status"] == "suggested"
-        assert row["suggested_price"] == 750
+        assert row["status"] == "derived"
+        assert row["suggested_price"] == 720
+        assert row["flag"] == "check"
+        assert "750" in row["rationale"]
 
     def test_a_disabled_rule_does_nothing(self):
         disabled = PriceRule(

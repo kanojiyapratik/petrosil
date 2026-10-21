@@ -86,9 +86,23 @@ def benchmark_names(rules: list[PriceRule], site_locations: list[str]) -> list[s
 
 
 # Row statuses a rule may fill: nothing found, or an answer with no usable
-# figure. A direct price, a close match and a foreign/unrated figure all stay
-# as they are.
+# figure. A close match and a foreign/unrated figure stay as they are -- the
+# first awaits a human, the second is not dollars yet.
 FILLABLE = ("no_evidence", "invalid")
+
+# ... and the one it may OVERRIDE. A direct suggestion used to win, which
+# meant that whenever the model answered for a location the client prices by
+# rule, the rule silently did not run: Brussels published 580 on 16 October
+# 2026 instead of Antwerp + 5 EUR = 575, and Iran Bulk 325 instead of its
+# benchmark + 15 USD = 330. The site's own instructions warn about exactly
+# this in prose -- "a price given directly against the location would bypass
+# it" -- and nothing enforced it.
+#
+# A rule IS the client's price for that location; a figure the model read off
+# a page is not a second opinion about it. So the rule wins, and because a
+# disagreement means one of the two is wrong about something, the row is
+# flagged with both figures rather than quietly replaced.
+OVERRIDABLE = ("suggested",)
 
 
 def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
@@ -122,10 +136,18 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
             if target is None or reference is None:
                 continue
 
-            if target["status"] not in FILLABLE or reference["status"] not in (
+            fillable = target["status"] in FILLABLE
+            overriding = target["status"] in OVERRIDABLE
+
+            if not (fillable or overriding) or reference["status"] not in (
                 "suggested",
                 "derived",
             ):
+                continue
+
+            # Already derived by an earlier pass in this same run; re-deriving
+            # would be work for nothing and would re-flag a settled row.
+            if overriding and target.get("derived_from"):
                 continue
 
             price = _whole(_adjusted(reference["suggested_price"], rule))
@@ -138,6 +160,12 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
 
             derived_this_pass = True
             remark = target.get("rationale") if target["status"] == "invalid" else None
+
+            # What the model had offered for this location, when it offered
+            # anything. Kept before the row is rewritten, so the editor can
+            # see what was set aside and decide which of the two is wrong.
+            displaced = target["suggested_price"] if overriding else None
+            disagrees = displaced is not None and abs(displaced - price) >= 0.005
             # A reference that was converted from another currency carries
             # its conversion, and the audit line for the derived price must
             # show it: the client wants the lira figure, the rate and its
@@ -160,13 +188,27 @@ def apply_rules(rows: list[dict], rules: list[PriceRule]) -> list[dict]:
                     "suggested_max": _whole(_adjusted(reference["suggested_max"], rule)),
                     "suggested_price": price,
                     "change_pct": js_number(change) if change is not None else None,
-                    "flag": "check" if change is not None and abs(change) >= FLAG_PCT else None,
+                    # A rule that had to displace a figure is always worth a
+                    # look, however small the move: one of the two readings
+                    # of this location is wrong.
+                    "flag": (
+                        "check"
+                        if disagrees or (change is not None and abs(change) >= FLAG_PCT)
+                        else None
+                    ),
                     "confidence": reference["confidence"],
                     "basis": f"Derived: {rule.reference_location} {adjustment_label(rule)}",
                     "source": reference["source"],
                     "rationale": (
                         f"Calculated from {rule.reference_location} "
                         f"({origin}) {adjustment_label(rule)}."
+                        + (
+                            f" Your price rule gives {js_number(price)}; the reports were "
+                            f"read as {js_number(displaced)} for this location, which this "
+                            "rule replaces. Check which is right."
+                            if disagrees
+                            else ""
+                        )
                         + (f" The reports also said: {remark}" if remark else "")
                     ),
                     "derived_from": rule.reference_location,
