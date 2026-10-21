@@ -30,6 +30,7 @@ from ..editorial.review import (
     reject_out_of_scale,
     unsupported_by_evidence,
 )
+from ..editorial.preflight import preflight
 from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
 from ..editorial.secondlook import (
@@ -735,6 +736,24 @@ def create_editorial_routes(
                 else None
             )
 
+            # Last of all, once every figure on the draft is final: ask the
+            # sheet whether it contradicts itself. Four rounds of mismatch
+            # files with the client in October 2026 were all explained by
+            # faults this finds without leaving the machine -- a derived
+            # price off its own rule, a figure rounded the wrong way, a price
+            # outside the range it was quoted from, a run built on last
+            # week's issue. See app/editorial/preflight.py.
+            findings = preflight(
+                rows + benchmark_rows,
+                rules=site_rules,
+                default_step=(
+                    site.round_to_nearest,
+                    getattr(site, "round_direction", "nearest"),
+                ),
+                overrides=rounding.for_site(site.slug) if rounding is not None else None,
+                price_date=pricedate,
+            )
+
             return screen(
                 request, user, site,
                 {
@@ -742,6 +761,8 @@ def create_editorial_routes(
                     "rows": rows,
                     "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
                     "summary": summary,
+                    "findings": findings,
+                    "blockers": sum(1 for f in findings if f.severity == "blocker"),
                     "pricedate": pricedate,
                     "benchmark_note": benchmark_note,
                     "analysis": {

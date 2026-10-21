@@ -2731,3 +2731,66 @@ class TestTheScreenSaysWhenALocationHasGoneQuiet:
         drafts = FakeDrafts()
 
         assert self.analyse(drafts).status_code == 200
+
+
+class TestThePreflightPanelOnTheDraftScreen:
+    """The sheet's own objections, shown above the sheet.
+
+    app/editorial/preflight.py is unit-tested on its own in
+    tests/test_preflight.py; what is proved here is that it is actually
+    wired into the analyse route and reaches the screen -- the part that
+    would fail silently if a template variable were renamed.
+    """
+
+    def analyse(self, answer, pricedate="2026-10-16", overrides=None):
+        driver = StubDriver(
+            AiCompletion(
+                status="complete", text=json.dumps(answer), prompt_tokens=5,
+                completion_tokens=5, error=None,
+            )
+        )
+        site = dataclasses.replace(SITE, round_to_nearest=5)
+        client, _extractions, _store = build_analyse_client(
+            kept_and_dropped_rows(), driver=driver, store=AnalyseFakeStore(site=site),
+            locations=[{"title": "Europe Domestic SN150", "latest_price": 1000.0}],
+            rounding_overrides=overrides,
+        )
+
+        return client.post(
+            "/console/sites/baseoil/editorial/analyse",
+            data={"set_id": "7", "pricedate": pricedate},
+        )
+
+    def suggestion(self, **overrides):
+        row = {
+            "location": "Europe Domestic SN150",
+            "suggested_min": 1515,
+            "suggested_max": 1525,
+            "confidence": "high",
+            "basis": "Argus, page 6",
+            "source": "reading",
+            "rationale": "checked by the editor",
+        }
+        row.update(overrides)
+
+        return [row]
+
+    def test_a_run_built_on_last_week_s_issue_says_so_above_the_prices(self):
+        page = self.analyse(self.suggestion(price_date="2026-10-09")).text
+
+        assert "Before you publish" in page
+        assert "2026-10-09" in page
+        assert "7 days earlier" in page
+
+    def test_a_report_from_the_week_of_the_run_raises_nothing(self):
+        page = self.analyse(self.suggestion(price_date="2026-10-16")).text
+
+        assert "Before you publish" not in page
+
+    def test_a_clean_draft_shows_no_panel_at_all(self):
+        page = self.analyse(self.suggestion()).text
+
+        assert "Before you publish" not in page
+        # The prices themselves are still there: the panel is an addition,
+        # not a replacement.
+        assert 'name="price_0"' in page

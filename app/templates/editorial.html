@@ -335,6 +335,51 @@
 </div>
 {% endif %}
 
+{% if rows is not none and findings %}
+{# What the sheet says about itself, above the sheet. A blocker is an
+   internal contradiction -- a derived price off its own rule, a figure
+   rounded against this location's setting, a price outside the range it
+   was quoted from -- so there is no reading of the settings under which it
+   is right. A warning is worth seeing and may well be waved through. #}
+<div class="panel">
+  <div class="head">
+    <h2>
+      Before you publish —
+      {% if blockers %}{{ blockers }} to fix{% else %}{{ findings | length }} to look at{% endif %}
+    </h2>
+  </div>
+  <div class="body">
+    {% if blockers %}
+    <p class="hint">
+      <strong>{{ blockers }} figure(s) on this draft contradict your own settings.</strong>
+      Each one is checked against the price rules and rounding you have
+      configured, not against anyone's opinion of the market.
+    </p>
+    {% endif %}
+    <table>
+      <thead>
+        <tr><th>Location</th><th>Check</th><th>What is wrong</th><th>Expected</th><th>On this sheet</th></tr>
+      </thead>
+      <tbody>
+        {% for finding in findings %}
+        <tr>
+          <td>{{ finding.location or '—' }}</td>
+          <td>
+            <span class="badge {{ 'bad' if finding.severity == 'blocker' else 'warn' }}">
+              {{ finding.check.replace('_', ' ') }}
+            </span>
+          </td>
+          <td>{{ finding.detail }}</td>
+          <td>{% if finding.expected is not none %}{{ finding.expected }}{% else %}—{% endif %}</td>
+          <td>{% if finding.actual is not none %}{{ finding.actual }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% if rows is not none %}
 <div class="panel">
   <div class="head"><h2>Fetched prices — {{ datefmt(pricedate) }}</h2></div>
