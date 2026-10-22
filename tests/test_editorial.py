@@ -1493,12 +1493,9 @@ class TestTheInstructionsBoxSavesOnItsOwn:
         assert response.headers["location"].startswith("/console/sites/baseoil/editorial?ok=")
         assert store.site.editorial_instructions == "The USA prices are in the picture table."
 
-    def test_the_upload_form_carries_its_own_copy_of_the_instructions(self):
-        # This used to assert the opposite: the box had to sit OUTSIDE the
-        # upload form, because read_files ignored it and anything typed there
-        # would be silently discarded. read_files reads it now -- that is the
-        # whole point of the tick -- so the upload form carries its own copy,
-        # which is what the editor is being asked to approve.
+    def test_the_tick_sits_inside_the_upload_form(self):
+        # The decision travels with the upload, so the checkbox has to be a
+        # field of the form that posts the reports.
         client, extractions, store = build_analyse_client([])
 
         page = client.get("/console/sites/baseoil/editorial").text
@@ -1507,6 +1504,41 @@ class TestTheInstructionsBoxSavesOnItsOwn:
         upload_form_closes_at = page.index("</form>", upload_form_at)
 
         assert upload_form_at < page.index('name="use_instructions"') < upload_form_closes_at
+
+    def test_there_is_only_one_box_to_type_instructions_into(self):
+        # There were two, both pre-filled with the same 8,000-character
+        # rulebook and neither saying which one saved: one inside the upload
+        # form for a single run, one below it for the rulebook itself. An
+        # editor could not tell them apart, and editing the wrong one either
+        # lost the change or quietly rewrote the rulebook. The route still
+        # accepts a per-run override; it is simply no longer offered as a
+        # second identical field sitting on the screen.
+        client, extractions, store = build_analyse_client([])
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        assert page.count('name="instructions"') == 1, (
+            "two boxes holding the same rulebook is the confusion this screen had"
+        )
+
+    def test_the_upload_form_still_shows_what_it_is_about_to_send(self):
+        # Removing the second box must not make the rulebook invisible at the
+        # moment it is being approved: the tick would then be a promise about
+        # text nobody on that screen can read.
+        site = dataclasses.replace(
+            SITE, editorial_instructions="Japan FOB - read the DOLLAR column, never the yen."
+        )
+        client, extractions, store = build_analyse_client(
+            [], store=AnalyseFakeStore(site=site)
+        )
+
+        page = client.get("/console/sites/baseoil/editorial").text
+
+        upload_form_at = page.index('action="/console/sites/baseoil/reading"')
+        upload_form_closes_at = page.index("</form>", upload_form_at)
+        shown_at = page.index("read the DOLLAR column")
+
+        assert upload_form_at < shown_at < upload_form_closes_at
 
     def test_saving_instructions_is_still_a_form_of_its_own(self):
         # Editing for one run must not rewrite the rulebook, so the save
@@ -2031,11 +2063,13 @@ class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
         for banned in ("drafting", "derived", "parsed", "extraction", "rulebook"):
             assert banned not in lede.lower()
 
-    def test_the_screen_says_an_edit_here_applies_to_this_run_only(self):
-        # It used to warn the opposite -- that unsaved text was thrown away,
-        # because read_files only ever read the database. It reads the form
-        # now, so the warning that matters is the other one: editing here
-        # does not change what is saved for next week.
+    def test_the_screen_says_the_instructions_need_no_attention_this_week(self):
+        # This asserted two earlier shapes of the same box: first that unsaved
+        # text was thrown away, then that editing applied "for this run only".
+        # Both described an editable copy inside the upload form, and two
+        # pre-filled boxes of the same rulebook read as a chore to repeat on
+        # every upload. The rulebook is written once and sent by default, so
+        # what the screen has to say is that there is nothing to do here.
         site = dataclasses.replace(SITE, editorial_instructions="a saved rulebook")
         client, extractions, store = build_analyse_client(
             [], store=AnalyseFakeStore(site=site)
@@ -2043,8 +2077,23 @@ class TestTheUploadScreenSaysWhatTheFlowActuallyIs:
 
         page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
 
-        assert "for this run only" in page
-        assert "untick to read the reports without it" in page
+        assert "On by default" in page
+        assert "nothing to do here for an ordinary report" in page
+        assert "Untick to read without them" in page
+
+    def test_the_screen_says_where_to_change_them_and_when(self):
+        # The one thing left that an editor may need: the rulebook changes
+        # when a reading rule changes, not when a report arrives.
+        site = dataclasses.replace(SITE, editorial_instructions="a saved rulebook")
+        client, extractions, store = build_analyse_client(
+            [], store=AnalyseFakeStore(site=site)
+        )
+
+        page = " ".join(client.get("/console/sites/baseoil/editorial").text.split())
+
+        assert "sent with every upload" in page
+        assert "when a reading rule changes" in page
+        assert "not when a new report arrives" in page
 
 
 class TestReportsCanBeAddedOneAtATime:

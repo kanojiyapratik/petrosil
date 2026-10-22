@@ -63,7 +63,7 @@
         form below it posts to /console/sites/{slug}/editorial. Its submit
         button is moved out to sit after the instructions form via the
         form="reading-form" attribute, so the reading order on screen is
-        reports -> price date -> hint -> instructions -> Read the reports,
+        reports -> price date -> the instructions tick -> Read the reports,
         while both forms keep exactly the fields and action they always had. #}
     <form id="reading-form" method="post" action="/console/sites/{{ site.slug }}/reading" enctype="multipart/form-data"
       data-working-title="Reading the reports&hellip;"
@@ -94,29 +94,37 @@
       </div>
       {# The rulebook used to ride along on every upload with nobody looking
          at it, and afterwards nobody could say what a given run had been
-         told. It is an explicit tick now, with the text beside it: an
-         editor sees what is about to be sent and can change it for this run
-         or leave it out. Editing here does NOT save -- that is the form
-         below -- so trying something once cannot quietly rewrite the
-         rulebook. #}
+         told. So it is an explicit tick, recorded with the run.
+
+         There was briefly a second instructions box here as well, holding a
+         copy of the same text for a one-run change. Two pre-filled boxes of
+         the same 8,000-character rulebook, neither saying which one saved,
+         read as "deal with your instructions again" on every upload -- when
+         the whole point is that the rulebook is written once and sent by
+         default. One box now, in its own panel below, and here the text is
+         shown read-only so the tick is still a promise about something an
+         editor can see. #}
       <div class="field">
         <label>
           <input type="checkbox" name="use_instructions" value="on" checked
                  id="use-instructions">
-          Send your saved instructions with these reports
+          Send the saved instructions for {{ site.name }}
         </label>
         {% if instructions %}
         <p class="hint">
-          {{ instructions | length }} characters. The AI is told this before it reads anything.
-          Edit below to change it <em>for this run only</em>; untick to read the reports
-          without it.
+          On by default &mdash; there is nothing to do here for an ordinary report.
+          {{ "{:,}".format(instructions | length) }} characters, which the AI is told before it
+          reads anything. Untick to read without them; to change them, edit
+          <strong>Instructions for the AI</strong> below and save.
         </p>
-        <textarea name="instructions" rows="10" maxlength="60000" style="width:100%"
-          aria-label="Instructions sent with this upload">{{ instructions }}</textarea>
+        <details class="rulebook">
+          <summary>See exactly what will be sent</summary>
+          <pre>{{ instructions }}</pre>
+        </details>
         {% else %}
         <p class="hint">
-          Nothing saved for {{ site.name }} yet. Use <strong>Save instructions</strong> below to
-          keep notes for next time, or type them into the box there before reading.
+          Nothing saved for {{ site.name }} yet, so there is nothing to send. Write it once in
+          <strong>Instructions for the AI</strong> below and every future upload carries it.
         </p>
         {% endif %}
       </div>
@@ -128,7 +136,11 @@
 
     <form method="post" action="/console/sites/{{ site.slug }}/editorial" data-no-overlay="1">
       <div class="field">
-        <label for="instructions">Extra instructions for the AI (optional)</label>
+        <label for="instructions">Instructions for the AI</label>
+        <p class="hint" style="margin:.1rem 0 .4rem">
+          The rulebook for {{ site.name }}, written once and sent with every upload. Edit it when
+          a reading rule changes &mdash; not when a new report arrives.
+        </p>
         {#
           maxlength was 4,000, and bitumart's saved rulebook is over 8,000: a
           browser renders the whole value but refuses every keystroke once the
@@ -142,8 +154,8 @@
         <textarea id="instructions" name="instructions" rows="14" maxlength="60000"
           placeholder="e.g. The USA prices are inside the picture table. Ignore last week's recap section."
           style="width:100%">{{ instructions or "" }}</textarea>
-        <p class="hint">Anything you want the AI to know about these reports. Remembered for next
-          time &mdash; clear the box to remove them.</p>
+        <p class="hint">Saved against {{ site.name }} and reused for every report from now on.
+          Clear the box to remove them.</p>
       </div>
       <div class="actions"><button type="submit">Save instructions</button></div>
     </form>

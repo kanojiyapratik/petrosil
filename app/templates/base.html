@@ -228,6 +228,20 @@ ul.steps li { margin-bottom:.25rem; }
   .side .logo { width:100%; padding-bottom:.5rem; }
   .side .group { display:none; }
 }
+
+/* The rulebook, shown where it is being approved rather than offered as a
+   second box to edit. Capped and scrollable: it is 8,000 characters and
+   climbing, and it must not push the Read button off the screen. */
+details.rulebook { margin:.4rem 0 0; }
+details.rulebook > summary {
+  cursor:pointer; color:var(--accent); font-size:.85rem; width:fit-content;
+}
+details.rulebook > pre {
+  margin:.5rem 0 0; padding:.6rem .7rem; max-height:15rem; overflow:auto;
+  border:1px solid var(--line); border-radius:6px; background:var(--bg);
+  color:var(--muted); font-size:.78rem; line-height:1.5;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
 </style>
 </head>
 <body>
