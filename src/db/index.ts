@@ -10,25 +10,23 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import * as schema from "./schema";
+import { databaseUrl, poolOptions } from "./pool";
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 let client: ReturnType<typeof postgres> | undefined;
 let database: Database | undefined;
 
+/** See ./pool: DATABASE_URL first, then the pair Netlify provisions. */
 export function connectionString(): string {
-  const url = process.env.DATABASE_URL;
-
-  if (!url) {
-    throw new Error("DATABASE_URL is not set. Copy .env.example to .env, or run `npm run db:up`.");
-  }
-
-  return url;
+  return databaseUrl();
 }
 
 export function db(): Database {
   if (!database) {
-    client = postgres(connectionString(), { max: 10, onnotice: () => {} });
+    // See ./pool: the pool size depends on whether this is a server or a
+    // function, and prepared statements on whether a pooler is in the way.
+    client = postgres(connectionString(), { ...poolOptions(), onnotice: () => {} });
     database = drizzle(client, { schema });
   }
 

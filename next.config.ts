@@ -17,6 +17,14 @@ const devOrigins = (process.env.DEV_ORIGINS ?? "")
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  /**
+   * A self-contained Node server, which is what the Dockerfile runs — and
+   * also what `@netlify/plugin-nextjs` reads: it copies `.next/standalone`
+   * into its function bundle. I briefly made this conditional on NETLIFY,
+   * on the assumption the plugin did its own packaging and must not be
+   * handed standalone. The failed build disproved it by reading exactly
+   * that directory, so it is unconditional and both hosts want it.
+   */
   output: "standalone",
   // The compat API answers machine callers; no image or font pipeline needed yet.
   poweredByHeader: false,

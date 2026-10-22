@@ -23,6 +23,7 @@
     "migrate:content": "tsx --env-file-if-exists=.env scripts/migrate-content.ts"
   },
   "dependencies": {
+    "@netlify/database": "^2.0.1",
     "bcryptjs": "2.4.3",
     "drizzle-orm": "0.36.4",
     "exceljs": "^4.4.0",
@@ -38,6 +39,7 @@
     "@types/node": "22.10.5",
     "@types/react": "19.0.7",
     "drizzle-kit": "0.28.1",
+    "netlify-cli": "^27.14.1",
     "tsx": "4.19.2",
     "typescript": "5.7.3",
     "vitest": "2.1.8"

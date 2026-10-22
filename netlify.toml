@@ -1,0 +1,23 @@
+# Netlify build settings.
+#
+# No `publish` and no plugin list: the Next.js runtime is detected from the
+# dependency and packages the app into functions itself, which is why
+# `output: "standalone"` is switched off when NETLIFY is set (see
+# next.config.ts).
+#
+# The database is NOT provisioned here. DATABASE_URL is set per context in
+# the Netlify UI or with `netlify env:set`, and it must be the POOLED
+# endpoint — src/db/pool.ts turns prepared statements off when it sees one,
+# because a transaction pooler cannot carry them between statements.
+
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+# The migrations and the expiry sweep are not functions. `migrate:site` and
+# `migrate:content` read a local MariaDB and run for minutes per brand, well
+# past any function timeout, so they stay a laptop job pointed at the remote
+# DATABASE_URL. `sweep:expiries` wants a scheduled function once there is a
+# reason to run it in the cloud.
