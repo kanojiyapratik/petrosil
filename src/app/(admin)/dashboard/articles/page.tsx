@@ -6,6 +6,8 @@
  * that hides drafts cannot answer it.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { staffArticles } from "@/domain/content/articles";
@@ -55,7 +57,11 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
       <Heading
         title="Articles"
         sub="Market news and analysis. A premium piece shows its first paragraph to everyone and the rest to subscribers."
-      />
+      >
+        <Link className="button small" href="/dashboard/articles/new">
+          New article
+        </Link>
+      </Heading>
 
       <Panel flush={false}>
         <Filters action="/dashboard/articles">
@@ -99,7 +105,9 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/articles/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                   <div className="small muted">
                     /{row.slug}
                     {row.premium_only ? " · subscribers only" : ""}

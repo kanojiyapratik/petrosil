@@ -24,6 +24,7 @@ import {
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 
 import { db } from "@/db";
+import { articleForEdit } from "@/domain/content/articles";
 import { announcements, articleCategories, articles, auditLog, memberships, pages, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 import { dayOffset, makeBrand, resetDatabase, type Brand } from "./helpers";
@@ -619,5 +620,160 @@ describe("the announcement strip", () => {
     ).json();
 
     expect(body.announcements).toHaveLength(1);
+  });
+});
+
+/**
+ * Loading one article to edit.
+ *
+ * `publishedArticle` is the reader's route: it refuses a draft and counts a
+ * view. An editor opening their own unpublished piece must get the body
+ * without being refused and without inflating the number the editorial
+ * screens rank by.
+ */
+describe("one article, for its editor", () => {
+  it("hands back the body of a draft, which the reader's route refuses", async () => {
+    const [draft] = await db()
+      .insert(articles)
+      .values({
+        siteId: baseoil.siteId,
+        slug: "singapore-eases",
+        title: "Singapore eases",
+        body: "<p>The full piece.</p>",
+        excerpt: "The hook.",
+        status: "draft",
+      })
+      .returning();
+
+    const found = await articleForEdit([], draft!.id);
+
+    expect(found?.title).toBe("Singapore eases");
+    expect(found?.body).toBe("<p>The full piece.</p>");
+    expect(found?.status).toBe("draft");
+    expect(found?.site).toBe("baseoil");
+  });
+
+  it("does not count a view, because an editor opening a piece is not a read", async () => {
+    const [piece] = await db()
+      .insert(articles)
+      .values({
+        siteId: baseoil.siteId,
+        slug: "a-piece",
+        title: "A piece",
+        body: "x",
+        status: "published",
+        publishedAt: new Date(),
+      })
+      .returning();
+
+    await articleForEdit([], piece!.id);
+    await articleForEdit([], piece!.id);
+
+    const [after] = await db().select().from(articles).where(eq(articles.id, piece!.id));
+
+    expect(after!.views).toBe(0);
+  });
+
+  it("answers nothing for a brand this viewer cannot see", async () => {
+    const [theirs] = await db()
+      .insert(articles)
+      .values({ siteId: bitumart.siteId, slug: "theirs", title: "Theirs", body: "x" })
+      .returning();
+
+    // The same answer as "no such article", so an id cannot be used to find
+    // out what a brand you cannot see has written.
+    expect(await articleForEdit([baseoil.siteId], theirs!.id)).toBeNull();
+  });
+
+  it("treats a withdrawn article as gone, for the editor too", async () => {
+    const [gone] = await db()
+      .insert(articles)
+      .values({
+        siteId: baseoil.siteId,
+        slug: "gone",
+        title: "Gone",
+        body: "x",
+        deletedAt: new Date(),
+      })
+      .returning();
+
+    expect(await articleForEdit([], gone!.id)).toBeNull();
+  });
+});
+
+/**
+ * Filing an article under a category.
+ *
+ * `category_id` arrives as a number from a form and was used as it came.
+ * Nothing checked it belonged to the brand being written to, so baseoil's
+ * article could be filed under one of bitumart's categories — an id alone
+ * deciding what happens, which is the shape of bug this codebase keeps
+ * finding in the old console.
+ */
+describe("the category an article is filed under", () => {
+  it("accepts one belonging to the brand being written to", async () => {
+    await person("editor@petrosil.example", [{ brand: baseoil, role: "staff" }]);
+    const cookie = await signedIn("editor@petrosil.example");
+
+    const response = await staffCreateRoute(
+      send(
+        "/api/dashboard/articles",
+        "POST",
+        { site: "baseoil", title: "Filed properly", category_id: categoryId },
+        cookie,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+
+    const { article } = await response.json();
+    const [row] = await db().select().from(articles).where(eq(articles.id, article.id));
+
+    expect(row!.categoryId).toBe(categoryId);
+  });
+
+  it("refuses one belonging to a different brand", async () => {
+    const [theirs] = await db()
+      .insert(articleCategories)
+      .values({ siteId: bitumart.siteId, slug: "theirs", name: "Theirs" })
+      .returning();
+
+    await person("editor@petrosil.example", [{ brand: baseoil, role: "staff" }]);
+    const cookie = await signedIn("editor@petrosil.example");
+
+    const response = await staffCreateRoute(
+      send(
+        "/api/dashboard/articles",
+        "POST",
+        { site: "baseoil", title: "Filed wrongly", category_id: theirs!.id },
+        cookie,
+      ),
+    );
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).message).toMatch(/categor/i);
+  });
+
+  it("refuses it on an update too, not only on the way in", async () => {
+    const [theirs] = await db()
+      .insert(articleCategories)
+      .values({ siteId: bitumart.siteId, slug: "theirs", name: "Theirs" })
+      .returning();
+
+    await person("editor@petrosil.example", [{ brand: baseoil, role: "staff" }]);
+    const cookie = await signedIn("editor@petrosil.example");
+
+    const made = await staffCreateRoute(
+      send("/api/dashboard/articles", "POST", { site: "baseoil", title: "A piece" }, cookie),
+    );
+    const { article } = await made.json();
+
+    const response = await staffPatchRoute(
+      send(`/api/dashboard/articles/${article.id}`, "PATCH", { category_id: theirs!.id }, cookie),
+      { params: Promise.resolve({ id: String(article.id) }) },
+    );
+
+    expect(response.status).toBe(422);
+    expect((await response.json()).message).toMatch(/categor/i);
   });
 });

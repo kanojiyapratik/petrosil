@@ -260,7 +260,7 @@ export async function createArticle(
       body: typeof body.body === "string" ? body.body : "",
       heroImage: typeof body.hero_image === "string" ? body.hero_image.slice(0, 512) : null,
       premiumOnly: body.premium_only === true,
-      categoryId: typeof body.category_id === "number" ? body.category_id : null,
+      categoryId: await categoryFor(brand.id, body.category_id, database),
       authorId: guard.identity.user.id,
       // Always a draft. Publishing is its own, audited act.
       status: "draft",
@@ -278,6 +278,43 @@ export async function createArticle(
   });
 
   return card(row!, null);
+}
+
+/**
+ * The category an article is filed under, checked against the brand.
+ *
+ * It arrives as a number from a form and was used as it came, so baseoil's
+ * article could be filed under one of bitumart's categories. An id alone
+ * deciding what happens is the shape of bug this codebase keeps finding in
+ * the old console, and the join would then show one brand's category on
+ * another brand's article.
+ *
+ * `undefined` means "not being changed"; null means "file it under nothing".
+ */
+async function categoryFor(
+  siteId: number,
+  given: unknown,
+  database: Database,
+): Promise<number | null> {
+  if (typeof given !== "number") {
+    return null;
+  }
+
+  const [found] = await database
+    .select({ id: articleCategories.id })
+    .from(articleCategories)
+    .where(and(eq(articleCategories.id, given), eq(articleCategories.siteId, siteId)))
+    .limit(1);
+
+  if (!found) {
+    throw new AccountError(
+      "That category belongs to a different brand.",
+      422,
+      "category_id",
+    );
+  }
+
+  return found.id;
 }
 
 const EDITABLE_TEXT = { excerpt: 2000, body: 1_000_000, hero_image: 512 } as const;
@@ -330,7 +367,7 @@ export async function updateArticle(
   }
 
   if (body.category_id !== undefined) {
-    changes.categoryId = typeof body.category_id === "number" ? body.category_id : null;
+    changes.categoryId = await categoryFor(found.siteId, body.category_id, database);
   }
 
   let published = false;
@@ -402,4 +439,51 @@ export async function withdrawArticle(
   });
 
   return true;
+}
+
+export type ArticleForEdit = ArticleFull & {
+  site: string;
+  site_name: string;
+  category_id: number | null;
+  updated_at: string;
+};
+
+/**
+ * One article, as its editor needs it.
+ *
+ * `publishedArticle` is the reader's route and cannot serve this: it refuses
+ * anything not published, strips the body behind the paywall, and counts a
+ * view. An editor opening their own draft would be turned away, and opening
+ * a published piece to fix a typo would inflate the number the editorial
+ * screens rank by.
+ *
+ * Scoped like every other dashboard read: another brand's article answers
+ * the same as no such article, so an id cannot be used to find out what a
+ * brand you cannot see has written.
+ */
+export async function articleForEdit(
+  siteIds: number[],
+  id: number,
+  database: Database = db(),
+): Promise<ArticleForEdit | null> {
+  const [row] = await database
+    .select({ article: articles, category: articleCategories.slug, slug: sites.slug, name: sites.name })
+    .from(articles)
+    .innerJoin(sites, eq(sites.id, articles.siteId))
+    .leftJoin(articleCategories, eq(articleCategories.id, articles.categoryId))
+    .where(and(eq(articles.id, id), isNull(articles.deletedAt)))
+    .limit(1);
+
+  if (!row || (siteIds.length > 0 && !siteIds.includes(row.article.siteId))) {
+    return null;
+  }
+
+  return {
+    ...card(row.article, row.category),
+    body: row.article.body,
+    site: row.slug,
+    site_name: row.name,
+    category_id: row.article.categoryId,
+    updated_at: row.article.updatedAt.toISOString(),
+  };
 }

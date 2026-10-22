@@ -9,6 +9,8 @@
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listAnnouncements } from "@/domain/dashboard/catalogue";
+import { NoticeForm } from "./form";
+import { removeNotice } from "./actions";
 import {
   BrandField,
   Empty,
@@ -52,6 +54,10 @@ export default async function AnnouncementsPage({
         </Filters>
       </Panel>
 
+      <Panel title="Add a notice" flush={false}>
+        <NoticeForm brands={brands} onlySite={site} />
+      </Panel>
+
       <div className="tiles">
         <div className="tile">
           <div className="n">{count(live)}</div>
@@ -67,41 +73,37 @@ export default async function AnnouncementsPage({
         <table>
           <thead>
             <tr>
-              <th>Notice</th>
-              <th>Brand</th>
-              <th>From</th>
-              <th>Until</th>
-              <th>Showing</th>
+              <th>Each notice, as it is and as you would change it</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  {row.body}
-                  {row.link ? (
-                    <div className="small muted">
-                      links to <code>{row.link}</code>
-                    </div>
-                  ) : null}
-                </td>
-                <td>{row.site_name}</td>
-                <td>{row.starts_at ?? <span className="muted">already</span>}</td>
-                <td>{row.ends_at ?? <span className="muted">no end</span>}</td>
-                <td>
-                  {row.live ? (
-                    <span className="badge ok">live</span>
-                  ) : row.enabled ? (
-                    <span className="badge warn">outside its window</span>
-                  ) : (
-                    <span className="badge">switched off</span>
-                  )}
+                  <div className="heading" style={{ marginBottom: 6 }}>
+                    <span className="small muted">{row.site_name}</span>
+                    <span className="spacer" />
+                    {row.live ? (
+                      <span className="badge ok">live</span>
+                    ) : row.enabled ? (
+                      <span className="badge warn">outside its window</span>
+                    ) : (
+                      <span className="badge">switched off</span>
+                    )}
+                    <form action={removeNotice} className="inline">
+                      <input type="hidden" name="id" value={row.id} />
+                      <button className="ghost small" type="submit">
+                        Remove
+                      </button>
+                    </form>
+                  </div>
+                  <NoticeForm brands={brands} notice={row} />
                 </td>
               </tr>
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td>
                   <Empty>No announcements set.</Empty>
                 </td>
               </tr>

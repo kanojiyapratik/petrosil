@@ -13,6 +13,8 @@
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listWatchedUrls } from "@/domain/dashboard/catalogue";
+import { crawlSettings, watchedUrls } from "@/domain/crawl/urls";
+import { WatchListForm } from "./form";
 import {
   BrandField,
   Empty,
@@ -58,6 +60,18 @@ export default async function CrawlPage({ searchParams }: { searchParams: Promis
     listWatchedUrls(viewer.siteIds, { site }),
   ]);
 
+  // Editing is per brand -- the list belongs to one site and replacing it is
+  // all-or-nothing -- so the editor appears once a brand is chosen with the
+  // filter above rather than through a second control of its own.
+  const chosen = brands.find((brand) => brand.slug === site);
+  const editing = chosen
+    ? {
+        brand: chosen,
+        urls: (await watchedUrls(chosen.id, true)).map((row) => row.url),
+        settings: await crawlSettings(chosen.id),
+      }
+    : null;
+
   const watching = rows.filter((row) => row.enabled).length;
   const failing = rows.filter(
     (row) => row.enabled && ["gone", "failed", "blocked", "disallowed"].includes(row.last_status ?? ""),
@@ -75,6 +89,23 @@ export default async function CrawlPage({ searchParams }: { searchParams: Promis
           <BrandField brands={brands} value={site} />
         </Filters>
       </Panel>
+
+      {editing ? (
+        <div style={{ marginTop: 16 }}>
+          <WatchListForm
+            site={editing.brand.slug}
+            siteName={editing.brand.name}
+            urls={editing.urls}
+            instructions={editing.settings.instructions}
+            intervalMinutes={editing.settings.intervalMinutes}
+          />
+        </div>
+      ) : brands.length > 1 ? (
+        <div className="note" style={{ marginTop: 16 }}>
+          Pick a brand above to change what it watches. The list belongs to one brand and is
+          replaced whole, so there is nothing sensible to edit across all of them at once.
+        </div>
+      ) : null}
 
       <div className="tiles">
         <div className="tile">
