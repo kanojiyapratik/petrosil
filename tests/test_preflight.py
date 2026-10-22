@@ -303,6 +303,75 @@ class TestAPriceAgainstItsOwnRange:
         assert check(rows) == []
 
 
+class TestHowWideTheQuotedRangeIs:
+    """A range too wide to be one assessment.
+
+    The 22 October run read South Korea FOB as "314.3-550" and published the
+    midpoint, 430, with high confidence and not one finding against it. Every
+    check passed honestly: 430 really is inside 314.3-550, the step is right,
+    the source is recorded. The range itself was the thing that was wrong --
+    two unrelated figures off different lines, read as one assessment.
+
+    Nothing asked whether the range could be real. Every genuine range on
+    that sheet was inside 4.2% (Japan's 759-791, the widest); South Korea's
+    high was 75% above its low.
+    """
+
+    def spread(self, low, high):
+        price = round((low + high) / 2)
+
+        return [
+            f.check
+            for f in preflight(
+                [priced("South Korea FOB", low, high, price)],
+                rules=[],
+                default_step=None,
+                overrides={},
+                price_date=None,
+            )
+        ]
+
+    def test_a_range_too_wide_to_be_one_assessment_is_flagged(self):
+        assert "quoted range" in self.spread(314.3, 550)
+
+    def test_the_widest_real_range_on_the_sheet_is_not_flagged(self):
+        # Japan FOB, 759-791: 4.2% and entirely legitimate.
+        assert "quoted range" not in self.spread(759, 791)
+
+    def test_an_ordinary_range_is_not_flagged(self):
+        assert "quoted range" not in self.spread(832, 842)
+
+    def test_a_single_figure_assessment_is_not_flagged(self):
+        # Bahrain and Indonesia print one figure, which arrives as low == high.
+        assert "quoted range" not in self.spread(893, 893)
+
+    def test_it_says_how_wide_the_range_was(self):
+        findings = preflight(
+            [priced("South Korea FOB", 314.3, 550, 430)],
+            rules=[],
+            default_step=None,
+            overrides={},
+            price_date=None,
+        )
+        detail = next(f.detail for f in findings if f.check == "quoted range")
+
+        assert "314.3" in detail and "550" in detail
+        assert "75%" in detail
+
+    def test_it_is_a_warning_and_not_a_blocker(self):
+        # It cannot be proved wrong from the data -- a violent week is a real
+        # thing -- so it is for an editor to look at, not a refusal to ship.
+        findings = preflight(
+            [priced("South Korea FOB", 314.3, 550, 430)],
+            rules=[],
+            default_step=None,
+            overrides={},
+            price_date=None,
+        )
+
+        assert next(f.severity for f in findings if f.check == "quoted range") == "warning"
+
+
 class TestWhereAPriceCameFrom:
     def test_reports_a_published_figure_with_no_source(self):
         rows = [priced("Japan FOB", 759, 791, 775, source=None)]

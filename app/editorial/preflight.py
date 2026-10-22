@@ -8,13 +8,19 @@ a published figure contradicting its own rule, its own rounding setting, or
 the range it was quoted from. Nobody needed the client to find them. Nobody
 needed the report.
 
-So this module asks four questions of a finished draft:
+So this module asks five questions of a finished draft:
 
   1. does every derived price satisfy the rule it was derived by?
   2. is every price on its location's step, taken the way that location
      takes it?
   3. does every price sit inside the range the report actually printed?
-  4. is the report it came from from the week the run is for?
+  4. could that range be one assessment at all?
+  5. is the report it came from from the week the run is for?
+
+Question 4 was added on 22 October, when a run read South Korea FOB as
+"314.3-550" and published the midpoint with nothing flagged: questions 1 to
+3 all passed, because 430 really is inside 314.3-550. The range was the
+fault and nothing was asking about the range.
 
 What it is NOT: a second opinion on whether a price is *right*. It cannot
 know that, and neither can anything else without an editor. It only catches
@@ -48,6 +54,13 @@ PRICED_STATUSES = ("suggested", "near_match", "derived")
 # dated 16 October, and the one dated 9 October is last week's -- exactly
 # seven days, which is why this is read as "or more" and not "more than".
 DEFAULT_STALE_AFTER_DAYS = 7
+
+# How much wider than its low a quoted range may be before it stops looking
+# like one assessment. Every genuine range on the 22 October sheet was inside
+# 4.2% -- Japan's 759-791, the widest of 25 -- and the fault it is there to
+# catch was 75%. Twenty leaves the real ones a wide berth and still catches
+# two figures off different lines read as one.
+MAX_QUOTED_SPREAD = 0.20
 
 BLOCKER = "blocker"
 WARNING = "warning"
@@ -256,6 +269,55 @@ def check_within_range(rows: list[dict], default_step, overrides: dict) -> list[
     return findings
 
 
+def check_quoted_spread(rows: list[dict]) -> list[Finding]:
+    """A range too wide to be one assessment.
+
+    The 22 October run read South Korea FOB as "314.3-550" and published the
+    midpoint, 430, with high confidence and not a single finding against it.
+    Every check passed honestly: 430 really is inside 314.3-550, the step was
+    right, the source was recorded. The range itself was the fault -- two
+    unrelated figures off different lines, read as one assessment -- and
+    nothing here asked whether a range could be real.
+
+    A warning, not a blocker: a violent week is a real thing and the data
+    cannot prove which it is. But the midpoint of a range this wide is not an
+    assessment of anything, so an editor has to look.
+    """
+    findings: list[Finding] = []
+
+    for row in rows:
+        if not _priced(row) or row.get("status") == "derived":
+            continue
+
+        low, high = row.get("suggested_min"), row.get("suggested_max")
+
+        if low is None or high is None or low <= 0:
+            continue
+
+        spread = (high - low) / low
+
+        if spread <= MAX_QUOTED_SPREAD:
+            continue
+
+        findings.append(
+            Finding(
+                location=row["location"],
+                check="quoted range",
+                severity=WARNING,
+                detail=(
+                    f"quoted {_figure(low)}-{_figure(high)}, a high {spread:.0%} above the low. "
+                    "A single assessment does not span that; this looks like two figures off "
+                    "different lines read as one range, and the midpoint is then an average of "
+                    "two unrelated prices. Check the report."
+                ),
+                expected=None,
+                actual=row.get("suggested_price"),
+            )
+        )
+
+    return findings
+
+
 def check_provenance(rows: list[dict]) -> list[Finding]:
     """A published figure nobody can trace.
 
@@ -373,6 +435,7 @@ def preflight(
         *check_rules(rows, rules, default_step, overrides),
         *check_rounding(rows, default_step, overrides),
         *check_within_range(rows, default_step, overrides),
+        *check_quoted_spread(rows),
         *check_provenance(rows),
         *check_report_dates(rows, price_date, stale_after_days),
     ]
