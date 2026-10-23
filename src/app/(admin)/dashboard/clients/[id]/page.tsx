@@ -102,8 +102,21 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           <dl className="kv">
             <dt>Company</dt>
             <dd>{client.company ?? "—"}</dd>
+            <dt>Job title</dt>
+            <dd>{client.designation ?? "—"}</dd>
             <dt>Country</dt>
             <dd>{client.country ?? "—"}</dd>
+            <dt>City</dt>
+            <dd>{client.city ?? "—"}</dd>
+            <dt>Address</dt>
+            <dd>
+              {client.address ?? "—"}
+              {client.postcode ? <span className="muted"> · {client.postcode}</span> : null}
+            </dd>
+            <dt>Phone</dt>
+            <dd>{client.phone ?? "—"}</dd>
+            <dt>Website</dt>
+            <dd>{client.website ?? "—"}</dd>
             <dt>Registered</dt>
             <dd>{client.member_since}</dd>
             <dt>Last seen</dt>

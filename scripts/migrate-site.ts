@@ -28,10 +28,14 @@ import {
   dedupePrices,
   readDate,
   readDay,
+  blanksToFill,
   readUser,
+  withProfile,
   type LegacyPrice,
+  type LegacyProfile,
   type LegacyUser,
 } from "@/domain/migrate/transform";
+import { bestProfile } from "@/domain/migrate/content";
 
 type Options = { from: string; site: string; fresh: boolean; host: string; port: number };
 
@@ -275,8 +279,110 @@ async function main(): Promise<void> {
       }
     }
 
+    /* ------------------------------------------------------------ profiles
+     *
+     * The other half of the customer record. The old `users` table holds an
+     * email, a name and a password; the company, the designation, the phone
+     * number, the city, the country and the address are all in `profiles`.
+     * On baseoil it is set on 16,200 of 16,589 people -- and the country is
+     * what the rupee/dollar price split turns on, so reading the user row
+     * alone left every subscriber uncountable.
+     *
+     * Same shape of mistake as reading `users.expiry_date` when the dates
+     * were in `subscription_users`.
+     */
+    const places = { countries: new Map<number, string>(), cities: new Map<number, string>() };
+    const profiles = new Map<number, LegacyProfile>();
+
+    try {
+      for (const [table, into] of [
+        ["countries", places.countries],
+        ["cities", places.cities],
+      ] as const) {
+        const [rows] = await source.query<mysql.RowDataPacket[]>(
+          `select id, name from ${table}`,
+        );
+
+        for (const row of rows) {
+          const name = String(row.name ?? "").trim();
+
+          if (name !== "") {
+            into.set(Number(row.id), name);
+          }
+        }
+      }
+
+      // Ask the dump what it has first, exactly as the locations read does.
+      const [profileColumns] = await source.query<mysql.RowDataPacket[]>(
+        "select column_name from information_schema.columns where table_schema = ? and table_name = ?",
+        [opts.from, "profiles"],
+      );
+      const hasProfile = profileColumns.map((row) => String(row.column_name ?? row.COLUMN_NAME));
+
+      const [profileRows] = await source.query<mysql.RowDataPacket[]>(
+        `select ${columnList(
+          [
+            "user_id",
+            "company_name",
+            "designation",
+            "address1",
+            "address2",
+            "pincode",
+            "city_id",
+            "country_id",
+            "phone",
+            "mobile",
+            "website",
+            "updated_at",
+          ],
+          hasProfile,
+        )} from profiles${hasProfile.includes("deleted_at") ? " where deleted_at is null" : ""}`,
+      );
+
+      // About 1,124 people on baseoil have two rows: a re-registration left a
+      // second, usually emptier one. The fuller row is the one they filled in.
+      const perUser = new Map<number, LegacyProfile[]>();
+
+      for (const row of profileRows) {
+        const profile = row as unknown as LegacyProfile;
+        const list = perUser.get(Number(profile.user_id)) ?? [];
+
+        list.push(profile);
+        perUser.set(Number(profile.user_id), list);
+      }
+
+      for (const [userId, list] of perUser) {
+        const best = bestProfile(
+          list.map((row) => ({
+            ...row,
+            countryId: row.country_id,
+            companyName: row.company_name,
+            cityId: row.city_id,
+            updatedAt: (row as LegacyProfile & { updated_at?: Date | string | null }).updated_at ?? null,
+          })),
+        );
+
+        if (best !== null) {
+          profiles.set(userId, best);
+        }
+      }
+
+      console.log(`read ${profiles.size} profiles for ${perUser.size} people`);
+    } catch (error) {
+      // A dump without the table is a brand whose people never filled one in.
+      console.log(
+        `            no profiles to read (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      );
+    }
+
     const readable = (userRows as unknown as LegacyUser[]).map((row) =>
-      readUser(row, expiries.get(Number(row.id)) ?? null),
+      withProfile(
+        readUser(row, expiries.get(Number(row.id)) ?? null),
+        profiles.get(Number(row.id)),
+        places,
+      ),
     );
 
     const standing = { premium: 0, trial: 0, free: 0, dated: 0 };
@@ -294,16 +400,33 @@ async function main(): Promise<void> {
     // one row, however many brands they read.
     const emails = kept.map((person) => person.email);
     const existing = new Map<string, number>();
+    // What the stored row already says about them, so a brand that knows more
+    // can fill the blanks without overwriting another brand's answer.
+    const stored = new Map<string, Record<string, string | null>>();
 
     for (let at = 0; at < emails.length; at += 500) {
       const slice = emails.slice(at, at + 500);
       const found = await database
-        .select({ id: users.id, email: users.email })
+        .select({
+          id: users.id,
+          email: users.email,
+          company: users.company,
+          phone: users.phone,
+          country: users.country,
+          city: users.city,
+          designation: users.designation,
+          website: users.website,
+          address: users.address,
+          postcode: users.postcode,
+        })
         .from(users)
         .where(inArray(users.email, slice));
 
       for (const row of found) {
-        existing.set(row.email, row.id);
+        const { id, email, ...rest } = row;
+
+        existing.set(email, id);
+        stored.set(email, rest);
       }
     }
 
@@ -311,6 +434,7 @@ async function main(): Promise<void> {
     let joined = 0;
     let granted = 0;
     let corrected = 0;
+    let completed = 0;
     const admins: string[] = [];
 
     for (const person of kept) {
@@ -325,6 +449,11 @@ async function main(): Promise<void> {
             company: person.company,
             phone: person.phone,
             country: person.country,
+            city: person.city,
+            designation: person.designation,
+            website: person.website,
+            address: person.address,
+            postcode: person.postcode,
             status: person.status,
             passwordHash: person.passwordHash,
             emailVerifiedAt: person.emailVerifiedAt,
@@ -337,6 +466,17 @@ async function main(): Promise<void> {
         created += 1;
       } else {
         joined += 1;
+
+        // The brand that created them may be the one whose `profiles` row was
+        // empty. Insert-only is exactly what left the standings wrong through
+        // three passes; the customer details would have gone the same way.
+        const fill = blanksToFill(stored.get(person.email) ?? {}, person);
+
+        if (fill !== null) {
+          await database.update(users).set(fill).where(eq(users.id, userId));
+          stored.set(person.email, { ...stored.get(person.email), ...fill });
+          completed += 1;
+        }
       }
 
       if (person.wasAdmin) {
@@ -384,6 +524,7 @@ async function main(): Promise<void> {
       `people      ${created} new, ${joined} already here from another brand, ` +
         `${granted} memberships` +
         (corrected > 0 ? `, ${corrected} standings corrected` : "") +
+        (completed > 0 ? `, ${completed} records completed` : "") +
         `  (${merged} duplicate email rows merged)`,
     );
 

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blanksToFill,
   columnList,
   readExpiry,
   tierFor,
@@ -14,7 +15,9 @@ import {
   readDate,
   readDay,
   readUser,
+  withProfile,
   type LegacyPrice,
+  type LegacyProfile,
   type LegacyUser,
 } from "@/domain/migrate/transform";
 
@@ -396,5 +399,140 @@ describe("reading a person with their subscription beside them", () => {
 
     expect(read.tier).toBe("free");
     expect(read.expiresAt).toBeNull();
+  });
+});
+
+describe("the profile row the customer record actually lives in", () => {
+  const PLACES = {
+    countries: new Map([[101, "India"], [231, "United Arab Emirates"]]),
+    cities: new Map([[8201, "Mumbai"], [9004, "Dubai"]]),
+  };
+
+  const PROFILE: LegacyProfile = {
+    user_id: 1,
+    company_name: "Profile Chemicals Pvt Ltd",
+    designation: "Procurement Head",
+    address1: "Unit 4, Andheri East",
+    address2: "Mumbai 400069",
+    pincode: "400069",
+    city_id: 8201,
+    country_id: 101,
+    phone: "+91 22 4000 0000",
+    mobile: null,
+    website: "profilechem.example",
+  };
+
+  it("fills the fields the account row never carried", () => {
+    // `users.country`, `users.city` and `users.designation` are empty on
+    // every row in this estate. This is where they were.
+    const person = withProfile(readUser({ ...USER, country: null, company_name: null }), PROFILE, PLACES);
+
+    expect(person.country).toBe("India");
+    expect(person.city).toBe("Mumbai");
+    expect(person.company).toBe("Profile Chemicals Pvt Ltd");
+    expect(person.designation).toBe("Procurement Head");
+    expect(person.website).toBe("profilechem.example");
+    expect(person.postcode).toBe("400069");
+  });
+
+  it("joins the two address lines", () => {
+    expect(withProfile(readUser(USER), PROFILE, PLACES).address).toBe(
+      "Unit 4, Andheri East, Mumbai 400069",
+    );
+  });
+
+  it("leaves the account's own answer alone", () => {
+    // The account is what the person signed up with; the profile fills the
+    // blanks rather than overwriting them.
+    const person = withProfile(readUser(USER), { ...PROFILE, country_id: 231 }, PLACES);
+
+    expect(person.country).toBe("India");
+    expect(person.company).toBe("Company Ltd");
+  });
+
+  it("resolves an id it has no name for to nothing, not to the id", () => {
+    const person = withProfile(
+      readUser({ ...USER, country: null }),
+      { ...PROFILE, country_id: 777, city_id: 777 },
+      PLACES,
+    );
+
+    expect(person.country).toBeNull();
+    expect(person.city).toBeNull();
+  });
+
+  it("falls back to the mobile when the profile has no landline", () => {
+    const person = withProfile(
+      readUser({ ...USER, mobile: null }),
+      { ...PROFILE, phone: null, mobile: "+91 98888 00000" },
+      PLACES,
+    );
+
+    expect(person.phone).toBe("+91 98888 00000");
+  });
+
+  it("treats a blank as absent rather than writing an empty string", () => {
+    const person = withProfile(
+      readUser({ ...USER, company_name: null }),
+      { ...PROFILE, company_name: "   ", address1: "", address2: null, pincode: "" },
+      PLACES,
+    );
+
+    expect(person.company).toBeNull();
+    expect(person.address).toBeNull();
+    expect(person.postcode).toBeNull();
+  });
+
+  it("clips what the new columns are narrower than", () => {
+    const person = withProfile(
+      readUser({ ...USER, company_name: null }),
+      { ...PROFILE, company_name: "C".repeat(400), pincode: "9".repeat(60) },
+      PLACES,
+    );
+
+    expect(person.company).toHaveLength(191);
+    expect(person.postcode).toHaveLength(32);
+  });
+
+  it("returns the person untouched when there is no profile", () => {
+    const person = readUser(USER);
+
+    expect(withProfile(person, undefined, PLACES)).toEqual(person);
+  });
+});
+
+describe("backfilling a person who arrived from another brand", () => {
+  // One person, one row, however many brands they read: whoever migrates
+  // first creates them. Insert-only is what left the standings uncorrected
+  // through three passes, and the profile fields would have gone the same
+  // way -- the second brand knows the country the first brand missed.
+  const held = {
+    company: null,
+    phone: null,
+    country: null,
+    city: null,
+    designation: null,
+    website: null,
+    address: null,
+    postcode: null,
+  };
+
+  it("fills only what the stored row is missing", () => {
+    const fill = blanksToFill({ ...held, country: "India" }, {
+      ...held,
+      country: "United Arab Emirates",
+      city: "Mumbai",
+      company: "Chemicals Ltd",
+    });
+
+    expect(fill).toEqual({ city: "Mumbai", company: "Chemicals Ltd" });
+  });
+
+  it("asks for no update when the stored row already says everything", () => {
+    expect(blanksToFill({ ...held, country: "India" }, { ...held, country: "Oman" })).toBeNull();
+  });
+
+  it("asks for no update when this brand knows nothing new", () => {
+    expect(blanksToFill(held, held)).toBeNull();
   });
 });

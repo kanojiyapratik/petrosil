@@ -26,6 +26,15 @@ export type ClientRow = {
   email: string;
   company: string | null;
   country: string | null;
+  /* Filled from the old `profiles` table, which is where the customer record
+   * actually lived: `users.country` and `users.city` are empty on every row
+   * in the estate. Carried 2026-10-23. */
+  designation?: string | null;
+  city?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  address?: string | null;
+  postcode?: string | null;
   status: string;
   member_since: string;
   last_login_at: string | null;
@@ -266,6 +275,12 @@ export async function clientDetail(
     email: person.email,
     company: person.company,
     country: person.country,
+    designation: person.designation,
+    city: person.city,
+    phone: person.phone,
+    website: person.website,
+    address: person.address,
+    postcode: person.postcode,
     status: person.status,
     member_since: person.createdAt.toISOString().slice(0, 10),
     last_login_at: person.lastLoginAt ? person.lastLoginAt.toISOString() : null,

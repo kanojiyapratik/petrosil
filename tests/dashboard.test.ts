@@ -12,7 +12,7 @@ import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { db } from "@/db";
 import { memberships, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
-import { listClients, segmentOf } from "@/domain/dashboard/clients";
+import { clientDetail, listClients, segmentOf } from "@/domain/dashboard/clients";
 import { commitBatch, stageRows } from "@/domain/price/batches";
 import { makeBrand, publishPrice, resetDatabase, type Brand, dayOffset } from "./helpers";
 
@@ -420,5 +420,46 @@ describe("who is due to renew", () => {
     const all = await listClients([], { segment: "premium" }, db(), NOW);
 
     expect(all.rows).toHaveLength(2);
+  });
+});
+
+describe("the customer record the profiles migration filled", () => {
+  // `users.country`, `users.city` and the rest were empty on every row in the
+  // old estate; the real values sat in a `profiles` table nobody had
+  // migrated. They are carried now — 68,788 countries, 73,245 addresses — and
+  // a column nothing renders is a column nobody can use.
+  it("hands the detail screen the whole record, not just company and country", async () => {
+    const [person] = await db()
+      .insert(users)
+      .values({
+        email: "profile.reader@company.example",
+        name: "A Reader",
+        company: "Chemicals Pvt Ltd",
+        designation: "Procurement Head",
+        country: "India",
+        city: "Mumbai",
+        phone: "+91 22 4000 0000",
+        website: "chempvt.example",
+        address: "Unit 4, Andheri East, Mumbai 400069",
+        postcode: "400069",
+      })
+      .returning();
+
+    await db()
+      .insert(memberships)
+      .values({ userId: person!.id, siteId: baseoil.siteId, role: "subscriber", tier: "free" });
+
+    const detail = await clientDetail([], person!.id);
+
+    expect(detail).toMatchObject({
+      company: "Chemicals Pvt Ltd",
+      designation: "Procurement Head",
+      country: "India",
+      city: "Mumbai",
+      phone: "+91 22 4000 0000",
+      website: "chempvt.example",
+      address: "Unit 4, Andheri East, Mumbai 400069",
+      postcode: "400069",
+    });
   });
 });

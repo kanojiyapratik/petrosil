@@ -36,6 +36,11 @@ export type MigratedUser = {
   company: string | null;
   phone: string | null;
   country: string | null;
+  city: string | null;
+  designation: string | null;
+  website: string | null;
+  address: string | null;
+  postcode: string | null;
   status: "active" | "disabled";
   passwordHash: string | null;
   emailVerifiedAt: Date | null;
@@ -174,6 +179,13 @@ export function readUser(
     // leave a plausible-looking wrong number, so it is dropped instead.
     phone: within(row.mobile, 64),
     country: fit(row.country, 96),
+    // Not on the account at all: the old `users` table has no column for
+    // any of these. `withProfile` is what fills them.
+    city: null,
+    designation: null,
+    website: null,
+    address: null,
+    postcode: null,
     status: (row.user_status ?? "Active").toLowerCase() === "active" ? "active" : "disabled",
     // Carried as it is: Laravel's $2y$ hashes verify unchanged, which is what
     // lets every subscriber keep the password they already have.
@@ -184,6 +196,109 @@ export function readUser(
     expiresAt: expiry,
     wasAdmin: row.isAdmin === 1,
   };
+}
+
+
+/**
+ * A row of the old `profiles` table.
+ *
+ * Where the customer record actually lives. `users` carries an email, a
+ * name and a password; the company, the country, the phone number and the
+ * address are all here, and the country is what the rupee/dollar split
+ * turns on. Reading the user row alone gave 78,760 people with no country.
+ */
+export type LegacyProfile = {
+  user_id: number;
+  company_name: string | null;
+  designation: string | null;
+  address1: string | null;
+  address2: string | null;
+  pincode: string | null;
+  city_id: number | null;
+  country_id: number | null;
+  phone: string | null;
+  mobile: string | null;
+  website: string | null;
+};
+
+/** The old `countries` and `cities` tables, by id. */
+export type Places = { countries: Map<number, string>; cities: Map<number, string> };
+
+/**
+ * Fold a person's profile row into their account.
+ *
+ * The account wins wherever it has an answer -- it is what they signed up
+ * with -- and the profile fills the blanks, which is most of them. The
+ * `country_id` and `city_id` are resolved to names here: a name survives
+ * the move, an id into a database we are leaving behind does not, and an id
+ * we have no name for resolves to nothing rather than to itself.
+ */
+export function withProfile(
+  person: MigratedUser,
+  profile: LegacyProfile | undefined,
+  places: Places,
+): MigratedUser {
+  if (profile === undefined) {
+    return person;
+  }
+
+  const place = (id: number | null, names: Map<number, string>): string | null =>
+    id === null || id === 0 ? null : names.get(Number(id)) ?? null;
+
+  const address = [fit(profile.address1, 500), fit(profile.address2, 500)]
+    .filter((line): line is string => line !== null)
+    .join(", ");
+
+  return {
+    ...person,
+    company: person.company ?? fit(profile.company_name, 191),
+    // A number longer than the column is not one, here as on the user row.
+    phone: person.phone ?? within(profile.phone ?? profile.mobile, 64),
+    country: person.country ?? place(profile.country_id, places.countries),
+    city: person.city ?? place(profile.city_id, places.cities),
+    designation: person.designation ?? fit(profile.designation, 191),
+    website: person.website ?? fit(profile.website, 191),
+    address: person.address ?? (address === "" ? null : address.slice(0, 1000)),
+    postcode: person.postcode ?? fit(profile.pincode, 32),
+  };
+}
+
+/** The fields a person carries that any of their brands might know. */
+export const PROFILE_FIELDS = [
+  "company",
+  "phone",
+  "country",
+  "city",
+  "designation",
+  "website",
+  "address",
+  "postcode",
+] as const;
+
+type ProfileFields = Partial<Record<(typeof PROFILE_FIELDS)[number], string | null>>;
+
+/**
+ * What a second brand can tell us about a person already on the platform.
+ *
+ * One person is one row however many brands they read, so whichever brand
+ * migrates first creates them -- and that brand may be the one whose
+ * `profiles` row was empty. Filling only the blanks means a later brand can
+ * complete the record without overwriting an answer already there, and
+ * returning null means there is nothing worth an UPDATE.
+ */
+export function blanksToFill(stored: ProfileFields, person: ProfileFields): ProfileFields | null {
+  const fill: ProfileFields = {};
+
+  for (const field of PROFILE_FIELDS) {
+    const held = stored[field] ?? null;
+    const known = person[field] ?? null;
+
+    if (held === null && known !== null) {
+      fill[field] = known;
+    }
+  }
+
+  return Object.keys(fill).length === 0 ? null : fill;
 }
 
 /**
