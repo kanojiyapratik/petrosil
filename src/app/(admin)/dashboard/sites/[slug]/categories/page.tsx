@@ -10,27 +10,28 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listCategories } from "@/domain/dashboard/catalogue";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Categories · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function CategoriesPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -43,12 +44,6 @@ export default async function CategoriesPage({
         title="Categories"
         sub="How articles are filed on each brand site, and how much is actually filed there."
       />
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/categories">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       <Panel title={`${count(rows.length)} categor${rows.length === 1 ? "y" : "ies"}`}>
         <table>

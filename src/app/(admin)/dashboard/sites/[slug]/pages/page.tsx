@@ -11,24 +11,29 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { staffPages } from "@/domain/dashboard/catalogue";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Pages · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function PagesPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function PagesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -49,12 +54,6 @@ export default async function PagesPage({ searchParams }: { searchParams: Promis
         title="Pages"
         sub="The pages staff edit rather than deploy. A slug that appears on several brands is maintained several times."
       />
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/pages">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       <Panel title={`${count(rows.length)} page${rows.length === 1 ? "" : "s"}`}>
         <table>

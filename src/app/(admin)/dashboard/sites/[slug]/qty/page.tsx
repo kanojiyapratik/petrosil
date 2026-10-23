@@ -12,7 +12,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { tradeMatrix, tradePlaces, tradeSeries } from "@/domain/dashboard/trade";
 import {
-  BrandField,
   Empty,
   Filters,
   Heading,
@@ -20,17 +19,24 @@ import {
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Manage qty trend · Petrosil" };
 export const dynamic = "force-dynamic";
 
 const qty = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 
-export default async function QtyPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function QtyPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
   const date = one(search, "date");
 
   const [brands, places, series, matrix] = await Promise.all([
@@ -51,8 +57,7 @@ export default async function QtyPage({ searchParams }: { searchParams: Promise<
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/qty">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/qty`}>
           <div className="field">
             <label htmlFor="date">On date</label>
             <input id="date" name="date" type="date" defaultValue={date ?? ""} />

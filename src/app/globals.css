@@ -836,3 +836,229 @@ button.quick-one:hover {
   font-size: 0.7rem;
   line-height: 1.5;
 }
+
+/* ─────────────────────────────────────────────────────────── the regroup
+ *
+ * Three groups, sixteen rail entries, one level. What used to be nine groups
+ * and thirty-eight entries is now places in the rail and modules in the page:
+ * `.pagetabs` carries a page's sections, `.modgrid` carries a brand's modules
+ * as cards with a plain second line, because fourteen links is a wall and six
+ * tabs is a choice.
+ */
+
+.rail-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Price freshness, beside each brand. Never the only signal: every dot
+ * carries a title and an aria-label, and the legend below spells all three
+ * out — an unexplained colour is worse than no colour. */
+.freshdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  background: var(--rail-line);
+}
+
+/* The rail is dark in both themes, and `--ok`/`--warn`/`--bad` are tuned for
+ * text on a light panel -- #15803d on #111827 is a dot you cannot see. These
+ * are the same three signals, lifted to read on the rail. */
+.freshdot.ok {
+  background: #4ade80;
+}
+
+.freshdot.warn {
+  background: #fbbf24;
+}
+
+.freshdot.bad {
+  background: #f87171;
+}
+
+.rail-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.55rem 1.15rem 0;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--rail-line);
+  font-size: 0.72rem;
+  color: var(--rail-ink);
+  opacity: 0.7;
+}
+
+.rail-legend span {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* A page's own sections. */
+.pagetabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 1.3rem;
+}
+
+.pagetabs a {
+  padding: 0.5rem 0.8rem;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.pagetabs a:hover {
+  color: var(--ink);
+}
+
+.pagetabs a.on {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--brand);
+}
+
+/* A brand's modules, or People's five parts. */
+.modgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.3rem;
+}
+
+.mod {
+  display: block;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.95rem;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.mod:hover {
+  border-color: var(--brand);
+}
+
+.mod strong {
+  display: block;
+  font-size: 0.93rem;
+  font-weight: 620;
+}
+
+.mod span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Not built yet, said in words rather than by being greyed into illegibility. */
+.mod.soon {
+  border-style: dashed;
+  background: transparent;
+}
+
+.mod.soon strong {
+  color: var(--muted);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.3rem;
+}
+
+.plain {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.plain li + li {
+  margin-top: 0.45rem;
+}
+
+@media (max-width: 760px) {
+  .rail {
+    position: static;
+    height: auto;
+  }
+}
+
+/* The brand control when a screen is standing inside a brand: context and a
+ * way back, not a dropdown asking you to choose what you already chose. */
+.field.pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  justify-content: flex-end;
+}
+
+.pinned-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.pinned-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.pinned-brand a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.pinned-brand a:hover {
+  border-bottom-color: var(--brand);
+}
+
+.pinned-brand::before {
+  content: "↖";
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Where you are, above a brand's own screens. */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--ink);
+}
+
+.crumbs strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.brandhead {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.1rem;
+}

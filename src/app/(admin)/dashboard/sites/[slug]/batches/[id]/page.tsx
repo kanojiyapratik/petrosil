@@ -12,7 +12,7 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { batchDetail } from "@/domain/dashboard/batches";
-import { Change, Empty, Heading, Panel, count, money, when } from "../../../ui";
+import { Change, Empty, Heading, Panel, count, money, when } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +29,9 @@ const TONE: Record<string, string> = {
   conflict: "bad",
 };
 
-export default async function BatchPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BatchPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const viewer = (await currentViewer())!;
-  const { id } = await params;
+  const { slug, id } = await params;
 
   const batch = await batchDetail(viewer.siteIds, Number(id));
 
@@ -55,7 +55,7 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
 
   return (
     <>
-      <Link className="crumb" href="/dashboard/batches">
+      <Link className="crumb" href={`/dashboard/sites/${slug}/batches`}>
         ← Price update
       </Link>
 

@@ -13,23 +13,28 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listAds } from "@/domain/dashboard/promotion";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Ads · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function AdsPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function AdsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -44,16 +49,10 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
         title="Ads"
         sub="Running is judged against today, not against the publish flag."
       >
-        <Link className="button ghost small" href="/dashboard/ad-locations">
+        <Link className="button ghost small" href={`/dashboard/sites/${slug}/ad-locations`}>
           Slots
         </Link>
       </Heading>
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/ads">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       <div className="tiles">
         <div className="tile">

@@ -21,7 +21,7 @@ import { db } from "@/db";
 import { auditLog, sites } from "@/db/schema";
 import { currentViewer } from "@/lib/auth/server";
 import { InvalidUrls, replaceWatchedUrls } from "@/domain/crawl/urls";
-import { callerIp } from "../actions";
+import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type WatchResult = { error?: string; saved?: string } | null;
 
@@ -56,7 +56,7 @@ export async function saveWatchedUrls(_state: unknown, form: FormData): Promise<
         ip: await callerIp(),
       });
 
-    revalidatePath("/dashboard/crawl");
+    revalidatePath("/dashboard/sites/[slug]", "layout");
 
     const said = [
       `${result.watched} watched`,

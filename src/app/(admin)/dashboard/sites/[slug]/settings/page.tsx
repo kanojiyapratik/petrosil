@@ -17,13 +17,20 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { settingsFor, strandedSettings } from "@/domain/dashboard/settings";
 import { SettingsForm } from "./form";
-import { Heading, Panel, count, one, type Search } from "../../ui";
+import { Heading, Panel, count, one, type Search } from "@/app/(admin)/ui";
 
 export const metadata = { title: "Settings · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function SettingsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
   const site = one(search, "site") ?? null;
 
@@ -48,14 +55,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       />
 
       <div className="chips" style={{ marginBottom: 16 }}>
-        <Link className={`chip${site ? "" : " on"}`} href="/dashboard/settings">
+        <Link className={`chip${site ? "" : " on"}`} href={`/dashboard/sites/${slug}/settings`}>
           Estate defaults
         </Link>
         {brands.map((brand) => (
           <Link
             key={brand.slug}
             className={`chip${site === brand.slug ? " on" : ""}`}
-            href={`/dashboard/settings?site=${brand.slug}`}
+            href={`/dashboard/sites/${slug}/settings?site=${brand.slug}`}
           >
             {brand.name}
           </Link>

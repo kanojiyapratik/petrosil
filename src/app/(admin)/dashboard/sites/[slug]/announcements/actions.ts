@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { removeAnnouncement, saveAnnouncement } from "@/domain/content/pages";
-import { callerIp } from "../actions";
+import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type NoticeResult = { error?: string; field?: string; saved?: string } | null;
 
@@ -48,7 +48,7 @@ export async function saveNotice(_state: unknown, form: FormData): Promise<Notic
     { ip: await callerIp() },
   );
 
-  revalidatePath("/dashboard/announcements");
+  revalidatePath("/dashboard/sites/[slug]", "layout");
 
   if (!result.ok) {
     return { error: result.message, field: result.field };
@@ -62,5 +62,5 @@ export async function removeNotice(form: FormData) {
 
   await removeAnnouncement(viewer, Number(form.get("id")), { ip: await callerIp() });
 
-  revalidatePath("/dashboard/announcements");
+  revalidatePath("/dashboard/sites/[slug]", "layout");
 }

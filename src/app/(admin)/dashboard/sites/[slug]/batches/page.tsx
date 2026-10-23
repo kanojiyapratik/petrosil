@@ -14,7 +14,6 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listBatches } from "@/domain/dashboard/batches";
 import { BATCH_SOURCES, BATCH_STATUSES, type BatchSource, type BatchStatus } from "@/db/schema";
 import {
-  BrandField,
   Empty,
   Filters,
   Heading,
@@ -25,7 +24,7 @@ import {
   pageParam,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Price update · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -37,11 +36,18 @@ const TONE: Record<string, string> = {
   discarded: "",
 };
 
-export default async function BatchesPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function BatchesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const statusRaw = one(search, "status");
   const sourceRaw = one(search, "source");
   const page = pageParam(one(search, "page"));
@@ -66,8 +72,7 @@ export default async function BatchesPage({ searchParams }: { searchParams: Prom
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/batches">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/batches`}>
           <div className="field">
             <label htmlFor="status">Status</label>
             <select id="status" name="status" defaultValue={status ?? ""}>
@@ -110,7 +115,7 @@ export default async function BatchesPage({ searchParams }: { searchParams: Prom
             {batches.rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <Link href={`/dashboard/batches/${row.id}`}>
+                  <Link href={`/dashboard/sites/${slug}/batches/${row.id}`}>
                     <strong>#{row.id}</strong>
                   </Link>
                   <div className="small muted">{row.source.replace("_", " ")}</div>
@@ -155,7 +160,7 @@ export default async function BatchesPage({ searchParams }: { searchParams: Prom
           </tbody>
         </table>
         <Pager
-          base="/dashboard/batches"
+          base={`/dashboard/sites/${slug}/batches`}
           here={{ site, status, source }}
           page={batches.page}
           perPage={batches.per_page}

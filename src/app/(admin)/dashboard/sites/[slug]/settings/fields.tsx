@@ -15,7 +15,7 @@ import { listFormFields } from "@/domain/dashboard/masters";
 import type { FormKind } from "@/db/schema";
 import { currentViewer } from "@/lib/auth/server";
 import { toggleField } from "./actions";
-import { Empty, Heading, Panel, count } from "../../ui";
+import { Empty, Heading, Panel, count } from "@/app/(admin)/ui";
 
 function Tick({
   id,

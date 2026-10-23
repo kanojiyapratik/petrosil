@@ -14,7 +14,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listOffers } from "@/domain/dashboard/publishing";
 import {
-  BrandField,
   Chips,
   Empty,
   Filters,
@@ -26,16 +25,23 @@ import {
   pageParam,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Offers · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function OffersPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function OffersPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const type = one(search, "type");
   const q = one(search, "q");
   const page = pageParam(one(search, "page"));
@@ -51,14 +57,13 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
         title="Offers"
         sub="Buy and sell notices. Which contact details a reader sees is set per brand."
       >
-        <Link className="button ghost small" href="/dashboard/settings/offers">
+        <Link className="button ghost small" href={`/dashboard/sites/${slug}/settings/offers`}>
           Offer fields
         </Link>
       </Heading>
 
       <Panel flush={false}>
-        <Filters action="/dashboard/offers">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/offers`}>
           <div className="field grow">
             <label htmlFor="q">Search</label>
             <input
@@ -75,7 +80,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base="/dashboard/offers"
+          base={`/dashboard/sites/${slug}/offers`}
           param="type"
           here={{ site, q }}
           value={type}
@@ -140,7 +145,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
           </tbody>
         </table>
         <Pager
-          base="/dashboard/offers"
+          base={`/dashboard/sites/${slug}/offers`}
           here={{ site, type, q }}
           page={paged.page}
           perPage={paged.per_page}

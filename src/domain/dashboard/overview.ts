@@ -52,8 +52,14 @@ export type Overview = {
   weekly_updates: { week: string; commits: number }[];
 };
 
-/** How long a brand may go without an update before the card goes amber, by cadence. */
-function freshnessFor(cadence: string | null, days: number | null): SiteCard["freshness"] {
+/**
+ * How long a brand may go without an update before the card goes amber.
+ *
+ * Exported because the rail draws the same judgement as a dot beside each
+ * brand. Two places disagreeing about whether baseoil is overdue would be
+ * worse than either of them being wrong.
+ */
+export function freshnessFor(cadence: string | null, days: number | null): SiteCard["freshness"] {
   if (days === null) {
     return "none";
   }

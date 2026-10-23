@@ -17,7 +17,7 @@ import { db } from "@/db";
 import { auditLog, formFields, sites, type FormKind } from "@/db/schema";
 import { currentViewer } from "@/lib/auth/server";
 import { saveSetting } from "@/domain/dashboard/settings";
-import { callerIp } from "../actions";
+import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 async function brandFor(slug: string | null, siteIds: number[]) {
   if (!slug) {
@@ -85,7 +85,7 @@ export async function saveSettings(_state: unknown, form: FormData) {
       ip,
     });
 
-  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/sites/[slug]", "layout");
 
   if (refused > 0) {
     return { error: `${refused} key${refused === 1 ? "" : "s"} were not recognised and ignored.` };
@@ -140,5 +140,5 @@ export async function toggleField(form: FormData) {
       ip: await callerIp(),
     });
 
-  revalidatePath(kind === "offer" ? "/dashboard/settings/offers" : "/dashboard/settings/directory");
+  revalidatePath("/dashboard/sites/[slug]", "layout");
 }

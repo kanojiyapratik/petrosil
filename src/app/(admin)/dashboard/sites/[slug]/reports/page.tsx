@@ -10,7 +10,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listReports } from "@/domain/dashboard/publishing";
 import {
-  BrandField,
   Chips,
   Empty,
   Filters,
@@ -21,7 +20,7 @@ import {
   one,
   pageParam,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Reports · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -32,11 +31,18 @@ const TONE: Record<string, string> = {
   draft: "warn",
 };
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function ReportsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const status = one(search, "status");
   const q = one(search, "q");
   const page = pageParam(one(search, "page"));
@@ -54,8 +60,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/reports">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/reports`}>
           <div className="field grow">
             <label htmlFor="q">Search</label>
             <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title" />
@@ -66,7 +71,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base="/dashboard/reports"
+          base={`/dashboard/sites/${slug}/reports`}
           param="status"
           here={{ site, q }}
           value={status}
@@ -123,7 +128,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </tbody>
         </table>
         <Pager
-          base="/dashboard/reports"
+          base={`/dashboard/sites/${slug}/reports`}
           here={{ site, status, q }}
           page={paged.page}
           perPage={paged.per_page}

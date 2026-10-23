@@ -75,7 +75,7 @@ export default async function TransactionsPage({
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/transactions">
+        <Filters action="/dashboard/transactions" site={site}>
           <BrandField brands={brands} value={site} />
           <div className="field">
             <label htmlFor="status">Status</label>

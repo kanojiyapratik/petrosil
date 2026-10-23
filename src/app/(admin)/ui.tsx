@@ -9,9 +9,21 @@
 
 import Link from "next/link";
 
+import { brandContext } from "./nav";
+
 import type { Brand } from "@/domain/dashboard/brands";
 
 export const count = (n: number) => n.toLocaleString("en-IN");
+
+/** A big number with its label. The dashboard, a brand page and People all draw these. */
+export function Tile({ n, k }: { n: number; k: string }) {
+  return (
+    <div className="tile">
+      <div className="n">{count(n)}</div>
+      <div className="k">{k}</div>
+    </div>
+  );
+}
 
 export function money(value: number | null, currency?: string | null): string {
   if (value === null) {
@@ -92,9 +104,34 @@ export function Panel({
 }
 
 /** The brand `<select>` every screen shares. Hidden when there is only one. */
+/**
+ * The brand control, in whichever of its three states applies.
+ *
+ * Reached from a brand's own section, this used to be a dropdown offering
+ * all nine brands — on a screen whose entire point was that you had already
+ * chosen one. Now a pinned brand shows its name and a way back to its page,
+ * and carries its slug through filtering in a hidden field instead of
+ * inviting you to change it. `brandContext` holds the rule and is tested.
+ */
 export function BrandField({ brands, value }: { brands: Brand[]; value?: string }) {
-  if (brands.length < 2) {
+  const context = brandContext(brands, value);
+
+  if (context.kind === "none") {
     return null;
+  }
+
+  if (context.kind === "pinned") {
+    return (
+      <div className="field pinned">
+        <span className="pinned-label">Brand</span>
+        <span className="pinned-brand">
+          <Link href={context.href}>{context.name}</Link>
+        </span>
+        {/* So filtering stays inside the brand rather than ejecting you to
+            the estate. */}
+        <input type="hidden" name="site" value={context.slug} />
+      </div>
+    );
   }
 
   return (
@@ -112,12 +149,23 @@ export function BrandField({ brands, value }: { brands: Brand[]; value?: string 
   );
 }
 
-export function Filters({ action, children }: { action: string; children: React.ReactNode }) {
+export function Filters({
+  action,
+  site,
+  children,
+}: {
+  action: string;
+  /** The brand this screen is standing in, so Clear does not leave it. */
+  site?: string;
+  children: React.ReactNode;
+}) {
+  const cleared = site ? `${action}?site=${site}` : action;
+
   return (
     <form className="bar" action={action} method="get">
       {children}
       <button type="submit">Filter</button>
-      <Link className="button ghost" href={action}>
+      <Link className="button ghost" href={cleared}>
         Clear
       </Link>
     </form>

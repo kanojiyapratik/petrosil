@@ -13,27 +13,28 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listPlacements } from "@/domain/dashboard/promotion";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Ad locations · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function AdLocationsPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -48,16 +49,10 @@ export default async function AdLocationsPage({
         title="Ad locations"
         sub="The slots an ad can occupy. A slot with ads in it is not the same as a slot with an ad running."
       >
-        <Link className="button ghost small" href="/dashboard/ads">
+        <Link className="button ghost small" href={`/dashboard/sites/${slug}/ads`}>
           Ads
         </Link>
       </Heading>
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/ad-locations">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       {empty > 0 ? (
         <div className="note" style={{ marginBottom: 16 }}>

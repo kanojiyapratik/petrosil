@@ -6,13 +6,13 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listCategories } from "@/domain/dashboard/catalogue";
 import { articleForEdit } from "@/domain/content/articles";
 import { ArticleForm, WithdrawArticle } from "../form";
-import { Heading, when } from "../../../ui";
+import { Heading, when } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function ArticlePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ArticlePage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const viewer = (await currentViewer())!;
-  const { id } = await params;
+  const { slug, id } = await params;
 
   const article = await articleForEdit(viewer.siteIds, Number(id));
 
@@ -27,7 +27,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <Link className="crumb" href="/dashboard/articles">
+      <Link className="crumb" href={`/dashboard/sites/${slug}/articles`}>
         ← Articles
       </Link>
 
@@ -41,7 +41,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
         {article.premium_only ? <span className="badge brand">subscribers only</span> : null}
       </Heading>
 
-      <ArticleForm brands={brands} categories={categories} article={article} />
+      <ArticleForm slug={slug} brands={brands} categories={categories} article={article} />
 
       <WithdrawArticle id={article.id} />
     </>

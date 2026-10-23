@@ -24,10 +24,13 @@ import {
 type Category = { id: number; site: string; name: string };
 
 export function ArticleForm({
+  slug,
   brands,
   categories,
   article,
 }: {
+  /** The brand this editor is standing in, for its own links. */
+  slug: string;
   brands: Brand[];
   categories: Category[];
   article?: ArticleForEdit;
@@ -243,7 +246,7 @@ export function ArticleForm({
                     <button type="submit" disabled={pending}>
                       {pending ? "Saving…" : "Save as a draft"}
                     </button>
-                    <Link className="button ghost" href="/dashboard/articles">
+                    <Link className="button ghost" href={`/dashboard/sites/${slug}/articles`}>
                       Cancel
                     </Link>
                   </div>

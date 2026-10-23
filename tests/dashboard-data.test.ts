@@ -18,6 +18,10 @@ import { db } from "@/db";
 import { auditLog, locations, memberships, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 import { commitBatch, stageRows } from "@/domain/price/batches";
+import { estateOverview } from "@/domain/dashboard/overview";
+import { railBrands } from "@/domain/dashboard/rail";
+import { siteSnapshot } from "@/domain/dashboard/site";
+import { brandsFor } from "@/domain/dashboard/brands";
 import { eq } from "drizzle-orm";
 import { makeBrand, publishPrice, resetDatabase, type Brand } from "./helpers";
 
@@ -479,5 +483,86 @@ describe("changing what a client gets", () => {
 
     const rows = await db().select().from(memberships).where(eq(memberships.userId, client));
     expect(rows.find((row) => row.siteId === bitumart.siteId)!.tier).toBe("free");
+  });
+});
+
+describe("the brands in the rail", () => {
+  // The rail shows one entry per brand with a dot for price freshness, so it
+  // needs name, slug and freshness — and nothing else. `estateOverview` could
+  // answer, but it counts prices, people and batches to do it, and the rail
+  // renders on every admin screen.
+  it("answers with just what the rail draws", async () => {
+    const brands = await railBrands([]);
+
+    expect(brands.length).toBeGreaterThan(0);
+
+    for (const brand of brands) {
+      expect(Object.keys(brand).sort()).toEqual(["freshness", "name", "slug"]);
+      expect(["fresh", "due", "stale", "none"]).toContain(brand.freshness);
+    }
+  });
+
+  it("judges each brand against its own cadence, as the dashboard does", async () => {
+    const [cards, brands] = await Promise.all([estateOverview([]), railBrands([])]);
+    const byRail = new Map(brands.map((brand) => [brand.slug, brand.freshness]));
+
+    for (const card of cards.sites) {
+      expect(byRail.get(card.slug)).toBe(card.freshness);
+    }
+  });
+
+  it("shows a brand with no prices as having none, not as overdue", async () => {
+    const brands = await railBrands([]);
+
+    expect(brands.every((brand) => brand.freshness !== undefined)).toBe(true);
+  });
+});
+
+describe("one brand's own page", () => {
+  // The Sites group opens a brand on its own dashboard rather than on a
+  // filtered estate list, so this is the query behind that page.
+  it("answers for a brand the viewer may see", async () => {
+    const brand = await makeBrand("ownpage", ["Rotterdam SN 150", "Fujairah SN 500"]);
+
+    await publishPrice(brand, "Rotterdam SN 150", 910, "2026-03-02");
+
+    const snap = await siteSnapshot("ownpage", []);
+
+    expect(snap).not.toBeNull();
+    expect(snap!.brand.slug).toBe("ownpage");
+    expect(snap!.markets).toBe(2);
+    expect(snap!.prices).toBe(1);
+    expect(snap!.latest_price_date).toBe("2026-03-02");
+    expect(["fresh", "due", "stale", "none"]).toContain(snap!.freshness);
+  });
+
+  it("refuses a brand the viewer has no membership on", async () => {
+    // A per-site editor must not reach another brand by typing its slug. The
+    // old estate enforced this by giving them a different login; here the
+    // slug is in the URL, so the check has to be in the query.
+    const [brand] = await brandsFor([]);
+
+    expect(await siteSnapshot(brand!.slug, [brand!.id + 9_000])).toBeNull();
+  });
+
+  it("refuses a slug that is not a brand at all", async () => {
+    expect(await siteSnapshot("not-a-brand", [])).toBeNull();
+  });
+
+  it("lists the newest prices first, with the market named", async () => {
+    const brand = await makeBrand("ordered", ["A market", "B market"]);
+
+    await publishPrice(brand, "A market", 100, "2026-01-05");
+    await publishPrice(brand, "B market", 200, "2026-02-09");
+    await publishPrice(brand, "A market", 300, "2026-03-11");
+
+    const snap = await siteSnapshot("ordered", []);
+    const dates = snap!.recent.map((row) => row.price_date);
+
+    expect(dates).toEqual([...dates].sort().reverse());
+
+    for (const row of snap!.recent) {
+      expect(row.market).toBeTruthy();
+    }
   });
 });

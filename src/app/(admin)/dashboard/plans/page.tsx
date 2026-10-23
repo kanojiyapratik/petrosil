@@ -43,7 +43,7 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/plans">
+        <Filters action="/dashboard/plans" site={site}>
           <BrandField brands={brands} value={site} />
         </Filters>
       </Panel>

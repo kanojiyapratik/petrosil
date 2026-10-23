@@ -11,6 +11,7 @@
 
 import { currentViewer } from "@/lib/auth/server";
 import { estateOverview } from "@/domain/dashboard/overview";
+import { Tile } from "../ui";
 
 export const metadata = { title: "Overview · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -113,11 +114,3 @@ export default async function DashboardPage() {
   );
 }
 
-function Tile({ n, k }: { n: number; k: string }) {
-  return (
-    <div className="tile">
-      <div className="n">{count(n)}</div>
-      <div className="k">{k}</div>
-    </div>
-  );
-}

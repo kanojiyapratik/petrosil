@@ -12,14 +12,14 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { locationDetail } from "@/domain/dashboard/locations";
-import { toggleLocation } from "../../actions";
-import { Change, Chart, Empty, Heading, Panel, count, money } from "../../../ui";
+import { toggleLocation } from "@/app/(admin)/dashboard/actions";
+import { Change, Chart, Empty, Heading, Panel, count, money } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function LocationPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LocationPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const viewer = (await currentViewer())!;
-  const { id } = await params;
+  const { slug, id } = await params;
 
   const found = await locationDetail(viewer.siteIds, Number(id), 120);
 
@@ -33,7 +33,7 @@ export default async function LocationPage({ params }: { params: Promise<{ id: s
 
   return (
     <>
-      <Link className="crumb" href="/dashboard/locations">
+      <Link className="crumb" href={`/dashboard/sites/${slug}/locations`}>
         ← Locations
       </Link>
 
@@ -106,7 +106,7 @@ export default async function LocationPage({ params }: { params: Promise<{ id: s
                 </td>
                 <td>
                   {point.batch_id ? (
-                    <Link href={`/dashboard/batches/${point.batch_id}`}>
+                    <Link href={`/dashboard/sites/${slug}/batches/${point.batch_id}`}>
                       batch #{point.batch_id}
                     </Link>
                   ) : (

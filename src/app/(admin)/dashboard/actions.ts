@@ -46,8 +46,7 @@ export async function toggleLocation(form: FormData) {
     ip: await callerIp(),
   });
 
-  revalidatePath(`/dashboard/locations/${id}`);
-  revalidatePath("/dashboard/locations");
+  revalidatePath("/dashboard/sites/[slug]", "layout");
 }
 
 export async function saveMembership(_state: unknown, form: FormData) {

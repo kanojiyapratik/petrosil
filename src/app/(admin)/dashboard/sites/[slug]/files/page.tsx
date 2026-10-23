@@ -11,7 +11,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listMedia } from "@/domain/dashboard/masters";
 import {
-  BrandField,
   Empty,
   Filters,
   Heading,
@@ -22,7 +21,7 @@ import {
   pageParam,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "File manager · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -40,11 +39,18 @@ function size(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default async function FilesPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function FilesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const kind = one(search, "kind");
   const page = pageParam(one(search, "page"));
 
@@ -63,8 +69,7 @@ export default async function FilesPage({ searchParams }: { searchParams: Promis
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/files">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/files`}>
           <div className="field">
             <label htmlFor="kind">Type</label>
             <input id="kind" name="kind" type="search" defaultValue={kind ?? ""} placeholder="application/pdf" />
@@ -119,7 +124,7 @@ export default async function FilesPage({ searchParams }: { searchParams: Promis
           </tbody>
         </table>
         <Pager
-          base="/dashboard/files"
+          base={`/dashboard/sites/${slug}/files`}
           here={{ site, kind }}
           page={paged.page}
           perPage={paged.per_page}

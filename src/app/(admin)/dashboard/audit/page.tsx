@@ -62,7 +62,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/audit">
+        <Filters action="/dashboard/audit" site={site}>
           <BrandField brands={brands} value={site} />
           <div className="field grow">
             <label htmlFor="action">Action</label>

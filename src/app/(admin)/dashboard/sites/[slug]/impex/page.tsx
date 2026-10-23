@@ -10,7 +10,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listImpex } from "@/domain/dashboard/publishing";
 import {
-  BrandField,
   Empty,
   Filters,
   Heading,
@@ -20,16 +19,23 @@ import {
   one,
   pageParam,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Impex data · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function ImpexPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function ImpexPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const q = one(search, "q");
   const page = pageParam(one(search, "page"));
 
@@ -46,8 +52,7 @@ export default async function ImpexPage({ searchParams }: { searchParams: Promis
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/impex">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/impex`}>
           <div className="field grow">
             <label htmlFor="q">Search</label>
             <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title" />
@@ -95,7 +100,7 @@ export default async function ImpexPage({ searchParams }: { searchParams: Promis
           </tbody>
         </table>
         <Pager
-          base="/dashboard/impex"
+          base={`/dashboard/sites/${slug}/impex`}
           here={{ site, q }}
           page={paged.page}
           perPage={paged.per_page}

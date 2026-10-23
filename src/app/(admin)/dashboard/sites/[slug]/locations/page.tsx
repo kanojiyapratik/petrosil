@@ -14,7 +14,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listLocations } from "@/domain/dashboard/locations";
 import {
-  BrandField,
   Change,
   Chips,
   Empty,
@@ -27,20 +26,23 @@ import {
   one,
   pageParam,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Locations · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function LocationsPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const q = one(search, "q");
   const shown = one(search, "shown");
   const page = pageParam(one(search, "page"));
@@ -71,8 +73,7 @@ export default async function LocationsPage({
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/locations">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/locations`}>
           <div className="field grow">
             <label htmlFor="q">Search</label>
             <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Singapore SN 150" />
@@ -83,7 +84,7 @@ export default async function LocationsPage({
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base="/dashboard/locations"
+          base={`/dashboard/sites/${slug}/locations`}
           param="shown"
           here={{ site, q }}
           value={shown}
@@ -114,7 +115,7 @@ export default async function LocationsPage({
             {shownRows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <Link href={`/dashboard/locations/${row.id}`}>
+                  <Link href={`/dashboard/sites/${slug}/locations/${row.id}`}>
                     <strong>{row.title}</strong>
                   </Link>
                   <div className="small muted">
@@ -147,7 +148,7 @@ export default async function LocationsPage({
           </tbody>
         </table>
         <Pager
-          base="/dashboard/locations"
+          base={`/dashboard/sites/${slug}/locations`}
           here={{ site, q, shown }}
           page={page}
           perPage={PER_PAGE}

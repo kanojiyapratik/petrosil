@@ -11,7 +11,6 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listNewsletters } from "@/domain/dashboard/promotion";
 import {
-  BrandField,
   Chips,
   Empty,
   Filters,
@@ -23,7 +22,7 @@ import {
   pageParam,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Newsletters · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -35,14 +34,17 @@ const TONE: Record<string, string> = {
 };
 
 export default async function NewslettersPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const status = one(search, "status");
   const page = pageParam(one(search, "page"));
 
@@ -61,15 +63,14 @@ export default async function NewslettersPage({
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/newsletters">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/newsletters`}>
           {status ? <input type="hidden" name="status" value={status} /> : null}
         </Filters>
       </Panel>
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base="/dashboard/newsletters"
+          base={`/dashboard/sites/${slug}/newsletters`}
           param="status"
           here={{ site }}
           value={status}
@@ -130,7 +131,7 @@ export default async function NewslettersPage({
           </tbody>
         </table>
         <Pager
-          base="/dashboard/newsletters"
+          base={`/dashboard/sites/${slug}/newsletters`}
           here={{ site, status }}
           page={paged.page}
           perPage={paged.per_page}

@@ -19,7 +19,7 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccountError } from "@/domain/accounts/register";
 import { createArticle, updateArticle, withdrawArticle } from "@/domain/content/articles";
-import { callerIp } from "../actions";
+import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type ArticleFormResult = { error?: string; field?: string; saved?: string } | null;
 
@@ -48,11 +48,17 @@ function categoryFrom(form: FormData): number | null {
   return raw !== "" && Number.isInteger(id) ? id : null;
 }
 
+/** The brand the form named, for the paths this action has to revalidate. */
+function slugFrom(form: FormData): string {
+  return String(form.get("site") ?? "").trim();
+}
+
 export async function createArticleAction(
   _state: unknown,
   form: FormData,
 ): Promise<ArticleFormResult> {
   const viewer = await staff();
+  const slug = slugFrom(form);
 
   let id: number;
 
@@ -82,11 +88,11 @@ export async function createArticleAction(
     return { error: "Something went wrong. Nothing was saved." };
   }
 
-  revalidatePath("/dashboard/articles");
+  revalidatePath(`/dashboard/sites/${slug}/articles`);
 
   // Outside the try: redirect() works by throwing, and catching around it
   // would report a successful save as a failure.
-  redirect(`/dashboard/articles/${id}`);
+  redirect(`/dashboard/sites/${slug}/articles/${id}`);
 }
 
 /**
@@ -101,6 +107,7 @@ export async function saveArticleAction(
   form: FormData,
 ): Promise<ArticleFormResult> {
   const viewer = await staff();
+  const slug = slugFrom(form);
   const id = Number(form.get("id"));
   const intent = text(form, "intent");
 
@@ -136,8 +143,8 @@ export async function saveArticleAction(
     return { error: "Something went wrong. Nothing was saved." };
   }
 
-  revalidatePath(`/dashboard/articles/${id}`);
-  revalidatePath("/dashboard/articles");
+  revalidatePath(`/dashboard/sites/${slug}/articles/${id}`);
+  revalidatePath(`/dashboard/sites/${slug}/articles`);
 
   return {
     saved:
@@ -152,10 +159,11 @@ export async function saveArticleAction(
 /** Withdraw, not destroy: the row stays and every link to it still resolves. */
 export async function withdrawArticleAction(form: FormData) {
   const viewer = await staff();
+  const slug = slugFrom(form);
   const id = Number(form.get("id"));
 
   await withdrawArticle(viewer, id, { ip: await callerIp() });
 
-  revalidatePath("/dashboard/articles");
-  redirect("/dashboard/articles");
+  revalidatePath(`/dashboard/sites/${slug}/articles`);
+  redirect(`/dashboard/sites/${slug}/articles`);
 }

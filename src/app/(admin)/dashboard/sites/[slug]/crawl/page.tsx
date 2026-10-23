@@ -16,16 +16,14 @@ import { listWatchedUrls } from "@/domain/dashboard/catalogue";
 import { crawlSettings, watchedUrls } from "@/domain/crawl/urls";
 import { WatchListForm } from "./form";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Watched URLs · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -50,10 +48,17 @@ function hostOf(url: string): string {
   }
 }
 
-export default async function CrawlPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function CrawlPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -83,12 +88,6 @@ export default async function CrawlPage({ searchParams }: { searchParams: Promis
         title="Watched URLs"
         sub="Pages the crawler reads for prices. Removing one disables it; its findings stay."
       />
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/crawl">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       {editing ? (
         <div style={{ marginTop: 16 }}>

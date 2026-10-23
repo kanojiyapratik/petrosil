@@ -12,27 +12,28 @@ import { listAnnouncements } from "@/domain/dashboard/catalogue";
 import { NoticeForm } from "./form";
 import { removeNotice } from "./actions";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Announcements · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function AnnouncementsPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
-  const site = one(search, "site");
+  const site = slug;
 
   const [brands, rows] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -47,12 +48,6 @@ export default async function AnnouncementsPage({
         title="Announcements"
         sub="The strip across the top of a brand site, with the window it shows in."
       />
-
-      <Panel flush={false}>
-        <Filters action="/dashboard/announcements">
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
 
       <Panel title="Add a notice" flush={false}>
         <NoticeForm brands={brands} onlySite={site} />

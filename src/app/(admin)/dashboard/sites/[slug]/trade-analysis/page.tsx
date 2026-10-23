@@ -10,12 +10,14 @@
 
 import Link from "next/link";
 
+import { notFound } from "next/navigation";
+
 import { currentViewer } from "@/lib/auth/server";
+import { hasTradeAnalysis } from "@/app/(admin)/nav";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { tradeMatrix, tradePlaces, tradeSeries } from "@/domain/dashboard/trade";
 import { TRADE_KINDS, type TradeKind } from "@/db/schema";
 import {
-  BrandField,
   Empty,
   Filters,
   Heading,
@@ -23,7 +25,7 @@ import {
   count,
   one,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Trade analysis · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -31,14 +33,23 @@ export const dynamic = "force-dynamic";
 const qty = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 
 export default async function TradeAnalysisPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
+
+  // baseoil alone ever had these screens. The route is shared across brands
+  // like every other module, so without this it answers for all nine.
+  if (!hasTradeAnalysis(slug)) {
+    notFound();
+  }
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const date = one(search, "date");
   const asked = one(search, "kind");
   const kind: TradeKind = TRADE_KINDS.includes(asked as TradeKind)
@@ -75,7 +86,7 @@ export default async function TradeAnalysisPage({
             <Link
               key={value}
               className={`chip${kind === value ? " on" : ""}`}
-              href={`/dashboard/trade-analysis?${query.toString()}`}
+              href={`/dashboard/sites/${slug}/trade-analysis?${query.toString()}`}
             >
               {value}s
             </Link>
@@ -84,8 +95,7 @@ export default async function TradeAnalysisPage({
       </div>
 
       <Panel flush={false}>
-        <Filters action="/dashboard/trade-analysis">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/trade-analysis`}>
           <div className="field">
             <label htmlFor="date">On date</label>
             <input id="date" name="date" type="date" defaultValue={date ?? ""} />

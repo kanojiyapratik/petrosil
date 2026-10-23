@@ -83,7 +83,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       />
 
       <Panel flush={false}>
-        <Filters action="/dashboard/clients">
+        <Filters action="/dashboard/clients" site={site}>
           <BrandField brands={brands} value={site} />
           <div className="field grow">
             <label htmlFor="q">Search</label>

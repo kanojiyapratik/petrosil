@@ -10,6 +10,7 @@
 import { redirect } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
+import { railBrands } from "@/domain/dashboard/rail";
 import { Rail } from "./rail";
 import { signOut } from "./actions";
 
@@ -20,9 +21,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect("/sign-in");
   }
 
-  const brands = viewer.isSuperadmin
-    ? viewer.identity.memberships.length
-    : viewer.siteIds.length;
+  // The rail needs the brands themselves now, not a count: the Sites group is
+  // one entry per brand, each with its own price-freshness dot.
+  const brands = await railBrands(viewer.siteIds);
 
   return (
     <div className="shell">

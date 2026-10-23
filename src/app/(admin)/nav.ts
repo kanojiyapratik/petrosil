@@ -1,149 +1,308 @@
 /**
- * The admin's left rail, taken from the nine PHP admins it replaces.
+ * The admin's three groups: Overview, Sites, Billing.
  *
- * Read out of `htdocs/baseoil/baseoil/application/resources/views/layouts/
- * app.blade.php` — the group order from the list at lines 713-793, the items
- * from each group's own block. Not approximated: the manager who uses the old
- * admin daily said this one was not aligned with it, and he was right. The
- * first version renamed Directory to "Clients", moved Newsletter out of
- * Settings, invented a "Prices" group, reordered everything, and collapsed
- * eight daily-use screens into four filter chips.
+ * Two earlier versions of this file are worth remembering, because each was
+ * wrong in a different way.
  *
- * So the labels, the order and the grouping are the old ones, including the
- * parts that read oddly:
+ * The first invented its own menu. The manager who uses the old admin daily
+ * said it was not aligned with it, and he was right: it renamed Directory to
+ * "Clients", invented a "Prices" group, and collapsed eight daily-use screens
+ * into four filter chips.
  *
- *   - "Global Price Trend" is what the old admin calls the locations screen.
- *     It appears there twice, pointing at two different routes; this is the
- *     one that manages locations.
- *   - The price screens live inside Content, after Pages, because that is
- *     where the price module appended them.
- *   - "Currency" and "Category" are singular, as they are there.
+ * The second copied the old Blade sidebar exactly — nine groups, thirty-eight
+ * entries, the old labels down to "Global Price Trend" and the singular
+ * "Currency". That was faithful and still wrong, because the old sidebar was
+ * itself a copy of a purchased theme's and could not express "this brand" at
+ * all. Nine separate admins never needed to.
  *
- * What is NOT carried over: the purchased theme's demo pages — chat,
- * calendar, gallery, invoice, lock-screen, forty more. They are roughly 45%
- * of the old route table and none of them is a feature.
+ * So: the owner's three groups, and one rule that the first two versions both
+ * broke. **The rail carries places, never modules.** Seventeen entries, one
+ * level, nothing that expands — it has to fit on one screen without
+ * scrolling. A brand's fourteen modules are tabs inside the brand's own page
+ * (`siteTabs` below), grouped into six ideas instead of fourteen links.
  *
- * `built: false` means the old admin had this screen and this one does not
- * yet. They are shown greyed rather than hidden: hiding them is what made
- * the menu unrecognisable in the first place.
+ * What is not carried over: the purchased theme's demo pages — chat,
+ * calendar, gallery, invoice, lock-screen, some seventy more, roughly 45% of
+ * the old route table and not one of them a feature.
  */
 
-export type NavItem = { label: string; href: string; built: boolean };
-export type NavGroup = { group: string; items: NavItem[] };
+/** How long a brand has gone without a price, judged against its own cadence. */
+export type Freshness = "fresh" | "due" | "stale" | "none";
 
-export const NAV: NavGroup[] = [
-  {
-    group: "Dashboards",
-    items: [{ label: "Estate overview", href: "/dashboard", built: true }],
-  },
-  {
-    group: "Content",
+export type NavBrand = { slug: string; name: string; freshness: Freshness };
+
+export type NavItem = { label: string; href: string; freshness?: Freshness };
+export type NavSection = { group: string; items: NavItem[] };
+
+/**
+ * The rail.
+ *
+ * Overview holds what belongs to the whole estate; Sites holds one entry per
+ * brand the viewer may see; Billing holds what access costs. A viewer with no
+ * brands gets no Sites group rather than an empty heading.
+ */
+export function navFor(brands: NavBrand[]): NavSection[] {
+  const sections: NavSection[] = [
+    {
+      group: "Overview",
+      items: [
+        { label: "Dashboard", href: "/dashboard" },
+        // The owner's wording: the entire user flow, self-registered
+        // subscribers and Petrosil team alike. Its five parts are tabs.
+        { label: "People", href: "/dashboard/people" },
+        // "Audit trail" is what we called it; "Activity" is what it is.
+        { label: "Activity", href: "/dashboard/audit" },
+      ],
+    },
+  ];
+
+  if (brands.length > 0) {
+    sections.push({
+      group: "Sites",
+      items: brands.map((brand) => ({
+        label: brand.name,
+        href: `/dashboard/sites/${brand.slug}`,
+        freshness: brand.freshness,
+      })),
+    });
+  }
+
+  sections.push({
+    group: "Billing",
     items: [
-      { label: "Articles", href: "/dashboard/articles", built: true },
-      { label: "Offers", href: "/dashboard/offers", built: true },
-      { label: "Reports", href: "/dashboard/reports", built: true },
-      // `samplereports` holds one row on baseoil and has no table here.
-      { label: "Sample Reports", href: "/dashboard/sample-reports", built: false },
-      { label: "Impex Data", href: "/dashboard/impex", built: true },
-      { label: "Announcements", href: "/dashboard/announcements", built: true },
-      { label: "Pages", href: "/dashboard/pages", built: true },
-      { label: "Global Price Trend", href: "/dashboard/locations", built: true },
-      { label: "Price Update", href: "/dashboard/batches", built: true },
-      { label: "Watched URLs", href: "/dashboard/crawl", built: true },
-      { label: "Manage Qty Trend", href: "/dashboard/qty", built: true },
-      { label: "Trade Analysis", href: "/dashboard/trade-analysis", built: true },
+      { label: "Plans and pricing", href: "/dashboard/plans" },
+      { label: "Payments", href: "/dashboard/transactions" },
+      { label: "Coupons", href: "/dashboard/coupons" },
+      { label: "Currencies", href: "/dashboard/currencies" },
+    ],
+  });
+
+  return sections;
+}
+
+export type SiteModule = {
+  label: string;
+  /** A real path under the brand. No query parameter decides which brand. */
+  href: string;
+  /** The plain second line. Every module has one; nobody should have to guess. */
+  note: string;
+  built: boolean;
+};
+
+export type SiteTab = {
+  label: string;
+  slug: string;
+  /** Where the tab lands: the brand itself, or its first working screen. */
+  href: string;
+  items: SiteModule[];
+};
+
+/** Brands whose old admin had the trade-analysis screens. Inventory §2. */
+const TRADE_ANALYSIS = new Set(["baseoil"]);
+
+/**
+ * Whether this brand has trade analysis at all.
+ *
+ * Exported because the screen itself has to ask. The route lives under
+ * `[slug]` like every other module, so it answers for all nine brands unless
+ * something refuses -- and leaving that to the menu is not enforcement: the
+ * URL worked perfectly well for a brand that never had the screen.
+ */
+export function hasTradeAnalysis(slug: string): boolean {
+  return TRADE_ANALYSIS.has(slug);
+}
+
+type Spec = { label: string; slug: string; items: [string, string, string, boolean][] };
+
+/**
+ * The modules, as [label, route under the brand, note, built].
+ *
+ * Worth being exact about Prices. Price figures reach this platform by the
+ * module committing a batch, and the only action on the markets screens is
+ * show or hide. The old admin edited prices by hand in four places — a
+ * per-market grid, a bulk update, a bulk delete and a by-date view — and none
+ * of those has an equivalent here yet. An earlier version of this file
+ * claimed the grid was built; it was not, and two of its cards pointed at the
+ * same screen under different names.
+ *
+ * The Emailer tab is its own because the old admin sends four different kinds
+ * of mail from four separate modules, and an earlier version collapsed all of
+ * them into one card reading "Report mail-outs". On baseoil that single card
+ * stood for 12 system templates over a country pivot, 415 newsletters, 210
+ * report sends to 8,931 recipients, 318 sample sends, and a 17,052-row
+ * delivery log with open tracking.
+ */
+const SPECS: Spec[] = [
+  { label: "Dashboard", slug: "dashboard", items: [] },
+  {
+    label: "Prices",
+    slug: "prices",
+    items: [
+      ["Markets", "locations", "show, hide, and each market's history", true],
+      ["Enter prices by hand", "price-entry", "the old per-market grid", false],
+      ["Correct a whole date", "price-date", "the old bulk update and delete", false],
+      ["Import and export quantities", "qty", "by market and year", true],
+      ["Trade data", "impex", "impex sheets as published", true],
     ],
   },
   {
-    group: "Masters",
+    label: "Content",
+    slug: "content",
     items: [
-      // `products` holds 4 rows per brand and has no table here.
-      { label: "Products", href: "/dashboard/products", built: false },
-      { label: "Currency", href: "/dashboard/currencies", built: true },
-      { label: "Category", href: "/dashboard/categories", built: true },
-      { label: "File Manager", href: "/dashboard/files", built: true },
+      ["Articles", "articles", "write and publish", true],
+      ["Reports", "reports", "paid research", true],
+      ["Member offers", "offers", "what members post", true],
+      ["Announcements", "announcements", "site notices", true],
+      ["Pages", "pages", "about, pricing, terms", true],
+      ["Categories", "categories", "how content is filed", true],
+      ["Files", "files", "images and attachments", true],
+      ["Sample reports", "sample-reports", "not built yet", false],
     ],
   },
   {
-    group: "Directory",
+    label: "Emailer",
+    slug: "emailer",
     items: [
-      { label: "Directory", href: "/dashboard/clients", built: true },
-      { label: "Free Users", href: "/dashboard/clients?segment=free", built: true },
-      { label: "Premium Users", href: "/dashboard/clients?segment=premium", built: true },
-      {
-        label: "Expired Premium Users",
-        href: "/dashboard/clients?segment=expired",
-        built: true,
-      },
-      // The old screen routes this to `premium = 1` with no date filter at
-      // all -- the same set as Premium Users, so the name never meant
-      // anything there. Here it is what it says: paying, and due inside 30
-      // days.
-      {
-        label: "Upcoming Renewal",
-        href: "/dashboard/clients?segment=premium&due=30",
-        built: true,
-      },
-      { label: "Trial Users", href: "/dashboard/clients?segment=trial", built: true },
-      {
-        label: "Expired Trial Users",
-        href: "/dashboard/clients?segment=trial_expired",
-        built: true,
-      },
-      // The old sites keep `user_status` as free text and this schema
-      // flattens it to active/disabled, so these two cannot be told apart
-      // yet. Greyed rather than built as two screens showing one list --
-      // and baseoil holds none of either.
-      { label: "Inactive Users", href: "/dashboard/clients?segment=inactive", built: false },
-      { label: "Suspended Users", href: "/dashboard/clients?segment=suspended", built: false },
-      { label: "Login Log", href: "/dashboard/logins", built: true },
+      ["Newsletters", "newsletters", "write and send to a list", true],
+      ["Newsletter templates", "templates", "the layouts a newsletter uses", true],
+      ["Email templates", "email-templates", "the 12 system mails, by country", false],
+      ["Send a report", "send-report", "to every paying reader", false],
+      ["Send a sample", "send-sample", "two reports to one reader", false],
+      ["Delivery log", "deliveries", "who was sent what, and who opened it", false],
     ],
   },
   {
-    group: "Subscription",
+    label: "Readers",
+    slug: "readers",
     items: [
-      { label: "Plans", href: "/dashboard/plans", built: true },
-      { label: "Transactions", href: "/dashboard/transactions", built: true },
-      { label: "Coupons", href: "/dashboard/coupons", built: true },
+      // The old `messages` module is seven empty functions with no screen,
+      // while the public contact form kept writing into it: 1,189 unread on
+      // bitumart, 127 on baseoil, newest 23 Oct 2025.
+      ["Enquiries", "enquiries", "nobody has ever read these", false],
+      ["Adverts", "ads", "campaigns and clicks", true],
+      ["Advert slots", "ad-locations", "where they appear", true],
     ],
   },
   {
-    group: "Ads",
+    label: "AI tools",
+    slug: "ai",
     items: [
-      { label: "Ad Locations", href: "/dashboard/ad-locations", built: true },
-      { label: "Ads", href: "/dashboard/ads", built: true },
+      ["Price update", "batches", "what the module staged", true],
+      ["Watched pages", "crawl", "where prices are read from", true],
+      ["Published AI note", "ai-note", "not built yet", false],
+      ["Per-market rules", "rules", "set in the console, invisible here", false],
     ],
   },
   {
-    group: "Users",
+    label: "Settings",
+    slug: "settings",
     items: [
-      { label: "Users", href: "/dashboard/staff", built: true },
-      { label: "Roles", href: "/dashboard/roles", built: true },
-      // No equivalent in the old admin, which had no audit trail at all --
-      // it kept submittedby/modifiedby columns on forty tables instead.
-      { label: "Audit trail", href: "/dashboard/audit", built: true },
-    ],
-  },
-  {
-    group: "Newsletter",
-    items: [
-      { label: "Newsletter Template", href: "/dashboard/templates", built: true },
-      { label: "Newsletters", href: "/dashboard/newsletters", built: true },
-    ],
-  },
-  {
-    group: "Settings",
-    items: [
-      { label: "General Settings", href: "/dashboard/settings", built: true },
-      { label: "Directory Settings", href: "/dashboard/settings/directory", built: true },
-      { label: "Offers Settings", href: "/dashboard/settings/offers", built: true },
+      ["General", "settings", "title, description, keywords", true],
+      ["Directory visibility", "settings/directory", "which fields free readers see", true],
+      ["Offer visibility", "settings/offers", "the same, for member offers", true],
       // The old `settings` table carries the SMTP and provider credentials
       // this screen would edit. They are not ours to move.
-      { label: "Mails Settings", href: "/dashboard/settings/mail", built: false },
+      ["Mail credentials", "settings/mail", "stays on the old host", false],
     ],
   },
 ];
 
-/** How many of the old admin's screens exist here, for the honest line in the rail. */
-export const BUILT = NAV.flatMap((g) => g.items).filter((i) => i.built).length;
-export const TOTAL = NAV.flatMap((g) => g.items).length;
+/**
+ * A brand's own page, as seven tabs.
+ *
+ * Every link is a path under `/dashboard/sites/<slug>/`, and that is the
+ * whole point of the change. While these were estate screens carrying
+ * `?site=<slug>`, the brand lived in a dropdown that offered to change it,
+ * the filter bar's Clear threw you back to all nine, and a brand's section
+ * was a filter with extra steps rather than a place.
+ */
+export function siteTabs(slug: string): SiteTab[] {
+  const home = `/dashboard/sites/${slug}`;
+
+  return SPECS.map((spec) => {
+    const items: SiteModule[] = spec.items.map(([label, route, note, built]) => ({
+      label,
+      href: `${home}/${route}`,
+      note,
+      built,
+    }));
+
+    // One of the five per-site route deltas: `admin/tradeanalysis/*` exists on
+    // baseoil and on no other site. Offering it to the other eight would be
+    // inventing a screen they never had.
+    if (spec.slug === "ai" && TRADE_ANALYSIS.has(slug)) {
+      items.splice(2, 0, {
+        label: "Trade analysis",
+        href: `${home}/trade-analysis`,
+        note: "customs sheets, read by AI",
+        built: true,
+      });
+    }
+
+    // A tab is a group of modules, not a page of its own, so it lands on its
+    // first working screen rather than on a menu costing one more click.
+    const landing = items.find((item) => item.built)?.href ?? home;
+
+    return {
+      label: spec.label,
+      slug: spec.slug,
+      href: spec.slug === "dashboard" ? home : landing,
+      items,
+    };
+  });
+}
+
+/** The five parts of People, as tabs on its own page. */
+export const PEOPLE_TABS = [
+  { label: "Customers", slug: "customers", href: "/dashboard/clients" },
+  { label: "Trial requests", slug: "trials", href: "/dashboard/trials" },
+  { label: "Petrosil team", slug: "team", href: "/dashboard/staff" },
+  { label: "What they can do", slug: "roles", href: "/dashboard/roles" },
+  { label: "Sign-ins", slug: "logins", href: "/dashboard/logins" },
+] as const;
+
+/**
+ * Whether a screen is standing inside a brand, or looking across the estate.
+ *
+ * Every module screen carries a brand filter, and when the screen was reached
+ * from a brand's own section that filter was a "Brand" dropdown offering all
+ * nine. That contradicts the thing the Sites group claims — the brand is
+ * where you are standing, not something you pick again on arrival — and it
+ * made each section look like a filter with extra steps.
+ *
+ * So the same control has three states:
+ *
+ *   - **pinned**: the URL names a brand the viewer may see. Show the brand's
+ *     name as context, with a way back to its page, and carry the slug
+ *     through any filtering rather than offering to change it.
+ *   - **picker**: an estate-wide screen, or a slug that is unknown or not
+ *     theirs. An unknown slug must never be turned into a printed label.
+ *   - **none**: fewer than two brands. A dropdown of one is furniture, and so
+ *     is telling a per-site editor which brand they are in.
+ */
+export type BrandContext =
+  | { kind: "pinned"; slug: string; name: string; href: string }
+  | { kind: "picker" }
+  | { kind: "none" };
+
+export function brandContext(
+  brands: { slug: string; name: string }[],
+  site: string | null | undefined,
+): BrandContext {
+  if (brands.length < 2) {
+    return { kind: "none" };
+  }
+
+  const found = site ? brands.find((brand) => brand.slug === site) : undefined;
+
+  if (!found) {
+    return { kind: "picker" };
+  }
+
+  return {
+    kind: "pinned",
+    slug: found.slug,
+    name: found.name,
+    href: `/dashboard/sites/${found.slug}`,
+  };
+}

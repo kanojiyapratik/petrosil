@@ -13,7 +13,6 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { staffArticles } from "@/domain/content/articles";
 import { articleTally } from "@/domain/dashboard/catalogue";
 import {
-  BrandField,
   Chips,
   Empty,
   Filters,
@@ -23,7 +22,7 @@ import {
   one,
   when,
   type Search,
-} from "../../ui";
+} from "@/app/(admin)/ui";
 
 export const metadata = { title: "Articles · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -36,11 +35,18 @@ const TONE: Record<string, string> = {
   withdrawn: "",
 };
 
-export default async function ArticlesPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function ArticlesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
+  const { slug } = await params;
   const search = await searchParams;
 
-  const site = one(search, "site");
+  const site = slug;
   const status = one(search, "status");
   const q = one(search, "q");
 
@@ -58,14 +64,13 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
         title="Articles"
         sub="Market news and analysis. A premium piece shows its first paragraph to everyone and the rest to subscribers."
       >
-        <Link className="button small" href="/dashboard/articles/new">
+        <Link className="button small" href={`/dashboard/sites/${slug}/articles/new`}>
           New article
         </Link>
       </Heading>
 
       <Panel flush={false}>
-        <Filters action="/dashboard/articles">
-          <BrandField brands={brands} value={site} />
+        <Filters action={`/dashboard/sites/${slug}/articles`}>
           <div className="field grow">
             <label htmlFor="q">Search</label>
             <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title or excerpt" />
@@ -76,7 +81,7 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base="/dashboard/articles"
+          base={`/dashboard/sites/${slug}/articles`}
           param="status"
           here={{ site, q }}
           value={status}
@@ -105,7 +110,7 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <Link href={`/dashboard/articles/${row.id}`}>
+                  <Link href={`/dashboard/sites/${slug}/articles/${row.id}`}>
                     <strong>{row.title}</strong>
                   </Link>
                   <div className="small muted">
