@@ -43,6 +43,13 @@
       "when": 1792581831316,
       "tag": "0005_clean_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792751149934,
+      "tag": "0006_last_tombstone",
+      "breakpoints": true
     }
   ]
 }

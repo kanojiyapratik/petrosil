@@ -56,9 +56,16 @@ export default async function TransactionsPage({
     listTransactions(viewer.siteIds, { site, status, page }),
   ]);
 
-  const takings = paged.rows
-    .filter((row) => row.status === "paid")
-    .reduce((sum, row) => sum + row.amount, 0);
+  // Per currency, never summed. The estate sells in rupees to India and in
+  // dollars to everyone else, so one total over both is a number that means
+  // nothing -- and this screen printed exactly that.
+  const takings = new Map<string, number>();
+
+  for (const row of paged.rows) {
+    if (row.status === "paid") {
+      takings.set(row.currency, (takings.get(row.currency) ?? 0) + row.amount);
+    }
+  }
 
   return (
     <>
@@ -86,7 +93,14 @@ export default async function TransactionsPage({
 
       <Panel
         title={`${count(paged.total)} order${paged.total === 1 ? "" : "s"}`}
-        hint={`${money(takings)} paid on this page`}
+        hint={
+          takings.size === 0
+            ? undefined
+            : [...takings.entries()]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([currency, total]) => money(total, currency))
+                .join(" + ") + " paid on this page"
+        }
       >
         <table className="tight">
           <thead>

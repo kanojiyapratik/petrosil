@@ -12,9 +12,9 @@ import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { db } from "@/db";
 import { memberships, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
-import { segmentOf } from "@/domain/dashboard/clients";
+import { listClients, segmentOf } from "@/domain/dashboard/clients";
 import { commitBatch, stageRows } from "@/domain/price/batches";
-import { makeBrand, publishPrice, resetDatabase, type Brand } from "./helpers";
+import { makeBrand, publishPrice, resetDatabase, type Brand, dayOffset } from "./helpers";
 
 const NOW = new Date(2026, 9, 16, 9, 0, 0);
 const PASSWORD = "hunter22";
@@ -321,5 +321,104 @@ describe("what one brand's staff may not see", () => {
     const body = await (await clientsRoute(get("/api/dashboard/clients?site=bitumart", cookie))).json();
 
     expect(body.rows).toEqual([]);
+  });
+});
+
+/**
+ * The segments the old admin's Directory menu names.
+ *
+ * It lists eight: Free, Premium, Expired Premium, Upcoming Renewal, Trial,
+ * Expired Trial, Inactive and Suspended. This one collapsed all of that into
+ * four chips, which is a large part of why the manager said the admin was
+ * not aligned with the old sites.
+ *
+ * Two of the eight need the standing split further than `expired`: a lapsed
+ * trial and a lapsed subscription are different lists to the people chasing
+ * them, and the old site queries them separately (`premium = 2` against
+ * `premium = 3` with a past date).
+ */
+describe("a lapsed trial is not a lapsed subscription", () => {
+  const today = "2026-10-23";
+
+  it("calls a lapsed paying member expired", () => {
+    expect(segmentOf([{ role: "subscriber", tier: "premium", expiresAt: "2026-01-01" }], today)).toBe(
+      "expired",
+    );
+  });
+
+  it("calls a lapsed trial a lapsed trial", () => {
+    expect(segmentOf([{ role: "subscriber", tier: "trial", expiresAt: "2026-01-01" }], today)).toBe(
+      "trial_expired",
+    );
+  });
+
+  it("still prefers any live standing over a lapsed one", () => {
+    // Someone who trialled, let it lapse, then paid is a paying customer.
+    expect(
+      segmentOf(
+        [
+          { role: "subscriber", tier: "trial", expiresAt: "2026-01-01" },
+          { role: "subscriber", tier: "premium", expiresAt: null },
+        ],
+        today,
+      ),
+    ).toBe("premium");
+  });
+
+  it("prefers a lapsed subscription over a lapsed trial", () => {
+    // They once paid, which is the reason that list exists.
+    expect(
+      segmentOf(
+        [
+          { role: "subscriber", tier: "trial", expiresAt: "2026-01-01" },
+          { role: "subscriber", tier: "premium", expiresAt: "2026-02-01" },
+        ],
+        today,
+      ),
+    ).toBe("expired");
+  });
+});
+
+/**
+ * Upcoming Renewal.
+ *
+ * The old screen routes this to `premium = 1` with no date filter at all --
+ * the same set as Premium Users, so the name never meant anything there.
+ * Built as what it says instead: paying, and due inside a window.
+ */
+describe("who is due to renew", () => {
+  it("lists a paying member whose subscription ends inside the window", async () => {
+    const soon = await person("soon@x.example", [
+      { brand: baseoil, role: "subscriber", tier: "premium", expiresAt: dayOffset(NOW, 10) },
+    ]);
+    await person("later@x.example", [
+      { brand: baseoil, role: "subscriber", tier: "premium", expiresAt: dayOffset(NOW, 200) },
+    ]);
+    await person("openended@x.example", [{ brand: baseoil, role: "subscriber", tier: "premium" }]);
+
+    const due = await listClients([], { segment: "premium", due: 30 }, db(), NOW);
+
+    expect(due.rows.map((row) => row.id)).toEqual([soon]);
+  });
+
+  it("leaves out someone who has already lapsed", async () => {
+    await person("gone@x.example", [
+      { brand: baseoil, role: "subscriber", tier: "premium", expiresAt: dayOffset(NOW, -5) },
+    ]);
+
+    const due = await listClients([], { segment: "premium", due: 30 }, db(), NOW);
+
+    expect(due.rows).toHaveLength(0);
+  });
+
+  it("without a window, lists every paying member", async () => {
+    await person("soon@x.example", [
+      { brand: baseoil, role: "subscriber", tier: "premium", expiresAt: dayOffset(NOW, 10) },
+    ]);
+    await person("openended@x.example", [{ brand: baseoil, role: "subscriber", tier: "premium" }]);
+
+    const all = await listClients([], { segment: "premium" }, db(), NOW);
+
+    expect(all.rows).toHaveLength(2);
   });
 });

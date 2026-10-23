@@ -12,6 +12,8 @@
  * one mistake a migration must not make.
  */
 
+import { readDate } from "./transform";
+
 export type ReadStatus = {
   status: "published" | "draft" | "withdrawn";
   /** Published, but only to subscribers. */
@@ -217,4 +219,168 @@ export function termsFrom(
 
   // Nothing is sold for two years that is not sold for one.
   return terms[0]?.years === 1 ? terms : [];
+}
+
+export type CouponTerms = {
+  percentOff: number | null;
+  amountOff: string | number | null;
+  enabled: boolean;
+};
+
+export type CouponDecision =
+  | { action: "create"; siteId: number }
+  | { action: "broaden" }
+  | { action: "keep" }
+  | { action: "conflict" };
+
+/**
+ * Which brand a carried coupon belongs to.
+ *
+ * Every one of the nine sites prints the same `EARLY10` at 10% — nine rows
+ * saying one thing, because each site had its own table. Here `code` is
+ * unique across the estate and a null brand means "works everywhere", so the
+ * second brand to arrive with identical terms broadens the first brand's row
+ * rather than colliding with it.
+ *
+ * Identical terms is the whole condition. Two brands using the same word for
+ * different discounts is not one coupon, and merging them would quietly
+ * change what one brand's customers get — so that is reported rather than
+ * guessed at.
+ */
+export function couponAction(
+  existing: (CouponTerms & { siteId: number | null }) | null,
+  incoming: CouponTerms,
+  siteId: number,
+): CouponDecision {
+  if (!existing) {
+    return { action: "create", siteId };
+  }
+
+  const same =
+    existing.percentOff === incoming.percentOff &&
+    Number(existing.amountOff ?? 0) === Number(incoming.amountOff ?? 0) &&
+    existing.enabled === incoming.enabled;
+
+  if (!same) {
+    return { action: "conflict" };
+  }
+
+  // Already everywhere, or already this brand's own: nothing to change.
+  if (existing.siteId === null || existing.siteId === siteId) {
+    return { action: "keep" };
+  }
+
+  return { action: "broaden" };
+}
+
+/** The symbols the old estate writes instead of codes. */
+const SYMBOLS: Record<string, string> = {
+  "₹": "INR",
+  "Rs": "INR",
+  "Rs.": "INR",
+  "$": "USD",
+  "US$": "USD",
+  "€": "EUR",
+  "£": "GBP",
+};
+
+/**
+ * Which currency an old order was in.
+ *
+ * `subscription_users.currency_code` is free text carrying three different
+ * things: the symbol (₹ on 271 baseoil rows, $ on 128), the ISO code (INR on
+ * 8, USD on 3) and nothing (225). Upper-casing it put `₹` and `$` into a
+ * column meant for ISO codes, and the admin then showed four currencies for
+ * two — with a Transactions total that added rupees to dollars.
+ *
+ * `currency_id` points at the old `currencies` master and is right wherever
+ * it is set, so it is tried first. The fallback is the plan's own currency,
+ * because the plan is what priced the sale.
+ */
+export function readCurrency(
+  currencyId: number | null | undefined,
+  given: string | null | undefined,
+  master: Map<number, string>,
+  fallback: string,
+): string {
+  const byId = currencyId === null || currencyId === undefined ? undefined : master.get(Number(currencyId));
+
+  if (byId) {
+    return byId;
+  }
+
+  const text = String(given ?? "").trim();
+
+  if (text === "") {
+    return fallback;
+  }
+
+  // An ISO code the master knows, however it was typed.
+  const code = text.toUpperCase();
+
+  if ([...master.values()].includes(code)) {
+    return code;
+  }
+
+  return SYMBOLS[text] ?? fallback;
+}
+
+/** The fields that make a profile row worth keeping, in no particular order. */
+export type ProfileRow = {
+  countryId?: number | null;
+  companyName?: string | null;
+  designation?: string | null;
+  address1?: string | null;
+  cityId?: number | null;
+  phone?: string | null;
+  website?: string | null;
+  updatedAt?: Date | string | null;
+};
+
+/** How much this row actually says. */
+function filled(row: ProfileRow): number {
+  const values = [
+    row.countryId,
+    row.companyName,
+    row.designation,
+    row.address1,
+    row.cityId,
+    row.phone,
+    row.website,
+  ];
+
+  return values.filter((value) => value !== null && value !== undefined && String(value).trim() !== "")
+    .length;
+}
+
+/**
+ * Which of a person's profile rows is the one to carry.
+ *
+ * `profiles` holds 18,421 rows for 17,297 users on baseoil: about 1,124
+ * people re-registered and left a second, usually emptier, row. This is
+ * where the customer's country lives — the field the rupee/dollar split
+ * turns on — so the choice decides whether a paying customer in India is
+ * shown the right price list.
+ *
+ * The fullest row wins, not the newest: a later empty re-registration must
+ * not erase an address and a country. A genuine tie goes to whichever was
+ * touched last.
+ */
+export function bestProfile<T extends ProfileRow>(rows: T[]): T | null {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows.reduce((best, row) => {
+    const byFilled = filled(row) - filled(best);
+
+    if (byFilled !== 0) {
+      return byFilled > 0 ? row : best;
+    }
+
+    const rowAt = readDate(row.updatedAt)?.getTime() ?? 0;
+    const bestAt = readDate(best.updatedAt)?.getTime() ?? 0;
+
+    return rowAt > bestAt ? row : best;
+  });
 }

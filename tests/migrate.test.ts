@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   columnList,
+  readExpiry,
+  tierFor,
   dedupeByEmail,
   dedupePrices,
   readDate,
@@ -299,5 +301,100 @@ describe("selecting columns a dump may not have", () => {
     expect(columnList(["id", "title", "show_on_dashboard"], ["id", "title"])).toBe(
       "id, title, null as show_on_dashboard",
     );
+  });
+});
+
+/**
+ * What `premium` and the expiry date actually mean.
+ *
+ * Measured against baseoilreport on 2026-10-23, and read out of the old
+ * site's own `DirectoryController::listDirectory`, which branches on four
+ * values: 1 is paying, 2 is lapsed, 3 is a trial, 0 is free. The first cut
+ * of this migration read the column as a boolean, so 146 lapsed and 29 trial
+ * users on baseoil alone arrived as free.
+ *
+ * And the date never came from `users.expiry_date` — every row in that column
+ * is NULL. The real dates are in `subscription_users`: 635 of them on
+ * baseoil, 632 sane, one before 2000 and two after 2040.
+ */
+describe("the four states of the old premium column", () => {
+  it("reads 1 as paying", () => {
+    expect(tierFor(1)).toBe("premium");
+  });
+
+  it("reads 2 as someone who paid and lapsed", () => {
+    // Not free: they are in the old site's "Expired Premium Users" list, and
+    // the fact they once paid is the reason to chase them.
+    expect(tierFor(2)).toBe("premium");
+  });
+
+  it("reads 3 as a trial", () => {
+    expect(tierFor(3)).toBe("trial");
+  });
+
+  it("reads 0, and anything it does not recognise, as free", () => {
+    expect(tierFor(0)).toBe("free");
+    expect(tierFor(9)).toBe("free");
+    expect(tierFor(null)).toBe("free");
+  });
+});
+
+describe("an expiry date worth believing", () => {
+  it("takes a sane date as it is", () => {
+    expect(readExpiry("2026-12-31")).toBe("2026-12-31");
+  });
+
+  it("refuses a year nobody meant", () => {
+    // baseoil carries one 0200-10-15 and two 2050-12-30. The first is a typo
+    // that would read as "lapsed eighteen centuries ago"; the second is staff
+    // writing "never", which an absent date already says.
+    expect(readExpiry("0200-10-15")).toBeNull();
+    expect(readExpiry("2050-12-30")).toBeNull();
+  });
+
+  it("still refuses the MySQL zero date", () => {
+    expect(readExpiry("0000-00-00")).toBeNull();
+  });
+});
+
+describe("reading a person with their subscription beside them", () => {
+  it("gives a payer the expiry from their subscription, not the empty user column", () => {
+    const read = readUser(user({ premium: 1, expiry_date: null }), "2027-03-31");
+
+    expect(read.tier).toBe("premium");
+    expect(read.expiresAt).toBe("2027-03-31");
+  });
+
+  it("gives a lapsed member a past date, so they read as expired and not as paying", () => {
+    const read = readUser(user({ premium: 2, expiry_date: null }), "2024-06-30");
+
+    expect(read.tier).toBe("premium");
+    expect(read.expiresAt).toBe("2024-06-30");
+  });
+
+  it("falls back to when the row last changed for a lapsed member with no subscription", () => {
+    // One user on baseoil. An absent date would read as open-ended premium --
+    // showing a non-payer as paying, which is the worse of the two errors.
+    const read = readUser(
+      user({ premium: 2, expiry_date: null, updated_at: "2023-02-14 09:00:00" }),
+      null,
+    );
+
+    expect(read.tier).toBe("premium");
+    expect(read.expiresAt).toBe("2023-02-14");
+  });
+
+  it("leaves a payer with an unusable date open-ended rather than guessing", () => {
+    const read = readUser(user({ premium: 1, expiry_date: null }), "2050-12-30");
+
+    expect(read.tier).toBe("premium");
+    expect(read.expiresAt).toBeNull();
+  });
+
+  it("never puts an expiry on a free account", () => {
+    const read = readUser(user({ premium: 0, expiry_date: null }), "2024-06-30");
+
+    expect(read.tier).toBe("free");
+    expect(read.expiresAt).toBeNull();
   });
 });

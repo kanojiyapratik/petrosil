@@ -31,12 +31,23 @@ import {
 export const metadata = { title: "Directory · Petrosil" };
 export const dynamic = "force-dynamic";
 
-const SEGMENTS: Segment[] = ["premium", "trial", "expired", "free"];
+const SEGMENTS: Segment[] = ["premium", "trial", "expired", "trial_expired", "free"];
+
+/** The old admin's own words for these lists. */
+const SEGMENT_LABEL: Record<string, string> = {
+  premium: "premium",
+  trial: "on trial",
+  expired: "expired premium",
+  trial_expired: "expired trial",
+  free: "free",
+  staff: "staff",
+};
 
 const TONE: Record<string, string> = {
   premium: "ok",
   trial: "warn",
   expired: "bad",
+  trial_expired: "bad",
   free: "",
   staff: "brand",
 };
@@ -50,18 +61,25 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const segmentRaw = one(search, "segment");
   const segment = SEGMENTS.includes(segmentRaw as Segment) ? (segmentRaw as Segment) : undefined;
   const page = pageParam(one(search, "page"));
+  // "Upcoming Renewal" in the rail is this: paying, due inside 30 days.
+  const dueRaw = Number(one(search, "due"));
+  const due = Number.isFinite(dueRaw) && dueRaw > 0 ? Math.trunc(dueRaw) : undefined;
 
   const [brands, counts, clients] = await Promise.all([
     brandsFor(viewer.siteIds),
     segmentCounts(viewer.siteIds),
-    listClients(viewer.siteIds, { site, search: q, segment, page }),
+    listClients(viewer.siteIds, { site, search: q, segment, due, page }),
   ]);
 
   return (
     <>
       <Heading
         title="Directory"
-        sub="Everyone registered across the estate. One person, one row, however many brands they read."
+        sub={
+          due
+            ? `Paying members whose subscription runs out within ${due} days.`
+            : "Everyone registered across the estate. One person, one row, however many brands they read."
+        }
       />
 
       <Panel flush={false}>
@@ -89,7 +107,11 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           value={segment}
           options={[
             { value: "", label: "Everyone" },
-            ...SEGMENTS.map((value) => ({ value, label: value, n: counts[value] })),
+            ...SEGMENTS.map((value) => ({
+              value,
+              label: SEGMENT_LABEL[value] ?? value,
+              n: counts[value],
+            })),
           ]}
         />
       </div>
@@ -130,7 +152,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   )}
                 </td>
                 <td>
-                  <span className={`badge ${TONE[row.segment] ?? ""}`}>{row.segment}</span>
+                  <span className={`badge ${TONE[row.segment] ?? ""}`}>
+                    {SEGMENT_LABEL[row.segment] ?? row.segment}
+                  </span>
                   {row.brands.find((brand) => brand.expires_at) ? (
                     <div className="small muted">
                       to {row.brands.map((brand) => brand.expires_at).filter(Boolean).sort().at(-1)}
@@ -154,7 +178,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </table>
         <Pager
           base="/dashboard/clients"
-          here={{ site, q, segment }}
+          here={{ site, q, segment, due: due ? String(due) : undefined }}
           page={clients.page}
           perPage={clients.per_page}
           total={clients.total}

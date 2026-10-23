@@ -12,7 +12,13 @@ import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "driz
 import { db, type Database } from "@/db";
 import { auditLog, loginAttempts, memberships, sites, users } from "@/db/schema";
 
-export type Segment = "premium" | "trial" | "expired" | "free";
+/**
+ * The lists the old admin's Directory menu names. A lapsed trial and a
+ * lapsed subscription are separate screens there -- it queries them as
+ * `premium = 3` with a past date against `premium = 2` -- and separate
+ * jobs for whoever chases them, so they are separate here.
+ */
+export type Segment = "premium" | "trial" | "expired" | "trial_expired" | "free";
 
 export type ClientRow = {
   id: number;
@@ -31,6 +37,13 @@ export type ClientQuery = {
   search?: string;
   site?: string;
   segment?: Segment;
+  /**
+   * Days: narrows to standings that run out inside that many days from now.
+   * This is what the old admin's "Upcoming Renewal" claims to be and is not
+   * -- it routes to `premium = 1` with no date filter, the same set as
+   * Premium Users. An open-ended standing is never due.
+   */
+  due?: number;
   page?: number;
   perPage?: number;
 };
@@ -61,8 +74,14 @@ export function segmentOf(
     return "trial";
   }
 
-  if (rows.some((row) => row.tier === "premium" || row.tier === "trial")) {
+  // Lapsed, and which kind matters. A lapsed subscription outranks a lapsed
+  // trial: they once paid, which is the whole reason that list is opened.
+  if (rows.some((row) => row.tier === "premium")) {
     return "expired";
+  }
+
+  if (rows.some((row) => row.tier === "trial")) {
+    return "trial_expired";
   }
 
   return "free";
@@ -157,6 +176,22 @@ export async function listClients(
 
     if (query.segment && segment !== query.segment) {
       continue;
+    }
+
+    if (query.due !== undefined) {
+      const cutoff = isoDay(new Date(now.getTime() + query.due * 86_400_000));
+
+      // Inside the window and not already past it. A standing with no end
+      // date is not due, however long it has run.
+      // `brands` is this person's memberships. `brandRows` is everyone's,
+      // and reading it here let one person being due admit the whole list.
+      const due = brands.some(
+        (row) => row.expiresAt !== null && row.expiresAt >= today && row.expiresAt <= cutoff,
+      );
+
+      if (!due) {
+        continue;
+      }
     }
 
     rows.push({
@@ -281,6 +316,7 @@ export async function segmentCounts(
     premium: 0,
     trial: 0,
     expired: 0,
+    trial_expired: 0,
     free: 0,
     staff: 0,
   };

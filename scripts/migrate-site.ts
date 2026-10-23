@@ -243,7 +243,51 @@ async function main(): Promise<void> {
           and email is not null and email <> ''`,
     );
 
-    const readable = (userRows as unknown as LegacyUser[]).map(readUser);
+    // Where the real expiry dates are. `users.expiry_date` is NULL for every
+    // row in this estate -- 16,557 of them on baseoil -- so reading it gave
+    // nobody an end date and every payer looked open-ended. The strongest
+    // standing per person is the furthest date they hold.
+    const expiries = new Map<number, string>();
+
+    // Asked for unconditionally and guarded by the catch: a dump without the
+    // table is a brand with no subscriptions, not a reason to stop.
+    {
+      try {
+        const [expiryRows] = await source.query<mysql.RowDataPacket[]>(
+          "select user_id, max(expiry_date) as expiry_date from subscription_users group by user_id",
+        );
+
+        for (const row of expiryRows) {
+          const day = readDay(row.expiry_date);
+
+          if (day !== null) {
+            expiries.set(Number(row.user_id), day);
+          }
+        }
+      } catch (error) {
+        // Three of the nine dumps may predate the table; a missing one is a
+        // brand with no subscriptions, not a reason to stop.
+        console.log(
+          `            no subscription_users to read expiries from (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        );
+      }
+    }
+
+    const readable = (userRows as unknown as LegacyUser[]).map((row) =>
+      readUser(row, expiries.get(Number(row.id)) ?? null),
+    );
+
+    const standing = { premium: 0, trial: 0, free: 0, dated: 0 };
+
+    for (const person of readable) {
+      standing[person.tier] += 1;
+
+      if (person.expiresAt !== null) {
+        standing.dated += 1;
+      }
+    }
     const { kept, merged } = dedupeByEmail(readable);
 
     // Someone may already exist from another brand's migration: one person,
@@ -266,6 +310,7 @@ async function main(): Promise<void> {
     let created = 0;
     let joined = 0;
     let granted = 0;
+    let corrected = 0;
     const admins: string[] = [];
 
     for (const person of kept) {
@@ -316,16 +361,41 @@ async function main(): Promise<void> {
           expiresAt: person.expiresAt,
         });
         granted += 1;
+      } else if (opts.fresh) {
+        // A re-run with --fresh is how a mistake in these rules gets
+        // corrected, and the standing was the mistake: `premium` was read as
+        // a boolean and the expiry came from a column that is NULL for every
+        // row in the estate. Insert-only meant a second pass recomputed both
+        // and threw them away.
+        //
+        // `role` is never touched. Staff access is granted by hand here and
+        // a dump must not be able to take it away.
+        if (membership.tier !== person.tier || membership.expiresAt !== person.expiresAt) {
+          await database
+            .update(memberships)
+            .set({ tier: person.tier, expiresAt: person.expiresAt, updatedAt: new Date() })
+            .where(eq(memberships.id, membership.id));
+          corrected += 1;
+        }
       }
     }
 
     console.log(
       `people      ${created} new, ${joined} already here from another brand, ` +
-        `${granted} memberships  (${merged} duplicate email rows merged)`,
+        `${granted} memberships` +
+        (corrected > 0 ? `, ${corrected} standings corrected` : "") +
+        `  (${merged} duplicate email rows merged)`,
     );
 
     const paying = kept.filter((person) => person.tier === "premium").length;
-    console.log(`            ${paying} arrived premium`);
+    const trialling = kept.filter((person) => person.tier === "trial").length;
+    const dated = kept.filter((person) => person.expiresAt !== null).length;
+
+    console.log(
+      `            ${paying} premium (paying or lapsed), ${trialling} on a trial, ` +
+        `${dated} with a real expiry date`,
+    );
+    void standing;
 
     if (admins.length > 0) {
       console.log(

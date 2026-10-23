@@ -103,6 +103,14 @@ export const users = pgTable(
     country: varchar("country", { length: 96 }),
     city: varchar("city", { length: 96 }),
     website: varchar("website", { length: 191 }),
+    /**
+     * From the old `profiles` table, which is where the customer record
+     * actually lived -- `users.country` is empty on all 16,589 baseoil rows
+     * while `profiles.country_id` is set on 16,200 of them. The address is
+     * filled on 91%, and a trade directory without one is not a directory.
+     */
+    address: text("address"),
+    postcode: varchar("postcode", { length: 32 }),
     status: varchar("status", { length: 24 }).default("active").notNull(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

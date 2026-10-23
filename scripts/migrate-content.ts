@@ -33,6 +33,7 @@ import { closeDb, db } from "@/db";
 import {
   adPlacements,
   ads,
+  coupons,
   announcements,
   articleCategories,
   articles,
@@ -59,7 +60,9 @@ import {
 } from "@/db/schema";
 import { columnList, readDate, readDay } from "@/domain/migrate/transform";
 import {
+  couponAction,
   excerptFrom,
+  readCurrency,
   readPaymentStatus,
   readStatus,
   termsFrom,
@@ -235,6 +238,10 @@ async function main(): Promise<void> {
       formFields,
       settings,
     ];
+
+    // `coupons` is deliberately absent: a code widened to the whole estate
+    // has no brand to clear it by, and re-running one brand must not take a
+    // coupon away from the other eight.
 
     // Same reason as `insertAll`: one loop over fourteen differently typed
     // tables, so the table is cast once per statement rather than the loop
@@ -813,6 +820,86 @@ async function main(): Promise<void> {
       );
     }
 
+    /* ------------------------------------------------------------- coupons */
+
+    if (have.has("coupons")) {
+      const [rows] = await source.query<Row[]>(
+        `select ${columnList(
+          ["coupon_code", "discount", "description", "start_date", "end_date", "publish_options"],
+          await columnsIn(source, opts.from, "coupons"),
+        )} from coupons where deleted_at is null order by id`,
+      );
+
+      let made = 0;
+      let broadened = 0;
+      const conflicts: string[] = [];
+
+      for (const row of rows) {
+        const code = (text(row.coupon_code) ?? "").toUpperCase();
+
+        if (code === "") {
+          continue;
+        }
+
+        // The old column is a bare double with no type beside it, and every
+        // value in the estate is a percentage.
+        const incoming = {
+          percentOff: Math.round(Number(row.discount ?? 0)),
+          amountOff: null,
+          enabled: readStatus(text(row.publish_options)).status === "published",
+        };
+
+        const [existing] = await database
+          .select()
+          .from(coupons)
+          .where(eq(coupons.code, code))
+          .limit(1);
+
+        const decision = couponAction(
+          existing
+            ? {
+                siteId: existing.siteId,
+                percentOff: existing.percentOff,
+                amountOff: existing.amountOff,
+                enabled: existing.enabled,
+              }
+            : null,
+          incoming,
+          brand.id,
+        );
+
+        if (decision.action === "create") {
+          await database.insert(coupons).values({
+            siteId: decision.siteId,
+            code,
+            percentOff: incoming.percentOff,
+            startsAt: readDay(row.start_date),
+            expiresAt: readDay(row.end_date),
+            enabled: incoming.enabled,
+          });
+          made += 1;
+        } else if (decision.action === "broaden") {
+          // A second brand prints the same code on the same terms, so it is
+          // one estate-wide coupon rather than two rows fighting over a
+          // unique index.
+          await database
+            .update(coupons)
+            .set({ siteId: null })
+            .where(eq(coupons.id, existing!.id));
+          broadened += 1;
+        } else if (decision.action === "conflict") {
+          conflicts.push(code);
+        }
+      }
+
+      console.log(
+        `coupons      ${made} new, ${broadened} widened to the whole estate` +
+          (conflicts.length > 0
+            ? `; LEFT ALONE, same code different terms: ${conflicts.join(", ")}`
+            : ""),
+      );
+    }
+
     /* -------------------------------------------------- plans and payments */
 
     const planMap = new Map<number, number>();
@@ -869,6 +956,23 @@ async function main(): Promise<void> {
       }
 
       console.log(`plans        ${planMap.size} carried, ${priced} prices`);
+    }
+
+    // What each old plan was priced in, for an order that records no currency
+    // of its own -- 225 of baseoil's 635. The plan priced the sale.
+    const planCurrency = new Map<number, string>();
+
+    if (have.has("subscriptions")) {
+      const [rows] = await source.query<Row[]>(
+        "select id, currency_id from subscriptions",
+      );
+
+      for (const row of rows) {
+        planCurrency.set(
+          Number(row.id),
+          currencyCodes.get(Number(row.currency_id)) ?? "USD",
+        );
+      }
     }
 
     if (have.has("subscription_users")) {
@@ -963,7 +1067,16 @@ async function main(): Promise<void> {
           planId: planMap.get(Number(row.subscription_id)) ?? null,
           planName: clipped(row.plan_name, 191) ?? "Subscription",
           years: Number(row.no_year ?? 0) > 0 ? Number(row.no_year) : 1,
-          currency: (text(row.currency_code) ?? "USD").toUpperCase().slice(0, 3),
+          // The id over the free text: that column holds symbols as often as
+          // codes, and upper-casing it put "₹" in an ISO column.
+          currency: readCurrency(
+            row.currency_id === null || row.currency_id === undefined
+              ? null
+              : Number(row.currency_id),
+            text(row.currency_code),
+            currencyCodes,
+            planCurrency.get(Number(row.subscription_id)) ?? "USD",
+          ),
           listAmount: amount,
           amount,
           status,

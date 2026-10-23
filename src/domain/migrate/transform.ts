@@ -77,12 +77,69 @@ export function readDay(value: Date | string | null | undefined): string | null 
 }
 
 /**
+ * What the old `premium` column means.
+ *
+ * It looks like a flag and is not: the old site's own
+ * `DirectoryController::listDirectory` branches on four values, which is how
+ * its menu builds "Premium Users" (1), "Expired Premium Users" (2) and the
+ * two trial lists (3). Reading it as a boolean put 146 lapsed and 29 trial
+ * users on baseoil alone into the free pile.
+ *
+ * 2 becomes `premium` rather than `free` on purpose. They are not paying,
+ * and the dashboard says so the moment their expiry is in the past — but the
+ * fact they once paid is the entire reason anyone looks at that list.
+ */
+export function tierFor(premium: unknown): "free" | "premium" | "trial" {
+  switch (Number(premium)) {
+    case 1:
+    case 2:
+      return "premium";
+    case 3:
+      return "trial";
+    default:
+      return "free";
+  }
+}
+
+/** A year nobody can have meant. baseoil holds one 0200 and two 2050. */
+const EXPIRY_YEARS = { from: 2000, to: 2040 } as const;
+
+/**
+ * An expiry date worth believing.
+ *
+ * Outside that window the value is not a date somebody chose: `0200-10-15`
+ * is a typo that would read as "lapsed eighteen centuries ago", and
+ * `2050-12-30` is staff writing "never", which an absent date already says
+ * and says better.
+ */
+export function readExpiry(value: Date | string | null | undefined): string | null {
+  const day = readDay(value);
+
+  if (day === null) {
+    return null;
+  }
+
+  const year = Number(day.slice(0, 4));
+
+  return year >= EXPIRY_YEARS.from && year <= EXPIRY_YEARS.to ? day : null;
+}
+
+/**
  * What one legacy row becomes. `premium` is a flag and `expiry_date` is
  * separate, so a lapsed subscriber arrives as premium-with-a-past-expiry —
  * which is exactly how the dashboard reads "expired", and keeps the fact
  * that they once paid.
  */
-export function readUser(row: LegacyUser): MigratedUser {
+/**
+ * @param subscriptionExpiry the date from `subscription_users`, which is
+ *   where the real ones live -- `users.expiry_date` is NULL for every row in
+ *   the estate, so the first cut of this migration gave nobody an expiry and
+ *   every payer read as open-ended.
+ */
+export function readUser(
+  row: LegacyUser,
+  subscriptionExpiry: Date | string | null = null,
+): MigratedUser {
   const name =
     (row.name ?? "").trim() ||
     [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
@@ -90,6 +147,22 @@ export function readUser(row: LegacyUser): MigratedUser {
     "Unknown";
 
   const created = readDate(row.created_at) ?? readDate(row.updated_at) ?? new Date("2015-01-01");
+
+  const tier = tierFor(row.premium);
+
+  // The subscription's date first, then the one on the user row for the rare
+  // dump that has it. A free account never carries one: an expiry beside a
+  // free tier is what once handed a duplicated free row an open-ended
+  // premium subscription.
+  let expiry = tier === "free" ? null : readExpiry(subscriptionExpiry) ?? readExpiry(row.expiry_date);
+
+  // A lapsed member with no subscription row to date it by -- one user on
+  // baseoil. Left absent it would read as premium with no end, which shows a
+  // non-payer as paying; the row's own last change is the best evidence
+  // available of when it was flipped, and it is reported as a fallback.
+  if (expiry === null && Number(row.premium) === 2) {
+    expiry = readDay(row.updated_at);
+  }
 
   return {
     legacyIds: [row.id],
@@ -107,8 +180,8 @@ export function readUser(row: LegacyUser): MigratedUser {
     passwordHash: nullable(row.password),
     emailVerifiedAt: readDate(row.email_verified_at),
     createdAt: created,
-    tier: row.premium === 1 ? "premium" : "free",
-    expiresAt: readDay(row.expiry_date),
+    tier,
+    expiresAt: expiry,
     wasAdmin: row.isAdmin === 1,
   };
 }
