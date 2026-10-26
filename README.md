@@ -89,6 +89,9 @@ Other scripts:
 npm run migrate:site    -- --from <mysql db> --site <slug> [--fresh]  # locations, prices, people
 npm run migrate:content -- --from <mysql db> --site <slug> [--fresh]  # everything else the admin shows
 npm run sweep:expiries                                                # end the terms that have run out
+npm run jobs                                                          # run due background jobs once
+npm run jobs -- mail.deliver                                          # run one job now, due or not
+npm run jobs -- --status                                              # when each job last ran, and how
 ```
 
 ---
@@ -245,14 +248,25 @@ ever starts quoting figures, this decision has to be revisited.
 
 ## Things that are deliberately not finished
 
-**Mail is queued, never sent.** The estate's Brevo/SendGrid/SMTP credentials
-live in the old sites' settings table and are not ours to use. `mail_outbox`
-holds what would go out; a sender drains it later. Read a token back in
-development with:
+**Mail goes out once a Brevo key is set, and not before.** Everything is
+queued in `mail_outbox`; the `mail.deliver` job (`lib/mail/deliver.ts`)
+drains it every minute through Brevo's API — sent once even with two
+instances running, retried after 5 min / 15 min / 1 h / 4 h, given up after
+five tries with the reason kept on the row. Until `BREVO_API_KEY` and
+`MAIL_FROM` are set the job claims nothing, so nothing is lost. Only three
+templates exist (verify, reset, account exists); the old sites' twelve
+system mails are not ported yet. Read a token back in development with:
 
 ```sql
 select payload from mail_outbox order by id desc limit 1;
 ```
+
+**Background jobs run inside the server.** `src/instrumentation.ts` starts a
+one-minute loop in production (`JOBS=off` stops it; `JOBS=on` starts it on a
+laptop). Each job's row in `scheduled_jobs` is its lock, so any number of
+instances can run the loop. Jobs: `mail.deliver` every minute,
+`memberships.sweep` daily at 11:00 India time. The old trial and renewal
+reminder crons are not ported yet — they need the mail templates.
 
 **Razorpay is real except for one call.** The signature check — HMAC-SHA256 of
 `order_id|payment_id`, compared in constant time — is implemented and tested,

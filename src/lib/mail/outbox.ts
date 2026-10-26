@@ -1,12 +1,12 @@
 /**
- * Queue a message. Nothing here sends one.
+ * Queue a message. Nothing here sends one: `deliver.ts` does, from the
+ * `mail.deliver` job, once a Brevo key is configured.
  *
- * The estate's mail credentials (Brevo, SendGrid, plain SMTP) sit in the old
- * sites' settings table and are not ours to use yet, so every outbound mail
- * is written to `mail_outbox` and the endpoint answers immediately. That is
- * not a stub: a request that must not fail because a mail server is slow
+ * Every outbound mail is written to `mail_outbox` and the endpoint answers
+ * immediately. A request that must not fail because a mail server is slow
  * wants a queue anyway, and the newsletter and report-mailing screens will
- * queue into the same table.
+ * queue into the same table. `template` must be one `render.ts` knows, or
+ * the mail is failed rather than sent.
  *
  * The one-shot link goes in `payload`. In development that is also how you
  * read it back — `select payload from mail_outbox order by id desc limit 1`.

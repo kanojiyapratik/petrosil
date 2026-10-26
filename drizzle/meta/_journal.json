@@ -50,6 +50,20 @@
       "when": 1792751149934,
       "tag": "0006_last_tombstone",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793004266954,
+      "tag": "0007_mail_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793004419497,
+      "tag": "0008_scheduled_jobs",
+      "breakpoints": true
     }
   ]
 }

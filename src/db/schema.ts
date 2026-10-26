@@ -782,17 +782,45 @@ export const mailOutbox = pgTable(
     /** Everything the template needs, including any one-shot link. */
     payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
     attempts: integer("attempts").default(0).notNull(),
+    /**
+     * Not before this. A claimed row is pushed forward as a lease, so a
+     * worker that dies mid-send hands the mail back instead of stranding it;
+     * a failed one is pushed forward by the retry delay.
+     */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** Given up on: the reason is in `error`. */
     failedAt: timestamp("failed_at", { withTimezone: true }),
     error: text("error"),
+    /** The provider's id for the message, for tracing a delivery complaint. */
+    providerMessageId: varchar("provider_message_id", { length: 191 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
-    // The sender's query: oldest unsent first.
-    pending: index("mail_outbox_pending_idx").on(t.sentAt, t.id),
+    // The sender's query: unsent, not given up on, due, oldest first.
+    pending: index("mail_outbox_pending_idx").on(t.sentAt, t.failedAt, t.nextAttemptAt, t.id),
     byUser: index("mail_outbox_user_idx").on(t.userId),
   }),
 );
+
+/* -------------------------------------------------------- scheduled jobs */
+
+/**
+ * One row per background job: when it last started, how it ended, what it
+ * reported. The row is also the lock — an instance runs a job only after an
+ * UPDATE that moves `last_started_at` past the due time succeeds, so two
+ * instances ticking together cannot both run it.
+ */
+export const scheduledJobs = pgTable("scheduled_jobs", {
+  name: varchar("name", { length: 64 }).primaryKey(),
+  lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+  lastFinishedAt: timestamp("last_finished_at", { withTimezone: true }),
+  /** "running" | "ok" | "failed" */
+  lastStatus: varchar("last_status", { length: 16 }),
+  lastResult: jsonb("last_result").$type<Record<string, unknown>>(),
+  lastError: text("last_error"),
+  runs: integer("runs").default(0).notNull(),
+});
 
 /* ------------------------------------------------------------- audit trail */
 
