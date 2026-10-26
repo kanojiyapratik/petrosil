@@ -1,0 +1,8 @@
+node_modules
+.next
+.netlify
+.env
+.env.local
+coverage
+*.tsbuildinfo
+.git
