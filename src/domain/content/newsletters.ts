@@ -34,6 +34,7 @@ import {
 } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { linkBaseFor } from "@/lib/mail/deliver";
+import { requirePermission } from "@/domain/staff/permissions";
 import { queueMail } from "@/lib/mail/outbox";
 
 const allowed = (guard: Guarded, siteId: number) => guard.isSuperadmin || guard.siteIds.includes(siteId);
@@ -48,6 +49,7 @@ function escape(value: unknown): string {
 
 export type NewsletterDetail = {
   id: number;
+  siteId: number;
   site: string;
   siteName: string;
   title: string;
@@ -82,6 +84,7 @@ export async function getNewsletter(
 
   return {
     id: issue.id,
+    siteId: issue.siteId,
     site: found.slug,
     siteName: found.name,
     title: issue.title,
@@ -191,6 +194,8 @@ export async function composeNewsletter(
     return { ok: false, message: "Choose one of this brand's templates." };
   }
 
+  await requirePermission(guard, found.site.id, "newsletter-create", database);
+
   const blocks = await blocksFor(database, found.site.id, linkBaseFor(found.site.legacyDomain));
 
   // Every placeholder goes: the four with content are filled, and the rest —
@@ -230,6 +235,8 @@ export async function copyNewsletter(
   if (!original) {
     return { ok: false, message: "That issue is not yours to copy." };
   }
+
+  await requirePermission(guard, original.siteId, "newsletter-create", database);
 
   const [source] = await database.select().from(newsletters).where(eq(newsletters.id, id)).limit(1);
 
@@ -284,6 +291,8 @@ export async function saveNewsletter(
     return { ok: false, message: "That issue is not yours to change." };
   }
 
+  await requirePermission(guard, existing.siteId, "newsletter-edit", database);
+
   if (existing.status !== "draft") {
     return {
       ok: false,
@@ -324,6 +333,8 @@ export async function sendTestNewsletter(
   if (!issue) {
     return { ok: false, message: "That issue is not yours to send." };
   }
+
+  await requirePermission(guard, issue.siteId, "newsletter-edit", database);
 
   const [me] = await database
     .select({ email: users.email })

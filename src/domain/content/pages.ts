@@ -11,6 +11,7 @@ import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { db, type Database } from "@/db";
 import { announcements, auditLog, pages, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 
 export type Page = { slug: string; title: string; body: string; updated_at: string };
 
@@ -149,6 +150,8 @@ export async function saveAnnouncement(
     return { ok: false, message: "That brand is not yours to post to.", field: "site" };
   }
 
+  await requirePermission(guard, brand.id, typeof input.id === "number" ? "announcement-edit" : "announcement-create", database);
+
   const values = {
     siteId: brand.id,
     body: body.slice(0, 2000),
@@ -217,6 +220,8 @@ export async function removeAnnouncement(
   if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
     return false;
   }
+
+  await requirePermission(guard, found.siteId, "announcement-delete", database);
 
   await database.delete(announcements).where(eq(announcements.id, id));
 

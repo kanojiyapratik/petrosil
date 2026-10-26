@@ -29,6 +29,7 @@ import {
   plans,
   priceCrawlActivities,
   priceCrawlUrls,
+  roles,
   sites,
   users,
 } from "@/db/schema";
@@ -429,7 +430,7 @@ export type StaffMember = {
   status: string;
   last_login_at: string | null;
   superadmin: boolean;
-  brands: { slug: string; name: string; role: string }[];
+  brands: { slug: string; name: string; role: string; roleId: number | null; roleName: string | null }[];
 };
 
 /**
@@ -447,6 +448,8 @@ export async function listStaff(
     .select({
       user: users,
       role: memberships.role,
+      roleId: memberships.roleId,
+      roleName: roles.name,
       siteId: memberships.siteId,
       slug: sites.slug,
       name: sites.name,
@@ -454,6 +457,7 @@ export async function listStaff(
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .innerJoin(sites, eq(sites.id, memberships.siteId))
+    .leftJoin(roles, eq(roles.id, memberships.roleId))
     .where(inArray(memberships.role, ["staff", "superadmin"]))
     .orderBy(asc(users.name), asc(sites.slug));
 
@@ -486,7 +490,7 @@ export async function listStaff(
     if (row.role === "superadmin") {
       member.superadmin = true;
     } else {
-      member.brands.push({ slug: row.slug, name: row.name, role: row.role });
+      member.brands.push({ slug: row.slug, name: row.name, role: row.role, roleId: row.roleId, roleName: row.roleName });
     }
 
     byUser.set(row.user.id, member);

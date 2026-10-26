@@ -13,6 +13,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, type Database } from "@/db";
 import { auditLog, mailTemplates, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 
 /** The placeholders the reminder job fills (see domain/billing/reminders.ts). */
 const REMINDER_FIELDS = ["name", "email", "site", "link", "day", "expiry_date", "price", "currency_symbol"];
@@ -97,6 +98,8 @@ export async function saveMailTemplate(
   if (!existing || (!guard.isSuperadmin && !guard.siteIds.includes(existing.siteId))) {
     return { ok: false, message: "That template is not yours to change.", field: "id" };
   }
+
+  await requirePermission(guard, existing.siteId, "mail-edit", database);
 
   await database
     .update(mailTemplates)

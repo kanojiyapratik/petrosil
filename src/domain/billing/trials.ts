@@ -13,6 +13,7 @@ import { db, type Database } from "@/db";
 import { auditLog, memberships, sites, trialRequests, users } from "@/db/schema";
 import type { Identity } from "@/lib/auth/session";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 import { entitlementFor } from "@/domain/public/paywall";
 import { today } from "@/domain/price/dates";
 import { addDays } from "./sweep";
@@ -151,6 +152,9 @@ export async function decideTrial(
   if (!request || (!guard.isSuperadmin && !guard.siteIds.includes(request.siteId))) {
     return null;
   }
+
+  // Granting a trial grants paid access, so it is the plans permission.
+  await requirePermission(guard, request.siteId, "subscription-edit", database);
 
   if (request.status !== "pending") {
     throw new AccountError("That request has already been decided.", 409);

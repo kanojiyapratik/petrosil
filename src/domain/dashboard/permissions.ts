@@ -78,6 +78,17 @@ export const PERMISSIONS: PermissionGroup[] = [
     group: "Administration",
     items: [...crud("role", "roles"), ...crud("setting", "settings")],
   },
+  {
+    // Not on the old sites, because the old sites never checked them: the
+    // enquiries had no screen, report sending and uploads had no gate at all.
+    group: "Added on the platform",
+    items: [
+      { key: "enquiry-list", label: "Read enquiries" },
+      { key: "enquiry-edit", label: "Mark enquiries handled" },
+      { key: "report-send", label: "Send a report or a sample" },
+      { key: "file-upload", label: "Upload files" },
+    ],
+  },
 ];
 
 /** Every permission key, flat. */

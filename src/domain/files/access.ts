@@ -16,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { db, type Database } from "@/db";
 import { auditLog, mediaFiles, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 import { safeKey, type FileStore, type StoredFile } from "@/lib/files/store";
 import { FOLDERS, extensionOf, isPublicFolder, typeFor } from "./folders";
 
@@ -107,6 +108,8 @@ export async function uploadFile(
   if (!brand || (!guard.isSuperadmin && !guard.siteIds.includes(brand.id))) {
     return { ok: false, message: "That brand is not yours to upload to." };
   }
+
+  await requirePermission(guard, brand.id, "file-upload", database);
 
   // The type comes from the name, which is what the file will be served as;
   // what the browser claimed is not trusted.

@@ -35,6 +35,7 @@ import {
   users,
 } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 import type { FileStore } from "@/lib/files/store";
 import { brandSetting } from "@/domain/dashboard/settings";
 import { today } from "@/domain/price/dates";
@@ -220,6 +221,8 @@ export async function sendReport(
     return { ok: false, message: "That brand is not yours to send from." };
   }
 
+  await requirePermission(guard, brand.id, "report-send", database);
+
   const [report] = await database
     .select()
     .from(reports)
@@ -302,6 +305,8 @@ export async function sendSample(
   if (!brand) {
     return { ok: false, message: "That brand is not yours to send from." };
   }
+
+  await requirePermission(guard, brand.id, "report-send", database);
 
   const [person] = await database
     .select({ id: users.id, name: users.name, email: users.email, country: users.country, status: users.status })

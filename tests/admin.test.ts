@@ -273,7 +273,8 @@ describe("the staff list", () => {
     const rows = await listStaff([]);
 
     expect(rows.map((row) => row.email)).toEqual(["editor@x.example"]);
-    expect(rows[0]!.brands).toEqual([{ slug: "baseoil", name: "baseoil", role: "staff" }]);
+    // No named role: full access to the brand.
+    expect(rows[0]!.brands).toEqual([{ slug: "baseoil", name: "baseoil", role: "staff", roleId: null, roleName: null }]);
   });
 });
 

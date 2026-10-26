@@ -153,6 +153,15 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
     return { subject: mail.subject, html, text: htmlToText(html) };
   },
 
+  /** A staff invitation: the link sets a password on this admin, not a brand site. */
+  staff_invite: (mail) =>
+    compose(mail.subject, [
+      greeting(mail.payload),
+      `You have been given access to the Petrosil admin${mail.payload.brands ? ` for ${String(mail.payload.brands)}` : ""}.`,
+      { href: String(mail.payload.url ?? ""), label: "Set your password" },
+      "The link works once and lasts a week. If you were not expecting this, ignore it.",
+    ]),
+
   account_exists: (mail, context) =>
     compose(mail.subject, [
       "Hello,",

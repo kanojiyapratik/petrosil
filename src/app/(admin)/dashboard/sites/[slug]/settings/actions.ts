@@ -18,6 +18,7 @@ import { auditLog, formFields, sites, type FormKind } from "@/db/schema";
 import { currentViewer } from "@/lib/auth/server";
 import { saveSetting } from "@/domain/dashboard/settings";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
+import { refusal, requirePermission } from "@/domain/staff/permissions";
 
 async function brandFor(slug: string | null, siteIds: number[]) {
   if (!slug) {
@@ -47,6 +48,14 @@ export async function saveSettings(_state: unknown, form: FormData) {
   // can override a setting for their brand and nothing wider.
   if (!brand && !viewer.isSuperadmin) {
     return { error: "Only a superadmin can change the estate defaults." };
+  }
+
+  try {
+    if (brand) {
+      await requirePermission(viewer, brand.id, "setting-edit");
+    }
+  } catch (error) {
+    return { error: refusal(error) };
   }
 
   const ip = await callerIp();
@@ -116,6 +125,8 @@ export async function toggleField(form: FormData) {
   if (!field || (viewer.siteIds.length > 0 && !viewer.siteIds.includes(field.siteId))) {
     throw new Error("not your field");
   }
+
+  await requirePermission(viewer, field.siteId, "setting-edit");
 
   await db()
     .update(formFields)

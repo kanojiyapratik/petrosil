@@ -18,6 +18,7 @@ import { and, count, desc, eq, inArray, isNotNull, isNull, lte, sql } from "driz
 import { db, type Database } from "@/db";
 import { articleCategories, articles, auditLog, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 import { AccountError } from "@/domain/accounts/register";
 
 export type ArticleCard = {
@@ -244,6 +245,8 @@ export async function createArticle(
     throw new AccountError("You do not have access to that brand.", 403, "site");
   }
 
+  await requirePermission(guard, brand.id, "article-create", database);
+
   const title = String(body.title ?? "").trim().replace(/\s+/g, " ");
 
   if (title.length === 0) {
@@ -336,6 +339,8 @@ export async function updateArticle(
     return null;
   }
 
+  await requirePermission(guard, found.siteId, "article-edit", database);
+
   const changes: Partial<typeof articles.$inferInsert> = { updatedAt: new Date() };
 
   if (body.title !== undefined) {
@@ -422,6 +427,8 @@ export async function withdrawArticle(
   if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
     return false;
   }
+
+  await requirePermission(guard, found.siteId, "article-delete", database);
 
   await database
     .update(articles)

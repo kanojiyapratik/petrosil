@@ -12,6 +12,10 @@ import Link from "next/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { listStaff } from "@/domain/dashboard/catalogue";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { listRoles } from "@/domain/dashboard/permissions";
+import { GrantForm } from "./grant-form";
+import { revokeAction, superadminAction } from "./actions";
 import { Empty, Heading, Panel, count, when } from "../../ui";
 
 export const metadata = { title: "Staff · Petrosil" };
@@ -19,7 +23,11 @@ export const dynamic = "force-dynamic";
 
 export default async function StaffPage() {
   const viewer = (await currentViewer())!;
-  const rows = await listStaff(viewer.siteIds);
+  const [rows, brands, roles] = await Promise.all([
+    listStaff(viewer.siteIds),
+    brandsFor(viewer.siteIds),
+    listRoles(viewer.siteIds),
+  ]);
 
   const superadmins = rows.filter((row) => row.superadmin).length;
 
@@ -41,6 +49,17 @@ export default async function StaffPage() {
         </div>
       </div>
 
+      {viewer.isSuperadmin ? (
+        <Panel title="Give someone access" flush={false}>
+          <GrantForm
+            brands={brands.map((brand) => ({ slug: brand.slug, name: brand.name }))}
+            roles={roles.map((role) => ({ id: role.id, name: role.name }))}
+          />
+        </Panel>
+      ) : (
+        <p className="note">Only a superadmin can give or take away access.</p>
+      )}
+
       <Panel title="The team">
         <table>
           <thead>
@@ -49,6 +68,7 @@ export default async function StaffPage() {
               <th>Sees</th>
               <th>Account</th>
               <th>Last signed in</th>
+              {viewer.isSuperadmin ? <th /> : null}
             </tr>
           </thead>
           <tbody>
@@ -65,8 +85,18 @@ export default async function StaffPage() {
                     <span className="badge brand">the whole estate</span>
                   ) : (
                     row.brands.map((brand) => (
-                      <span key={brand.slug} className="tag" style={{ marginRight: 4 }}>
+                      <span key={brand.slug} className="tag" style={{ marginRight: 6, display: "inline-flex", gap: 4 }}>
                         {brand.slug}
+                        <span className="muted">· {brand.roleName ?? "full access"}</span>
+                        {viewer.isSuperadmin ? (
+                          <form action={revokeAction} className="inline">
+                            <input type="hidden" name="user" value={row.id} />
+                            <input type="hidden" name="site" value={brand.slug} />
+                            <button type="submit" className="ghost small" title={`Remove access to ${brand.slug}`}>
+                              ×
+                            </button>
+                          </form>
+                        ) : null}
                       </span>
                     ))
                   )}
@@ -79,11 +109,30 @@ export default async function StaffPage() {
                 <td>
                   {row.last_login_at ? when(row.last_login_at) : <span className="muted">never</span>}
                 </td>
+                {viewer.isSuperadmin ? (
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {row.superadmin ? null : (
+                      <form action={superadminAction} className="inline">
+                        <input type="hidden" name="user" value={row.id} />
+                        <button type="submit" className="ghost small">
+                          Make superadmin
+                        </button>
+                      </form>
+                    )}
+                    <form action={revokeAction} className="inline">
+                      <input type="hidden" name="user" value={row.id} />
+                      <input type="hidden" name="site" value="all" />
+                      <button type="submit" className="ghost small">
+                        Remove all access
+                      </button>
+                    </form>
+                  </td>
+                ) : null}
               </tr>
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4}>
+                <td colSpan={5}>
                   <Empty>Nobody has been granted access.</Empty>
                 </td>
               </tr>

@@ -12,6 +12,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { db, type Database } from "@/db";
 import { auditLog, enquiries, sites, users } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
+import { requirePermission } from "@/domain/staff/permissions";
 import { paging } from "@/domain/dashboard/scope";
 
 const handler = alias(users, "handler");
@@ -154,6 +155,8 @@ export async function setEnquiryStatus(
   if (!existing) {
     return { ok: false, message: "That enquiry is not yours to change." };
   }
+
+  await requirePermission(guard, existing.siteId, "enquiry-edit", database);
 
   const handled = status === "handled";
 

@@ -20,6 +20,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, sites } from "@/db/schema";
 import { currentViewer } from "@/lib/auth/server";
+import { refusal, requirePermission } from "@/domain/staff/permissions";
 import { InvalidUrls, replaceWatchedUrls } from "@/domain/crawl/urls";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
@@ -37,6 +38,12 @@ export async function saveWatchedUrls(_state: unknown, form: FormData): Promise<
 
   if (!brand || (viewer.siteIds.length > 0 && !viewer.siteIds.includes(brand.id))) {
     return { error: "That brand is not yours to change." };
+  }
+
+  try {
+    await requirePermission(viewer, brand.id, "price-batch-create");
+  } catch (error) {
+    return { error: refusal(error) };
   }
 
   try {
