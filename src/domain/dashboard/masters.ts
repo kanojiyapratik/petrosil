@@ -8,7 +8,7 @@
  * therefore which can safely be retired.
  */
 
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import {
@@ -59,6 +59,7 @@ export type MediaRow = {
   id: number;
   site: string | null;
   path: string;
+  folder: string;
   name: string;
   kind: string;
   bytes: number;
@@ -68,7 +69,7 @@ export type MediaRow = {
 
 export async function listMedia(
   siteIds: number[],
-  query: { site?: string; kind?: string; page?: number; perPage?: number } = {},
+  query: { site?: string; kind?: string; folder?: string; q?: string; page?: number; perPage?: number } = {},
   database: Database = db(),
 ): Promise<Paged<MediaRow>> {
   const only = await siteScope(siteIds, query.site, database);
@@ -79,6 +80,8 @@ export async function listMedia(
   const where = and(
     only ? or(isNull(mediaFiles.siteId), inArray(mediaFiles.siteId, only)) : undefined,
     query.kind ? eq(mediaFiles.kind, query.kind) : undefined,
+    query.folder ? eq(mediaFiles.folder, query.folder) : undefined,
+    query.q?.trim() ? ilike(mediaFiles.name, `%${query.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`) : undefined,
   );
 
   const [totals] = await database
@@ -101,6 +104,7 @@ export async function listMedia(
       id: file.id,
       site: slug,
       path: file.path,
+      folder: file.folder,
       name: file.name,
       kind: file.kind,
       bytes: file.bytes,

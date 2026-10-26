@@ -21,9 +21,11 @@
     "migrate:site": "tsx --env-file-if-exists=.env scripts/migrate-site.ts",
     "sweep:expiries": "tsx --env-file-if-exists=.env scripts/sweep-expiries.ts",
     "migrate:content": "tsx --env-file-if-exists=.env scripts/migrate-content.ts",
-    "jobs": "tsx --env-file-if-exists=.env scripts/jobs.ts"
+    "jobs": "tsx --env-file-if-exists=.env scripts/jobs.ts",
+    "import:files": "tsx --env-file-if-exists=.env scripts/import-files.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1146.0",
     "@netlify/database": "^2.0.1",
     "bcryptjs": "2.4.3",
     "drizzle-orm": "0.36.4",

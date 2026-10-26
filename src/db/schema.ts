@@ -997,7 +997,14 @@ export const mediaFiles = pgTable(
     id: serial("id").primaryKey(),
     /** Null means the file is the estate's rather than one brand's. */
     siteId: integer("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    /** The store key: `<brand>/<folder>/<name>`. */
     path: varchar("path", { length: 512 }).notNull(),
+    /**
+     * The old sites' area and folder, e.g. "reports/files" or
+     * "articles/thumbnail". It decides who may open the file: see
+     * `domain/files/access.ts`.
+     */
+    folder: varchar("folder", { length: 64 }).default("").notNull(),
     name: varchar("name", { length: 255 }).notNull(),
     kind: varchar("kind", { length: 96 }).notNull(),
     bytes: integer("bytes").default(0).notNull(),
@@ -1007,6 +1014,8 @@ export const mediaFiles = pgTable(
   (t) => ({
     pathUnique: uniqueIndex("media_files_path_unique").on(t.path),
     bySite: index("media_files_site_idx").on(t.siteId, t.createdAt),
+    // How a carried row's bare file name is looked up.
+    byName: index("media_files_site_folder_name_idx").on(t.siteId, t.folder, t.name),
   }),
 );
 

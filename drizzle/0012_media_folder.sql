@@ -1,0 +1,2 @@
+ALTER TABLE "media_files" ADD COLUMN "folder" varchar(64) DEFAULT '' NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "media_files_site_folder_name_idx" ON "media_files" USING btree ("site_id","folder","name");

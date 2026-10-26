@@ -8,7 +8,7 @@
  * the reason kept on the row. A worker with no transport configured sends
  * nothing and loses nothing.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -180,6 +180,24 @@ describe("draining the outbox", () => {
     expect(sent.sentAt).not.toBeNull();
     expect(sent.providerMessageId).toBe("msg-1");
     expect(sent.attempts).toBe(1);
+  });
+
+  it("judges what is due by the database's clock, the one that stamped the queue", async () => {
+    // The queue's times come from Postgres; if the worker judged them by this
+    // process's clock, any skew between the two (a Docker VM runs a few ms
+    // ahead here) makes a just-queued mail look "not due yet". An hour of
+    // skew makes the same mistake impossible to miss.
+    await queueVerify();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() - 60 * 60_000);
+
+    try {
+      const result = await deliverPending(recorder());
+
+      expect(result.sent).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("never sends the same mail twice", async () => {

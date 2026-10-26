@@ -24,7 +24,7 @@ export function defaultJobs(env: Record<string, string | undefined> = process.en
     {
       name: "mail.deliver",
       schedule: { everyMinutes: 1 },
-      async run({ database, now }) {
+      async run({ database }) {
         const transport = transportFromEnv(env);
 
         // Nothing is claimed without a transport, so nothing spends an
@@ -33,7 +33,9 @@ export function defaultJobs(env: Record<string, string | undefined> = process.en
           return { skipped: "no mail transport: set BREVO_API_KEY and MAIL_FROM" };
         }
 
-        return deliverPending(transport, { database, now, env });
+        // No `now`: what is due is judged by the database's clock, which
+        // stamped the queue (see deliver.ts).
+        return deliverPending(transport, { database, env });
       },
     },
     {

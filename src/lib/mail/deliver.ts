@@ -74,12 +74,21 @@ export function linkBaseFor(domain: string | null, env: Record<string, string | 
 
 export type DeliveryResult = { sent: number; retrying: number; failed: number };
 
+async function databaseNow(database: Database): Promise<Date> {
+  const [row] = (await database.execute(sql`select clock_timestamp() as now`)) as unknown as { now: Date | string }[];
+
+  return new Date(row!.now);
+}
+
 export async function deliverPending(
   transport: Transport,
   options: { database?: Database; now?: Date; limit?: number; env?: Record<string, string | undefined> } = {},
 ): Promise<DeliveryResult> {
   const database = options.database ?? db();
-  const now = options.now ?? new Date();
+  // The database's clock, not this process's: it stamped every time in the
+  // queue, and judging those by a second clock lets any skew between the two
+  // make a just-queued mail look not due. `now` is for tests moving time on.
+  const now = options.now ?? (await databaseNow(database));
   const limit = options.limit ?? 50;
   const lease = new Date(now.getTime() + LEASE_MINUTES * 60_000);
 

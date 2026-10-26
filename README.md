@@ -92,6 +92,7 @@ npm run sweep:expiries                                                # end the 
 npm run jobs                                                          # run due background jobs once
 npm run jobs -- mail.deliver                                          # run one job now, due or not
 npm run jobs -- --status                                              # when each job last ran, and how
+npm run import:files -- --site <slug> --from <old file_manager dir>   # carry a brand's files into the store
 ```
 
 ---
@@ -303,9 +304,19 @@ old quantity tables reference `qtylocations` on both ends — checked against
 the id ranges, not assumed. Those two four-row tables duplicate the first qty
 locations by name and nothing points at them.
 
-**Files are indexed, not moved.** `media_files` is the table and the File
-manager screen reads it; the PDFs that reports and offers reference still sit
-on the old sites' disks.
+**Files live in a store, by the old folders.** `lib/files/store.ts` is a
+directory (`FILES_DIR`) or an S3-compatible bucket (`FILES_S3_*`); production
+wants the bucket, since the estate's files come to about 14 GB. Keys are
+`<brand>/<area>/<folder>/<name>`, the old `file_manager` layout, so a carried
+report's bare "584.pdf" still finds its file. `npm run import:files -- --site
+<slug> --from <old file_manager>` carries a brand's files (baseoil: 5,292 files,
+1.7 GB, about a minute to disk) and lists content that names a missing file.
+Public folders (article and ad images, thumbnails) are served at
+`/api/public/{site}/files/...`; report PDFs, trade sheets and attachments only
+to staff, at `/api/dashboard/files/{id}`, until a paywalled download exists.
+Staff upload on the Files screen (50 MB, a fixed list of types, a new name per
+upload). The S3 store is tested against Adobe's S3Mock when
+`S3_TEST_ENDPOINT` is set; MinIO's images are no longer published.
 
 **Still open for the owner:** are the three conference sites and `trade-ai` in
 scope; what happens to the 756k click rows; and who among the 34 accounts that

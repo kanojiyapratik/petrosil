@@ -1,29 +1,27 @@
 /**
- * File manager.
+ * Files.
  *
  * The old sites had a PHP file browser over a directory, so what was in it
- * was whatever happened to be on disk — including a great deal nobody could
- * attribute. Here every file is a row with who put it there and how big it
- * is, and the browser is a list rather than a filesystem.
+ * was whatever happened to be on disk. Here every file is a row with its
+ * folder, its size and who put it there; carried files keep the old folders,
+ * so a report that names "584.pdf" still finds it.
+ *
+ * Also said plainly: how many files content names that are not here. On the
+ * old sites that was invisible until a reader clicked a dead link.
  */
 
-import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
-import { listMedia } from "@/domain/dashboard/masters";
-import {
-  Empty,
-  Filters,
-  Heading,
-  Pager,
-  Panel,
-  count,
-  one,
-  pageParam,
-  when,
-  type Search,
-} from "@/app/(admin)/ui";
+import Link from "next/link";
 
-export const metadata = { title: "File manager · Petrosil" };
+import { currentViewer } from "@/lib/auth/server";
+import { db } from "@/db";
+import { listMedia } from "@/domain/dashboard/masters";
+import { missingReferences } from "@/domain/files/import";
+import { FOLDERS, isPublicFolder } from "@/domain/files/folders";
+import { MAX_UPLOAD_BYTES } from "@/domain/files/access";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { Chips, Empty, Filters, Heading, Pager, Panel, count, one, pageParam, when, type Search } from "@/app/(admin)/ui";
+
+export const metadata = { title: "Files · Petrosil" };
 export const dynamic = "force-dynamic";
 
 /** Bytes, in the unit a person would say out loud. */
@@ -49,87 +47,150 @@ export default async function FilesPage({
   const viewer = (await currentViewer())!;
   const { slug } = await params;
   const search = await searchParams;
+  const base = `/dashboard/sites/${slug}/files`;
 
-  const site = slug;
-  const kind = one(search, "kind");
+  const folder = one(search, "folder");
+  const q = one(search, "q");
   const page = pageParam(one(search, "page"));
+  const uploaded = one(search, "uploaded");
+  const error = one(search, "error");
 
-  const [brands, paged] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listMedia(viewer.siteIds, { site, kind, page }),
+  const brand = (await brandsFor(viewer.siteIds)).find((row) => row.slug === slug);
+  const [paged, missing] = await Promise.all([
+    listMedia(viewer.siteIds, { site: slug, folder, q, page }),
+    brand ? missingReferences(db(), brand.id) : Promise.resolve([] as string[]),
   ]);
-
-  const held = paged.rows.reduce((sum, row) => sum + row.bytes, 0);
 
   return (
     <>
       <Heading
-        title="File manager"
-        sub="Everything uploaded, with who uploaded it. Reports, ad images and article heroes all land here."
+        title="Files"
+        sub="Report PDFs, trade sheets, article and ad images. Pictures in public folders are served to the site; PDFs and attachments only to staff, until the paid download is built."
       />
 
+      {uploaded ? (
+        <p className="flash" role="status">
+          Uploaded as <code>{uploaded}</code>.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="flash bad" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <Panel title="Upload" flush={false}>
+        <form action="/api/dashboard/files" method="post" encType="multipart/form-data">
+          <input type="hidden" name="site" value={slug} />
+          <div className="bar">
+            <div className="field">
+              <label htmlFor="folder-up">Folder</label>
+              <select id="folder-up" name="folder" defaultValue={folder ?? "reports/files"}>
+                {FOLDERS.map((name) => (
+                  <option key={name} value={name}>
+                    {name} {isPublicFolder(name) ? "(public)" : "(staff only)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field grow">
+              <label htmlFor="file">File</label>
+              <input id="file" name="file" type="file" required />
+            </div>
+            <button type="submit">Upload</button>
+          </div>
+          <p className="small muted" style={{ margin: ".4rem 0 0" }}>
+            PDF, images, video, Office and CSV, up to {MAX_UPLOAD_BYTES / 1024 / 1024} MB. The file gets a new
+            name that cannot clash with one already here.
+          </p>
+        </form>
+      </Panel>
+
+      {missing.length > 0 ? (
+        <Panel title={`${count(missing.length)} file${missing.length === 1 ? "" : "s"} named by content but not here`} flush={false}>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            Reports, articles, offers or ads point at these names and there is no such file. Either the old site
+            never had it, or it has not been carried yet.
+          </p>
+          <p className="small">
+            {missing.slice(0, 12).map((path) => (
+              <code key={path} style={{ marginRight: 8 }}>
+                {path}
+              </code>
+            ))}
+            {missing.length > 12 ? <span className="muted">and {count(missing.length - 12)} more</span> : null}
+          </p>
+        </Panel>
+      ) : null}
+
       <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/files`}>
-          <div className="field">
-            <label htmlFor="kind">Type</label>
-            <input id="kind" name="kind" type="search" defaultValue={kind ?? ""} placeholder="application/pdf" />
+        <Filters action={base}>
+          {folder ? <input type="hidden" name="folder" value={folder} /> : null}
+          <div className="field grow">
+            <label htmlFor="q">Name contains</label>
+            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="584, february-2020, singapore…" />
           </div>
         </Filters>
       </Panel>
 
-      <Panel
-        title={`${count(paged.total)} file${paged.total === 1 ? "" : "s"}`}
-        hint={`${size(held)} on this page`}
-      >
+      <div style={{ margin: "14px 0" }}>
+        <Chips
+          base={base}
+          param="folder"
+          here={{ q }}
+          value={folder}
+          options={[{ value: "", label: "Every folder" }, ...FOLDERS.map((name) => ({ value: name, label: name }))]}
+        />
+      </div>
+
+      <Panel title={`${count(paged.total)} file${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">
           <thead>
             <tr>
               <th>File</th>
-              <th>Brand</th>
-              <th>Type</th>
+              <th>Folder</th>
               <th className="num">Size</th>
-              <th>Uploaded</th>
+              <th>Added</th>
             </tr>
           </thead>
           <tbody>
             {paged.rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.name}</strong>
-                  <div className="small muted">
-                    <code>{row.path}</code>
-                  </div>
+                  <Link href={`/api/dashboard/files/${row.id}`} target="_blank" rel="noopener">
+                    <strong>{row.name}</strong>
+                  </Link>
+                  <div className="small muted">{row.kind}</div>
                 </td>
-                <td>{row.site ?? <span className="muted">estate</span>}</td>
                 <td>
-                  <span className="tag">{row.kind}</span>
+                  {row.folder || <span className="muted">—</span>}{" "}
+                  {row.folder ? (
+                    <span className={`badge ${isPublicFolder(row.folder) ? "ok" : ""}`}>
+                      {isPublicFolder(row.folder) ? "public" : "staff only"}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="num">{size(row.bytes)}</td>
                 <td>
                   {when(row.created_at)}
-                  <div className="small muted">{row.uploaded_by ?? "unknown"}</div>
+                  <div className="small muted">{row.uploaded_by ?? "carried from the old site"}</div>
                 </td>
               </tr>
             ))}
             {paged.rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={4}>
                   <Empty>
-                    Nothing indexed yet. Files referenced by reports and offers that came from the
-                    old sites still live on those sites&rsquo; disks.
+                    {q || folder
+                      ? "No files match."
+                      : "No files here yet. Carry the old site's with npm run import:files, or upload one above."}
                   </Empty>
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
-        <Pager
-          base={`/dashboard/sites/${slug}/files`}
-          here={{ site, kind }}
-          page={paged.page}
-          perPage={paged.per_page}
-          total={paged.total}
-        />
+        <Pager base={base} here={{ folder, q }} page={paged.page} perPage={paged.per_page} total={paged.total} />
       </Panel>
     </>
   );

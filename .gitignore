@@ -7,3 +7,6 @@ coverage/
 
 # Local Netlify folder
 .netlify
+
+# Uploaded and carried files (the disk store, lib/files/store.ts)
+storage/
