@@ -165,7 +165,7 @@ const SPECS: Spec[] = [
     items: [
       ["Newsletters", "newsletters", "write and send to a list", true],
       ["Newsletter templates", "templates", "the layouts a newsletter uses", true],
-      ["Email templates", "email-templates", "the 12 system mails, by country", false],
+      ["Email templates", "settings/mail-templates", "welcome, reminders, sample reports", true],
       ["Send a report", "send-report", "to every paying reader", false],
       ["Send a sample", "send-sample", "two reports to one reader", false],
       ["Delivery log", "deliveries", "who was sent what, and who opened it", false],
@@ -175,10 +175,9 @@ const SPECS: Spec[] = [
     label: "Readers",
     slug: "readers",
     items: [
-      // The old `messages` module is seven empty functions with no screen,
-      // while the public contact form kept writing into it: 1,189 unread on
-      // bitumart, 127 on baseoil, newest 23 Oct 2025.
-      ["Enquiries", "enquiries", "nobody has ever read these", false],
+      // The old `messages` module was seven empty functions with no screen,
+      // while the public forms kept writing into it: 1,189 unread on bitumart.
+      ["Enquiries", "enquiries", "messages to companies, offers, plans", true],
       ["Adverts", "ads", "campaigns and clicks", true],
       ["Advert slots", "ad-locations", "where they appear", true],
     ],
@@ -200,7 +199,6 @@ const SPECS: Spec[] = [
       ["General", "settings", "title, description, keywords", true],
       ["Directory visibility", "settings/directory", "which fields free readers see", true],
       ["Offer visibility", "settings/offers", "the same, for member offers", true],
-      ["Mail templates", "settings/mail-templates", "welcome, reminders, sample reports", true],
       // The old `settings` table carries the SMTP and provider credentials
       // this screen would edit. They are not ours to move.
       ["Mail credentials", "settings/mail", "stays on the old host", false],

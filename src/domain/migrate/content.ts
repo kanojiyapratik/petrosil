@@ -410,3 +410,13 @@ const SYSTEM_MAILS: Record<number, { key: string; variant: string }> = {
 export function systemMailFor(legacyId: number): { key: string; variant: string } | null {
   return SYSTEM_MAILS[legacyId] ?? null;
 }
+
+/**
+ * What an old message was addressed to. `messageables` held the recipient as a
+ * Laravel morph type: a member (a company in the directory) or an offer.
+ */
+export function enquiryKindFor(morphType: string): "company" | "offer" | null {
+  const type = morphType.replace(/^\\+/, "");
+
+  return type === "App\\User" ? "company" : type === "App\\Offer" ? "offer" : null;
+}

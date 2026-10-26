@@ -78,6 +78,13 @@
       "when": 1793006421372,
       "tag": "0010_archive_old_newsletters",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793007435189,
+      "tag": "0011_enquiries",
+      "breakpoints": true
     }
   ]
 }

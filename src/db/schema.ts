@@ -864,6 +864,56 @@ export const membershipReminders = pgTable(
   }),
 );
 
+/* -------------------------------------------------------------- enquiries */
+
+/**
+ * A member writing to a company in the directory ("company"), replying to an
+ * offer ("offer"), or asking about a plan ("plan"). The old sites kept these in
+ * `messages` (with no sender: who wrote was only in the mail) and
+ * `subscription_contacts`, and had no screen for either.
+ *
+ * The sender is copied onto the row as well as linked, so the enquiry still
+ * says who wrote it after an account is deleted or renamed. `about` is the
+ * company's name, the offer's subject or the plan's name, kept as text for
+ * the same reason — and because carried offer replies cannot always be tied
+ * back to their offer.
+ *
+ * `status`: "new" | "handled" | "archived" (carried from an old site, which
+ * never recorded whether anyone dealt with it).
+ */
+export const enquiries = pgTable(
+  "enquiries",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    status: varchar("status", { length: 16 }).default("new").notNull(),
+    fromUserId: integer("from_user_id").references(() => users.id, { onDelete: "set null" }),
+    fromName: varchar("from_name", { length: 191 }),
+    fromEmail: varchar("from_email", { length: 191 }),
+    fromPhone: varchar("from_phone", { length: 64 }),
+    fromCompany: varchar("from_company", { length: 191 }),
+    toUserId: integer("to_user_id").references(() => users.id, { onDelete: "set null" }),
+    offerId: integer("offer_id").references(() => offers.id, { onDelete: "set null" }),
+    planId: integer("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    about: varchar("about", { length: 255 }),
+    subject: varchar("subject", { length: 255 }),
+    message: text("message").notNull(),
+    /** Plan enquiries: years, members and the price quoted at the time. */
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    handledBy: integer("handled_by").references(() => users.id, { onDelete: "set null" }),
+    handledAt: timestamp("handled_at", { withTimezone: true }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    inbox: index("enquiries_site_status_idx").on(t.siteId, t.status, t.createdAt),
+    bySender: index("enquiries_from_idx").on(t.fromUserId, t.createdAt),
+  }),
+);
+
 /* -------------------------------------------------------- scheduled jobs */
 
 /**

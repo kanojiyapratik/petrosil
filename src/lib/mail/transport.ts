@@ -15,6 +15,8 @@ export type OutgoingMail = {
   text: string;
   /** Shown as the sender's name: the brand, so a reader knows who wrote. */
   fromName?: string;
+  /** Where a reply goes: the member who wrote, on a forwarded enquiry. */
+  replyTo?: string;
 };
 
 export type Transport = {
@@ -65,6 +67,7 @@ export function brevoTransport(options: {
             subject: mail.subject,
             htmlContent: mail.html,
             textContent: mail.text,
+            ...(mail.replyTo ? { replyTo: { email: mail.replyTo } } : {}),
           }),
           signal: AbortSignal.timeout(20_000),
         });

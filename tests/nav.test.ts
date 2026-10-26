@@ -181,7 +181,7 @@ describe("a brand's own tabs", () => {
       .flatMap((tab) => tab.items)
       .filter((item) => !item.built);
 
-    expect(unbuilt.map((item) => item.label)).toContain("Enquiries");
+    expect(unbuilt.map((item) => item.label)).toContain("Send a report");
 
     for (const item of unbuilt) {
       expect(item.note).toBeTruthy();
@@ -225,6 +225,7 @@ describe("the emailer", () => {
 
     expect(built("Newsletters")).toBe(true);
     expect(built("Newsletter templates")).toBe(true);
+    expect(built("Email templates")).toBe(true);
     // The report-delivery machine has no equivalent in the umbrella at all.
     expect(built("Send a report")).toBe(false);
     expect(built("Delivery log")).toBe(false);
@@ -285,6 +286,7 @@ describe("the cards tell the truth", () => {
         "settings/directory",
         "settings/offers",
         "settings/mail-templates",
+        "enquiries",
       ].map(under),
     );
 
@@ -359,5 +361,15 @@ describe("a screen only one brand has", () => {
 
       expect(labels.includes("Trade analysis")).toBe(hasTradeAnalysis(slug));
     }
+  });
+});
+
+describe("enquiries", () => {
+  it("has a working inbox under Readers", () => {
+    const readers = siteTabs("baseoil").find((t) => t.label === "Readers")!;
+    const enquiries = readers.items.find((i) => i.label === "Enquiries")!;
+
+    expect(enquiries.built).toBe(true);
+    expect(enquiries.href).toBe("/dashboard/sites/baseoil/enquiries");
   });
 });

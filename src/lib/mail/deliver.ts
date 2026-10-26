@@ -129,6 +129,7 @@ export async function deliverPending(
         html: rendered.html,
         text: rendered.text,
         fromName: siteName ?? undefined,
+        replyTo: typeof mail.payload.reply_to === "string" ? mail.payload.reply_to : undefined,
       });
 
       await database

@@ -243,3 +243,23 @@ export async function saveSetting(
 
   return { ok: true };
 }
+
+/**
+ * One setting as a brand sees it: the brand's own value, else the estate's,
+ * else null. For code that acts on a setting rather than a screen that shows
+ * the whole catalogue.
+ */
+export async function brandSetting(
+  siteId: number,
+  key: string,
+  database: Database = db(),
+): Promise<string | null> {
+  const rows = await database
+    .select({ siteId: settings.siteId, value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.key, key), or(isNull(settings.siteId), eq(settings.siteId, siteId))));
+
+  const value = (rows.find((row) => row.siteId === siteId) ?? rows.find((row) => row.siteId === null))?.value;
+
+  return value?.trim() ? value.trim() : null;
+}

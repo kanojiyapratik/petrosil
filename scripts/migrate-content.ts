@@ -2,10 +2,10 @@
  * Carry one brand's content out of its MariaDB dump and into the platform.
  *
  *   npm run migrate:content -- --from baseoilreport --site baseoil [--fresh]
- *   npm run migrate:content -- --from baseoilreport --site baseoil --only mails
+ *   npm run migrate:content -- --from baseoilreport --site baseoil --only mails|enquiries
  *
- * `--only mails` carries just the system mail templates, replacing any the
- * brand already has, into a brand whose other content is already here.
+ * `--only mails` or `--only enquiries` carries just that one section, replacing
+ * what the brand already has, into a brand whose other content is already here.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -42,6 +42,7 @@ import {
   articleCategories,
   articles,
   currencies,
+  enquiries,
   formFields,
   impexSheets,
   mailTemplates,
@@ -66,6 +67,7 @@ import {
 import { columnList, readDate, readDay } from "@/domain/migrate/transform";
 import {
   couponAction,
+  enquiryKindFor,
   excerptFrom,
   readCurrency,
   readPaymentStatus,
@@ -89,7 +91,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries]");
   }
 
   return {
@@ -247,6 +249,149 @@ async function carryMailTemplates(
   console.log(`mails        ${values.length} system mail templates`);
 }
 
+/**
+ * The old enquiries: `messages` (a member writing to a company in the
+ * directory, or to an offer) and `subscription_contacts` (asking about a plan).
+ *
+ * All arrive "archived": the old sites never recorded whether anyone dealt
+ * with one. A carried message has no sender — the old table never stored one;
+ * who wrote was only in the mail it sent — so only its recipient and words come
+ * across. Recipients are matched by email (people) and by subject and date
+ * (offers, which kept no link to their old ids); `about` keeps the name as
+ * text either way.
+ */
+async function carryEnquiries(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  const values: (typeof enquiries.$inferInsert)[] = [];
+
+  // Our people, by folded email, for both directions.
+  const people = new Map<string, number>();
+
+  async function idsFor(emails: (string | null)[]): Promise<void> {
+    const wanted = [...new Set(emails.filter((email): email is string => !!email).map((email) => email.toLowerCase()))].filter(
+      (email) => !people.has(email),
+    );
+
+    for (let at = 0; at < wanted.length; at += 500) {
+      const found = await database
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(inArray(users.email, wanted.slice(at, at + 500)));
+
+      for (const row of found) {
+        people.set(row.email.toLowerCase(), row.id);
+      }
+    }
+  }
+
+  if (have.has("messages")) {
+    const [rows] = await source.query<Row[]>(
+      `select m.id, m.subject, m.message, m.created_at,
+              x.messageable_type as type,
+              u.email as to_email, u.name as to_name,
+              (select p.company_name from profiles p
+                where p.user_id = u.id and coalesce(p.company_name, '') <> ''
+                order by p.id desc limit 1) as to_company,
+              o.subject as offer_subject, o.created_at as offer_created
+         from messages m
+         left join messageables x on x.message_id = m.id
+         left join users u on x.messageable_type like '%User' and u.id = x.messageable_id
+         left join offers o on x.messageable_type like '%Offer' and o.id = x.messageable_id
+        where m.deleted_at is null
+        order by m.id`,
+    );
+
+    await idsFor(rows.map((row) => text(row.to_email)));
+
+    const ourOffers = new Map<string, number>();
+
+    for (const offer of await database
+      .select({ id: offers.id, subject: offers.subject, createdAt: offers.createdAt })
+      .from(offers)
+      .where(eq(offers.siteId, siteId))) {
+      ourOffers.set(`${offer.subject}|${offer.createdAt.toISOString()}`, offer.id);
+    }
+
+    const seen = new Set<number>();
+
+    for (const row of rows) {
+      // A message with two recipients would come twice; it is one enquiry.
+      if (seen.has(Number(row.id))) {
+        continue;
+      }
+
+      seen.add(Number(row.id));
+
+      const kind = row.type ? enquiryKindFor(String(row.type)) : null;
+      const offerCreated = readDate(row.offer_created);
+      const offerKey = row.offer_subject && offerCreated ? `${clipped(row.offer_subject, 255)}|${offerCreated.toISOString()}` : null;
+
+      values.push({
+        siteId,
+        kind: kind ?? "company",
+        status: "archived",
+        toUserId: row.to_email ? (people.get(String(row.to_email).toLowerCase()) ?? null) : null,
+        offerId: offerKey ? (ourOffers.get(offerKey) ?? null) : null,
+        about: clipped(kind === "offer" ? row.offer_subject : (text(row.to_company) ?? row.to_name), 255),
+        subject: clipped(row.subject, 255),
+        message: text(row.message) ?? "",
+        createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+      });
+    }
+  }
+
+  let plansCarried = 0;
+
+  if (have.has("subscription_contacts")) {
+    const [rows] = await source.query<Row[]>(
+      // `plan_name` is blank on most rows; the plan id beside it is not.
+      `select sc.*, u.email as account_email,
+              coalesce(nullif(trim(sc.plan_name), ''), s.title) as plan_title
+         from subscription_contacts sc
+         left join users u on u.id = sc.user_id
+         left join subscriptions s on s.id = sc.subscription_id
+        order by sc.id`,
+    );
+
+    await idsFor(rows.map((row) => text(row.account_email)));
+
+    for (const row of rows) {
+      const accountEmail = text(row.account_email);
+      const cost = row.cost === null || row.cost === undefined ? null : Number(row.cost);
+
+      values.push({
+        siteId,
+        kind: "plan",
+        status: "archived",
+        fromUserId: accountEmail ? (people.get(accountEmail.toLowerCase()) ?? null) : null,
+        fromName: clipped(row.name, 191),
+        fromEmail: clipped(row.email, 191) ?? clipped(accountEmail, 191),
+        fromPhone: clipped(row.mobile, 64),
+        about: clipped(row.plan_title, 255),
+        message: text(row.message) ?? "",
+        detail: {
+          years: row.year === null || row.year === undefined ? null : Number(row.year),
+          members: row.members === null || row.members === undefined ? null : Number(row.members),
+          // As the old page quoted it, which is not necessarily what was charged.
+          price: cost === null ? null : `${text(row.currency_symbol) ?? ""}${cost}`,
+        },
+        createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+      });
+
+      plansCarried++;
+    }
+  }
+
+  await insertAll(enquiries, values);
+  console.log(
+    `enquiries    ${values.length - plansCarried} messages and ${plansCarried} plan enquiries, all archived`,
+  );
+}
+
 async function main(): Promise<void> {
   const opts = options();
   const database = db();
@@ -271,13 +416,18 @@ async function main(): Promise<void> {
 
   try {
     if (opts.only !== null) {
-      if (opts.only !== "mails") {
-        throw new Error(`--only knows "mails"; "${opts.only}" is not a section it can carry alone`);
-      }
+      const tables = await tablesIn(source, opts.from);
 
-      // A replace, so running it again after an edit at the source is safe.
-      await database.delete(mailTemplates).where(eq(mailTemplates.siteId, brand.id));
-      await carryMailTemplates(source, database, brand.id, await tablesIn(source, opts.from));
+      // Each is a replace, so running it again after an edit at the source is safe.
+      if (opts.only === "mails") {
+        await database.delete(mailTemplates).where(eq(mailTemplates.siteId, brand.id));
+        await carryMailTemplates(source, database, brand.id, tables);
+      } else if (opts.only === "enquiries") {
+        await database.delete(enquiries).where(eq(enquiries.siteId, brand.id));
+        await carryEnquiries(source, database, brand.id, tables);
+      } else {
+        throw new Error(`--only knows "mails" and "enquiries"; "${opts.only}" is not a section it can carry alone`);
+      }
 
       return;
     }
@@ -306,6 +456,7 @@ async function main(): Promise<void> {
       newsletters,
       newsletterTemplates,
       mailTemplates,
+      enquiries,
       tradeQuantities,
       tradeLocations,
       formFields,
@@ -782,6 +933,7 @@ async function main(): Promise<void> {
     }
 
     await carryMailTemplates(source, database, brand.id, have);
+    await carryEnquiries(source, database, brand.id, have);
 
     /* --------------------------------------------------------- trade flows */
 

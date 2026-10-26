@@ -165,13 +165,32 @@ export function renderMail(mail: Queued, context: RenderContext): Rendered {
     }
 
     const values = (mail.payload.vars ?? {}) as Record<string, unknown>;
+    // HTML the code built itself (an enquiry's details table, with every
+    // value in it already escaped) goes in as it is. Nothing a person typed
+    // may be passed this way.
+    const markup = (mail.payload.html_vars ?? {}) as Record<string, string>;
+    // One pass over the template, so a value that happens to contain
+    // "{content}" is left as the text it is rather than filled in turn.
+    const fill = (template: string, html: boolean) =>
+      template.replace(/\{([a-z_]+)\}/g, (whole, name: string) => {
+        if (name in markup) {
+          return html ? markup[name]! : htmlToText(markup[name]!);
+        }
+
+        return name in values ? (html ? escape(values[name]) : String(values[name] ?? "")) : whole;
+      });
 
     return {
-      subject: fillPlaceholders(stored.subject, values, false),
-      html: fillPlaceholders(stored.body, values, true),
+      // A sender that knows better than the template's fixed subject (the old
+      // "Admin Email" one says nothing) passes its own.
+      subject:
+        typeof mail.payload.subject === "string"
+          ? mail.payload.subject
+          : fillPlaceholders(stored.subject, values, false),
+      html: fill(stored.body, true),
       // Tags stripped from the template first, then filled: a value that
       // happens to look like a tag is the reader's own text and stays.
-      text: fillPlaceholders(htmlToText(stored.body), values, false),
+      text: fill(htmlToText(stored.body), false),
     };
   }
 
