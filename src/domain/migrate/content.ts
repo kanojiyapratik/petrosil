@@ -384,3 +384,29 @@ export function bestProfile<T extends ProfileRow>(rows: T[]): T | null {
     return rowAt > bestAt ? row : best;
   });
 }
+
+/**
+ * Which system mail an old `mails` row is. By id, because that is how the old
+ * code chose them — `MailTemplate::findOrFail(5)` — and the `mailkey` column
+ * is blank on several brands' rows. Ids 2/3 and 10/11 are regional pairs, tied
+ * to countries through `country_mail`: the Asia edition and the rest-of-world
+ * one.
+ */
+const SYSTEM_MAILS: Record<number, { key: string; variant: string }> = {
+  1: { key: "welcome", variant: "default" },
+  2: { key: "subscription-details", variant: "asia" },
+  3: { key: "subscription-details", variant: "default" },
+  4: { key: "staff-alert", variant: "default" },
+  5: { key: "trial-expiring", variant: "default" },
+  6: { key: "trial-expired", variant: "default" },
+  7: { key: "trial-exhausted", variant: "default" },
+  8: { key: "subscription-expiring", variant: "default" },
+  9: { key: "subscription-expired", variant: "default" },
+  10: { key: "sample-reports", variant: "default" },
+  11: { key: "sample-reports", variant: "asia" },
+  12: { key: "send-report", variant: "default" },
+};
+
+export function systemMailFor(legacyId: number): { key: string; variant: string } | null {
+  return SYSTEM_MAILS[legacyId] ?? null;
+}

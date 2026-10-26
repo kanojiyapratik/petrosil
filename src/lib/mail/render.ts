@@ -15,9 +15,14 @@ export type Queued = {
   payload: Record<string, unknown>;
 };
 
+/** A brand's own template from `mail_templates`, for a `system:<key>` mail. */
+export type StoredTemplate = { subject: string; body: string };
+
 export type RenderContext = {
   /** Where links point, e.g. `https://baseoilreport.com`. No trailing slash. */
   linkBase: string;
+  /** Loaded by the caller for a `system:` mail; absent when the brand has none, or it is off. */
+  stored?: StoredTemplate | null;
 };
 
 export class UnknownTemplate extends Error {
@@ -25,6 +30,53 @@ export class UnknownTemplate extends Error {
     super(`no mail template named "${template}"`);
     this.name = "UnknownTemplate";
   }
+}
+
+/**
+ * A `system:` mail whose brand has no such template, or has switched it off.
+ * Failed rather than sent: a blank or default-worded mail in a brand's name is
+ * worse than none.
+ */
+export class TemplateUnavailable extends Error {
+  constructor(key: string) {
+    super(`the brand has no enabled "${key}" mail template`);
+    this.name = "TemplateUnavailable";
+  }
+}
+
+/**
+ * `{name}`-style placeholders, the old sites' syntax, so the templates carried
+ * from them work unchanged. Only the values are escaped for HTML: the template
+ * is staff-written HTML and is used as it stands. An unknown placeholder is
+ * left visible rather than blanked, so a typo shows up in a test send.
+ */
+export function fillPlaceholders(
+  template: string,
+  values: Record<string, unknown>,
+  html: boolean,
+): string {
+  return template.replace(/\{([a-z_]+)\}/g, (whole, name: string) =>
+    name in values ? (html ? escape(values[name]) : String(values[name] ?? "")) : whole,
+  );
+}
+
+/** The plain-text part: paragraphs and line breaks kept, tags and entities gone. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|tr|li|table)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function escape(value: unknown): string {
@@ -80,6 +132,17 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
       "If it was not you, ignore this message and your password stays as it is.",
     ]),
 
+  /**
+   * A newsletter issue sent to one member of staff before it goes to anyone
+   * else. The body is the issue's own staff-written HTML, sent exactly as the
+   * readers would get it.
+   */
+  newsletter_test: (mail) => {
+    const html = String(mail.payload.html ?? "");
+
+    return { subject: mail.subject, html, text: htmlToText(html) };
+  },
+
   account_exists: (mail, context) =>
     compose(mail.subject, [
       "Hello,",
@@ -91,7 +154,27 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
     ]),
 };
 
+export const SYSTEM_PREFIX = "system:";
+
 export function renderMail(mail: Queued, context: RenderContext): Rendered {
+  if (mail.template.startsWith(SYSTEM_PREFIX)) {
+    const stored = context.stored;
+
+    if (!stored) {
+      throw new TemplateUnavailable(mail.template.slice(SYSTEM_PREFIX.length));
+    }
+
+    const values = (mail.payload.vars ?? {}) as Record<string, unknown>;
+
+    return {
+      subject: fillPlaceholders(stored.subject, values, false),
+      html: fillPlaceholders(stored.body, values, true),
+      // Tags stripped from the template first, then filled: a value that
+      // happens to look like a tag is the reader's own text and stays.
+      text: fillPlaceholders(htmlToText(stored.body), values, false),
+    };
+  }
+
   const template = TEMPLATES[mail.template];
 
   if (!template) {

@@ -1,15 +1,18 @@
 /**
- * Newsletters.
+ * Newsletters: find an issue, open it, or start the next one.
  *
- * 415 of them on baseoil, and the old `sent_emails` table had six rows — so
- * "did the 14 March issue go out, and to how many people" could not be
- * answered. `sentAt` and `recipients` are new columns for exactly that, and
- * an issue that was written but never sent says so.
+ * Every issue carried from the old sites is "archived": the old schema never
+ * recorded whether one went out, so the screen does not pretend to know. New
+ * issues start as drafts built from a template, as the old composer built
+ * them.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
-import { listNewsletters } from "@/domain/dashboard/promotion";
+import { listNewsletters, listTemplates } from "@/domain/dashboard/promotion";
+import { ComposeForm } from "./forms";
+import { STATUS } from "./status";
 import {
   Chips,
   Empty,
@@ -27,12 +30,6 @@ import {
 export const metadata = { title: "Newsletters · Petrosil" };
 export const dynamic = "force-dynamic";
 
-const TONE: Record<string, string> = {
-  sent: "ok",
-  scheduled: "warn",
-  draft: "",
-};
-
 export default async function NewslettersPage({
   params,
   searchParams,
@@ -44,99 +41,97 @@ export default async function NewslettersPage({
   const { slug } = await params;
   const search = await searchParams;
 
-  const site = slug;
   const status = one(search, "status");
+  const q = one(search, "q");
   const page = pageParam(one(search, "page"));
+  const base = `/dashboard/sites/${slug}/newsletters`;
 
-  const [brands, paged] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listNewsletters(viewer.siteIds, { site, status, page }),
+  const [paged, templates] = await Promise.all([
+    listNewsletters(viewer.siteIds, { site: slug, status, q, page }),
+    listTemplates(viewer.siteIds, { site: slug }),
   ]);
-
-  const reached = paged.rows.reduce((sum, row) => sum + row.recipients, 0);
 
   return (
     <>
       <Heading
         title="Newsletters"
-        sub="What was written, whether it went out, and how many it reached."
+        sub="Start an issue from a template, edit it, and send yourself a test. Issues from the old site are kept to read and copy."
       />
 
+      <Panel title="New issue" flush={false}>
+        <ComposeForm
+          site={slug}
+          templates={templates.filter((row) => row.enabled).map((row) => ({ id: row.id, title: row.title }))}
+        />
+      </Panel>
+
       <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/newsletters`}>
+        <Filters action={base}>
           {status ? <input type="hidden" name="status" value={status} /> : null}
+          <div className="field grow">
+            <label htmlFor="q">Title contains</label>
+            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Singapore, Group II, May 2026…" />
+          </div>
         </Filters>
       </Panel>
 
       <div style={{ margin: "14px 0" }}>
         <Chips
-          base={`/dashboard/sites/${slug}/newsletters`}
+          base={base}
           param="status"
-          here={{ site }}
+          here={{ q }}
           value={status}
           options={[
             { value: "", label: "All" },
+            { value: "draft", label: "Drafts" },
             { value: "sent", label: "Sent" },
-            { value: "scheduled", label: "Scheduled" },
-            { value: "draft", label: "Draft" },
+            { value: "archived", label: "From the old site" },
           ]}
         />
       </div>
 
-      <Panel
-        title={`${count(paged.total)} issue${paged.total === 1 ? "" : "s"}`}
-        hint={`${count(reached)} deliveries on this page`}
-      >
+      <Panel title={`${count(paged.total)} issue${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">
           <thead>
             <tr>
               <th>Issue</th>
-              <th>Brand</th>
-              <th>Template</th>
               <th>Status</th>
               <th className="num">Reached</th>
-              <th>When</th>
+              <th>Written</th>
             </tr>
           </thead>
           <tbody>
-            {paged.rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <strong>{row.title}</strong>
-                </td>
-                <td>{row.site}</td>
-                <td>{row.template ?? <span className="muted">none</span>}</td>
-                <td>
-                  <span className={`badge ${TONE[row.status] ?? ""}`}>{row.status}</span>
-                </td>
-                <td className="num">
-                  {row.status === "sent" ? count(row.recipients) : <span className="muted">—</span>}
-                </td>
-                <td>
-                  {row.sent_at
-                    ? when(row.sent_at)
-                    : row.scheduled_for
-                      ? `for ${when(row.scheduled_for)}`
-                      : when(row.created_at)}
-                </td>
-              </tr>
-            ))}
+            {paged.rows.map((row) => {
+              const shown = STATUS[row.status] ?? { label: row.status, tone: "" };
+
+              return (
+                <tr key={row.id}>
+                  <td>
+                    <Link href={`${base}/${row.id}`}>
+                      <strong>{row.title}</strong>
+                    </Link>
+                    {row.template ? <div className="small muted">from {row.template}</div> : null}
+                  </td>
+                  <td>
+                    <span className={`badge ${shown.tone}`}>{shown.label}</span>
+                  </td>
+                  <td className="num">
+                    {row.status === "sent" ? count(row.recipients) : <span className="muted">—</span>}
+                  </td>
+                  <td>{row.sent_at ? `sent ${when(row.sent_at)}` : when(row.created_at)}</td>
+                </tr>
+              );
+            })}
             {paged.rows.length === 0 ? (
               <tr>
-                <td colSpan={6}>
-                  <Empty>No newsletters.</Empty>
+                <td colSpan={4}>
+                  <Empty>{q ? `No issue has "${q}" in its title.` : "No newsletters."}</Empty>
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
-        <Pager
-          base={`/dashboard/sites/${slug}/newsletters`}
-          here={{ site, status }}
-          page={paged.page}
-          perPage={paged.per_page}
-          total={paged.total}
-        />
+        <Pager base={base} here={{ status, q }} page={paged.page} perPage={paged.per_page} total={paged.total} />
       </Panel>
     </>
   );

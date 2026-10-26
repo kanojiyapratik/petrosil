@@ -326,6 +326,7 @@ export async function settleOrder(
           // what someone is, only what they hold.
           tier: "premium",
           expiresAt: until,
+          lapsedFrom: null,
           updatedAt: new Date(),
         })
         .where(eq(memberships.id, existing.id));

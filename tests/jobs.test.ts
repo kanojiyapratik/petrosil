@@ -161,13 +161,25 @@ describe("running the due jobs", () => {
 });
 
 describe("the estate's jobs", () => {
-  it("delivers mail every minute and sweeps expired terms daily at 11:00 India time", () => {
+  it("delivers mail every minute, reminds at 10:00 and sweeps at 11:00 India time", () => {
     const schedules = Object.fromEntries(defaultJobs({}).map((job) => [job.name, job.schedule]));
 
+    // The old sites' hours: trial reminders at 10, subscription work at 11.
     expect(schedules).toEqual({
       "mail.deliver": { everyMinutes: 1 },
+      "memberships.reminders": { dailyAt: "10:00" },
       "memberships.sweep": { dailyAt: "11:00" },
     });
+  });
+
+  it("reminds by India's calendar day, not the server's", async () => {
+    const reminders = defaultJobs({}).find((job) => job.name === "memberships.reminders")!;
+
+    // 23:00 UTC on the 25th is already the 26th in India. Nothing is due on
+    // an empty estate; what matters is that the job reports the day it used.
+    const result = await reminders.run({ database: db(), now: at("2026-10-25T23:00:00Z") });
+
+    expect(result).toEqual({ day: "2026-10-26", queued: 0 });
   });
 
   it("leaves mail queued when no transport is configured, and says why", async () => {

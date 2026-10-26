@@ -2,6 +2,10 @@
  * Carry one brand's content out of its MariaDB dump and into the platform.
  *
  *   npm run migrate:content -- --from baseoilreport --site baseoil [--fresh]
+ *   npm run migrate:content -- --from baseoilreport --site baseoil --only mails
+ *
+ * `--only mails` carries just the system mail templates, replacing any the
+ * brand already has, into a brand whose other content is already here.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -40,6 +44,7 @@ import {
   currencies,
   formFields,
   impexSheets,
+  mailTemplates,
   newsletterTemplates,
   newsletters,
   offers,
@@ -65,11 +70,12 @@ import {
   readCurrency,
   readPaymentStatus,
   readStatus,
+  systemMailFor,
   termsFrom,
   uniqueSlug,
 } from "@/domain/migrate/content";
 
-type Options = { from: string; site: string; fresh: boolean; host: string; port: number };
+type Options = { from: string; site: string; fresh: boolean; only: string | null; host: string; port: number };
 
 function options(): Options {
   const args = process.argv.slice(2);
@@ -83,13 +89,14 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails]");
   }
 
   return {
     from,
     site,
     fresh: args.includes("--fresh"),
+    only: read("only") ?? null,
     host: read("host") ?? "127.0.0.1",
     port: Number(read("port") ?? 3399),
   };
@@ -187,6 +194,59 @@ const SETTING_KEYS: Record<string, string> = {
   mailwizz: "mailwizz_list",
 };
 
+/**
+ * The old `mails` table: the system mails staff edit. A function of its own so
+ * `--only mails` can carry it into a brand whose other content is already here.
+ */
+async function carryMailTemplates(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (!have.has("mails")) {
+    return;
+  }
+
+  const [rows] = await source.query<Row[]>(
+    `select id, title, subject, description, publish_options, created_at, updated_at
+       from mails where deleted_at is null order by id`,
+  );
+
+  const values = rows.flatMap((row) => {
+    // By id, the way the old code chose them; a row we cannot place is
+    // reported rather than guessed at.
+    const role = systemMailFor(Number(row.id));
+
+    if (!role) {
+      console.log(`mails        skipped #${row.id} "${text(row.title) ?? ""}": not one the old code ever sent`);
+
+      return [];
+    }
+
+    const title = clipped(row.title, 191) ?? role.key;
+
+    return [
+      {
+        siteId,
+        key: role.key,
+        variant: role.variant,
+        title,
+        // `send-report` has no subject on any brand; the report's own title
+        // was used. The template title stands in until staff write one.
+        subject: clipped(row.subject, 255) ?? title,
+        body: text(row.description) ?? "",
+        enabled: readStatus(text(row.publish_options)).status === "published",
+        createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+        updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
+      },
+    ];
+  });
+
+  await insertAll(mailTemplates, values);
+  console.log(`mails        ${values.length} system mail templates`);
+}
+
 async function main(): Promise<void> {
   const opts = options();
   const database = db();
@@ -210,6 +270,18 @@ async function main(): Promise<void> {
   console.log("-".repeat(64));
 
   try {
+    if (opts.only !== null) {
+      if (opts.only !== "mails") {
+        throw new Error(`--only knows "mails"; "${opts.only}" is not a section it can carry alone`);
+      }
+
+      // A replace, so running it again after an edit at the source is safe.
+      await database.delete(mailTemplates).where(eq(mailTemplates.siteId, brand.id));
+      await carryMailTemplates(source, database, brand.id, await tablesIn(source, opts.from));
+
+      return;
+    }
+
     const have = await tablesIn(source, opts.from);
 
     /**
@@ -233,6 +305,7 @@ async function main(): Promise<void> {
       adPlacements,
       newsletters,
       newsletterTemplates,
+      mailTemplates,
       tradeQuantities,
       tradeLocations,
       formFields,
@@ -695,17 +768,20 @@ async function main(): Promise<void> {
         title: clipped(row.title, 255) ?? `Issue ${row.id}`,
         body: text(row.description) ?? "",
         // Nothing in the old schema recorded a send, so nothing here claims
-        // one. 415 issues arrive as written, not as sent.
-        status: "draft",
+        // one. Not "draft" either: these are history, read-only, and copied
+        // into a new draft to be reused.
+        status: "archived",
         createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
         updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
       }));
 
       await insertAll(newsletters, values);
       console.log(
-        `newsletters  ${values.length} carried into ${templateMap.size} templates, all as drafts (no send was ever recorded)`,
+        `newsletters  ${values.length} carried into ${templateMap.size} templates, all archived (no send was ever recorded)`,
       );
     }
+
+    await carryMailTemplates(source, database, brand.id, have);
 
     /* --------------------------------------------------------- trade flows */
 

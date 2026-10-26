@@ -11,7 +11,7 @@
  * never paid, and telling those two apart is most of renewals.
  */
 
-import { and, eq, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { auditLog, memberships } from "@/db/schema";
@@ -54,7 +54,9 @@ export async function sweepExpiries(
 
   await database
     .update(memberships)
-    .set({ tier: "free", updatedAt: new Date() })
+    // `lapsed_from` keeps what they had, so the reminder that follows is the
+    // trial one or the subscription one, not a guess.
+    .set({ tier: "free", lapsedFrom: sql`${memberships.tier}`, updatedAt: new Date() })
     .where(
       inArray(
         memberships.id,

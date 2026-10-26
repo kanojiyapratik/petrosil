@@ -394,6 +394,8 @@ export async function updateMembership(
 
   if (change.tier !== undefined) {
     values.tier = change.tier;
+    // A tier set by hand is a decision, not a lapse.
+    values.lapsedFrom = null;
   }
 
   if (change.expires_at !== undefined) {

@@ -200,6 +200,7 @@ const SPECS: Spec[] = [
       ["General", "settings", "title, description, keywords", true],
       ["Directory visibility", "settings/directory", "which fields free readers see", true],
       ["Offer visibility", "settings/offers", "the same, for member offers", true],
+      ["Mail templates", "settings/mail-templates", "welcome, reminders, sample reports", true],
       // The old `settings` table carries the SMTP and provider credentials
       // this screen would edit. They are not ours to move.
       ["Mail credentials", "settings/mail", "stays on the old host", false],

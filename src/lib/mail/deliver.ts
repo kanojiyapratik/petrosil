@@ -14,12 +14,41 @@
  * actually happened.
  */
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { mailOutbox, sites } from "@/db/schema";
-import { renderMail, UnknownTemplate } from "./render";
+import { mailOutbox, mailTemplates, sites } from "@/db/schema";
+import { renderMail, SYSTEM_PREFIX, TemplateUnavailable, UnknownTemplate, type StoredTemplate } from "./render";
 import { SendError, type Transport } from "./transport";
+
+/**
+ * The brand's enabled template for a `system:` mail, read at send time so an
+ * edit reaches mail still waiting in the queue. `payload.variant` picks a
+ * regional edition; without one it is the default.
+ */
+async function storedTemplate(
+  database: Database,
+  mail: typeof mailOutbox.$inferSelect,
+): Promise<StoredTemplate | null> {
+  if (!mail.template.startsWith(SYSTEM_PREFIX) || mail.siteId === null) {
+    return null;
+  }
+
+  const [found] = await database
+    .select({ subject: mailTemplates.subject, body: mailTemplates.body })
+    .from(mailTemplates)
+    .where(
+      and(
+        eq(mailTemplates.siteId, mail.siteId),
+        eq(mailTemplates.key, mail.template.slice(SYSTEM_PREFIX.length)),
+        eq(mailTemplates.variant, String(mail.payload.variant ?? "default")),
+        eq(mailTemplates.enabled, true),
+      ),
+    )
+    .limit(1);
+
+  return found ?? null;
+}
 
 export const MAX_ATTEMPTS = 5;
 
@@ -90,7 +119,10 @@ export async function deliverPending(
 
   for (const { mail, siteName, domain } of rows) {
     try {
-      const rendered = renderMail(mail, { linkBase: linkBaseFor(domain, options.env) });
+      const rendered = renderMail(mail, {
+        linkBase: linkBaseFor(domain, options.env),
+        stored: await storedTemplate(database, mail),
+      });
       const { messageId } = await transport.send({
         to: mail.to,
         subject: rendered.subject,
@@ -108,7 +140,9 @@ export async function deliverPending(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const permanent =
-        error instanceof UnknownTemplate || (error instanceof SendError && error.permanent);
+        error instanceof UnknownTemplate ||
+        error instanceof TemplateUnavailable ||
+        (error instanceof SendError && error.permanent);
 
       if (permanent || mail.attempts >= MAX_ATTEMPTS) {
         await database

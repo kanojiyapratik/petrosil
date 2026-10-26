@@ -64,6 +64,20 @@
       "when": 1793004419497,
       "tag": "0008_scheduled_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793005351346,
+      "tag": "0009_system_mail",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793006421372,
+      "tag": "0010_archive_old_newsletters",
+      "breakpoints": true
     }
   ]
 }

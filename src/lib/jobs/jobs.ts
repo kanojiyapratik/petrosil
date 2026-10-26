@@ -8,14 +8,16 @@
  *                              → not a job: an article whose published_at has
  *                                passed is published when it is read
  *   trial:cron, subscription:cron (reminder mails)
- *                              → not yet; they need the mail templates
+ *                              → `memberships.reminders`, daily, one job
  *   demo:cron                  → dropped; it wrote "hello new" into `items`
  */
 
+import { remindExpiries } from "@/domain/billing/reminders";
 import { sweepExpiries } from "@/domain/billing/sweep";
 import { deliverPending } from "@/lib/mail/deliver";
 import { transportFromEnv } from "@/lib/mail/transport";
 import type { Job } from "./runner";
+import { indiaDay } from "./schedule";
 
 export function defaultJobs(env: Record<string, string | undefined> = process.env): Job[] {
   return [
@@ -35,11 +37,21 @@ export function defaultJobs(env: Record<string, string | undefined> = process.en
       },
     },
     {
+      name: "memberships.reminders",
+      // The hour the old trial reminders went out.
+      schedule: { dailyAt: "10:00" },
+      async run({ database, now }) {
+        const day = indiaDay(now);
+
+        return { day, ...(await remindExpiries(database, day)) };
+      },
+    },
+    {
       name: "memberships.sweep",
       // The hour the old subscription mails went out.
       schedule: { dailyAt: "11:00" },
-      async run({ database }) {
-        return sweepExpiries(database);
+      async run({ database, now }) {
+        return sweepExpiries(database, indiaDay(now));
       },
     },
   ];

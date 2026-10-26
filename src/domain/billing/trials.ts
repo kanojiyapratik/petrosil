@@ -192,7 +192,7 @@ export async function decideTrial(
       if (existing) {
         await tx
           .update(memberships)
-          .set({ tier: "trial", expiresAt, updatedAt: new Date() })
+          .set({ tier: "trial", expiresAt, lapsedFrom: null, updatedAt: new Date() })
           .where(eq(memberships.id, existing.id));
       } else {
         await tx.insert(memberships).values({

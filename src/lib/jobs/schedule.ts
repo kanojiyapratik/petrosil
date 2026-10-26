@@ -35,6 +35,11 @@ export function dueCutoff(schedule: Schedule, now: Date): Date {
   return slot.getTime() <= now.getTime() ? slot : new Date(slot.getTime() - 24 * 60 * 60_000);
 }
 
+/** The calendar day in India at `now`, as Y-m-d: the day a daily job is about. */
+export function indiaDay(now: Date): string {
+  return new Date(now.getTime() + INDIA_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10);
+}
+
 export function isDue(schedule: Schedule, lastStartedAt: Date | null, now: Date): boolean {
   return lastStartedAt === null || lastStartedAt.getTime() < dueCutoff(schedule, now).getTime();
 }

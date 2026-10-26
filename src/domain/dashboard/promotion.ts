@@ -7,7 +7,7 @@
  * looked sold when it was empty.
  */
 
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { adPlacements, ads, newsletterTemplates, newsletters, sites } from "@/db/schema";
@@ -202,7 +202,7 @@ export type NewsletterRow = {
 
 export async function listNewsletters(
   siteIds: number[],
-  query: { site?: string; status?: string; page?: number; perPage?: number } = {},
+  query: { site?: string; status?: string; q?: string; page?: number; perPage?: number } = {},
   database: Database = db(),
 ): Promise<Paged<NewsletterRow>> {
   const only = await siteScope(siteIds, query.site, database);
@@ -212,6 +212,11 @@ export async function listNewsletters(
     isNull(newsletters.deletedAt),
     only ? inArray(newsletters.siteId, only) : undefined,
     query.status ? eq(newsletters.status, query.status) : undefined,
+    // Words in the title, any case. Escaped so a % typed into the box is a
+    // percent sign, not a wildcard.
+    query.q?.trim()
+      ? ilike(newsletters.title, `%${query.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+      : undefined,
   );
 
   const [totals] = await database

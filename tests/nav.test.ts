@@ -284,6 +284,7 @@ describe("the cards tell the truth", () => {
         "settings",
         "settings/directory",
         "settings/offers",
+        "settings/mail-templates",
       ].map(under),
     );
 

@@ -148,6 +148,12 @@ export const memberships = pgTable(
     roleId: integer("role_id"),
     tier: varchar("tier", { length: 24 }).default("free").notNull(),
     expiresAt: date("expires_at"),
+    /**
+     * What a lapsed member held before the sweep made them free — "premium"
+     * or "trial" — so the right "your access has ended" mail goes out. Set
+     * only by the sweep; any other change of tier clears it.
+     */
+    lapsedFrom: varchar("lapsed_from", { length: 24 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -803,6 +809,61 @@ export const mailOutbox = pgTable(
   }),
 );
 
+/* ---------------------------------------------------------- system mails */
+
+/**
+ * The mails the system sends on its own — welcome, trial and renewal
+ * reminders, sample reports — one set per brand, written and edited by staff.
+ * The old `mails` table, keyed by what the mail is for instead of by the
+ * numeric id the old code hard-wired. `variant` carries the old regional
+ * pairs ("asia" and "default" for subscription details and sample reports).
+ * `{name}`-style placeholders are filled at delivery.
+ */
+export const mailTemplates = pgTable(
+  "mail_templates",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 48 }).notNull(),
+    variant: varchar("variant", { length: 16 }).default("default").notNull(),
+    title: varchar("title", { length: 191 }).notNull(),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    body: text("body").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    onePerKey: uniqueIndex("mail_templates_site_key_variant_unique").on(t.siteId, t.key, t.variant),
+  }),
+);
+
+/**
+ * Every expiry reminder queued, so a re-run — a forced job, a restart in the
+ * middle of a tick — cannot send the same one twice. The unique index is the
+ * guarantee; the job inserts here first and queues only what it inserted.
+ */
+export const membershipReminders = pgTable(
+  "membership_reminders",
+  {
+    id: serial("id").primaryKey(),
+    membershipId: integer("membership_id")
+      .notNull()
+      .references(() => memberships.id, { onDelete: "cascade" }),
+    /** The template key: trial-expiring, subscription-expired, … */
+    kind: varchar("kind", { length: 48 }).notNull(),
+    expiresAt: date("expires_at").notNull(),
+    /** Days before (expiring) or after (expired) the end. */
+    days: integer("days").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("membership_reminders_once").on(t.membershipId, t.kind, t.expiresAt, t.days),
+  }),
+);
+
 /* -------------------------------------------------------- scheduled jobs */
 
 /**
@@ -1171,7 +1232,10 @@ export const newsletters = pgTable(
     }),
     title: varchar("title", { length: 255 }).notNull(),
     body: text("body").notNull(),
-    /** "draft" | "scheduled" | "sent". */
+    /**
+     * "draft" | "scheduled" | "sent" | "archived". Archived = carried from an
+     * old site, which never recorded whether an issue went out.
+     */
     status: varchar("status", { length: 24 }).default("draft").notNull(),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
