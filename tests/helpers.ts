@@ -10,7 +10,7 @@ export async function resetDatabase(): Promise<void> {
   // One statement, so no ordering problem with the foreign keys.
   await db().execute(sql`
     truncate table
-      audit_log, mail_outbox, scheduled_jobs, mail_templates, membership_reminders, enquiries, auth_tokens, price_summaries,
+      audit_log, mail_outbox, scheduled_jobs, mail_templates, membership_reminders, enquiries, mail_send_recipients, mail_sends, auth_tokens, price_summaries,
       price_crawl_activities, price_crawl_urls, site_crawl_settings,
       price_batch_items, price_batches, prices, locations, memberships,
       trial_requests, payments, orders, plan_prices, plans, coupons,

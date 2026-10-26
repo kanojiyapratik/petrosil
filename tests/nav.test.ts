@@ -181,7 +181,7 @@ describe("a brand's own tabs", () => {
       .flatMap((tab) => tab.items)
       .filter((item) => !item.built);
 
-    expect(unbuilt.map((item) => item.label)).toContain("Send a report");
+    expect(unbuilt.map((item) => item.label)).toContain("Sample reports");
 
     for (const item of unbuilt) {
       expect(item.note).toBeTruthy();
@@ -226,9 +226,10 @@ describe("the emailer", () => {
     expect(built("Newsletters")).toBe(true);
     expect(built("Newsletter templates")).toBe(true);
     expect(built("Email templates")).toBe(true);
-    // The report-delivery machine has no equivalent in the umbrella at all.
-    expect(built("Send a report")).toBe(false);
-    expect(built("Delivery log")).toBe(false);
+    // The report-delivery machine: send, sample, and the log of both.
+    expect(built("Send a report")).toBe(true);
+    expect(built("Send a sample")).toBe(true);
+    expect(built("Delivery log")).toBe(true);
   });
 
   it("still groups a brand into no more than seven tabs", () => {
@@ -287,6 +288,9 @@ describe("the cards tell the truth", () => {
         "settings/offers",
         "settings/mail-templates",
         "enquiries",
+        "send-report",
+        "send-sample",
+        "deliveries",
       ].map(under),
     );
 

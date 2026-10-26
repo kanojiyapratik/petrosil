@@ -864,6 +864,63 @@ export const membershipReminders = pgTable(
   }),
 );
 
+/* --------------------------------------------------- report and sample sends */
+
+/**
+ * A report mailed to its paying readers, or sample reports mailed to one
+ * prospect. The old sites kept these in four tables (`report_sends`,
+ * `report_send_users`, `report_send_additional_users`, `sample_sends`) whose
+ * status column read 400 on every row whether the mail went or not.
+ *
+ * What a send was is here; whether each mail went is its outbox row's
+ * business, so the log reads the outbox rather than keeping a second opinion.
+ */
+export const mailSends = pgTable(
+  "mail_sends",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    /** "report" | "sample" */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    /** The report ids attached, in order. */
+    reportIds: jsonb("report_ids").$type<number[]>().default([]).notNull(),
+    /** The report title (or titles), kept as text so the log survives a deleted report. */
+    about: varchar("about", { length: 512 }),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    body: text("body").notNull(),
+    sentBy: integer("sent_by").references(() => users.id, { onDelete: "set null" }),
+    /** Carried from an old site: no outbox rows, and no trustworthy delivery record. */
+    legacy: boolean("legacy").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("mail_sends_site_idx").on(t.siteId, t.createdAt),
+  }),
+);
+
+export const mailSendRecipients = pgTable(
+  "mail_send_recipients",
+  {
+    id: serial("id").primaryKey(),
+    sendId: integer("send_id")
+      .notNull()
+      .references(() => mailSends.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    email: varchar("email", { length: 191 }).notNull(),
+    name: varchar("name", { length: 191 }),
+    outboxId: integer("outbox_id").references(() => mailOutbox.id, { onDelete: "set null" }),
+    /** The open pixel's key: unguessable, one per recipient. */
+    openToken: varchar("open_token", { length: 64 }).notNull(),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+  },
+  (t) => ({
+    token: uniqueIndex("mail_send_recipients_token_unique").on(t.openToken),
+    bySend: index("mail_send_recipients_send_idx").on(t.sendId),
+  }),
+);
+
 /* -------------------------------------------------------------- enquiries */
 
 /**

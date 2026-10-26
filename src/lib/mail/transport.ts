@@ -17,6 +17,8 @@ export type OutgoingMail = {
   fromName?: string;
   /** Where a reply goes: the member who wrote, on a forwarded enquiry. */
   replyTo?: string;
+  /** Files sent with the mail: a report's PDF, sample reports. */
+  attachments?: { name: string; content: Uint8Array }[];
 };
 
 export type Transport = {
@@ -68,6 +70,14 @@ export function brevoTransport(options: {
             htmlContent: mail.html,
             textContent: mail.text,
             ...(mail.replyTo ? { replyTo: { email: mail.replyTo } } : {}),
+            ...(mail.attachments?.length
+              ? {
+                  attachment: mail.attachments.map((file) => ({
+                    name: file.name,
+                    content: Buffer.from(file.content).toString("base64"),
+                  })),
+                }
+              : {}),
           }),
           signal: AbortSignal.timeout(20_000),
         });

@@ -20,6 +20,7 @@ import { db, type Database } from "@/db";
 import { mailOutbox, mailTemplates, sites } from "@/db/schema";
 import { renderMail, SYSTEM_PREFIX, TemplateUnavailable, UnknownTemplate, type StoredTemplate } from "./render";
 import { SendError, type Transport } from "./transport";
+import { fileStore, type FileStore } from "@/lib/files/store";
 
 /**
  * The brand's enabled template for a `system:` mail, read at send time so an
@@ -74,6 +75,44 @@ export function linkBaseFor(domain: string | null, env: Record<string, string | 
 
 export type DeliveryResult = { sent: number; retrying: number; failed: number };
 
+/**
+ * A file the mail names is not in the store. Failed, not sent without it: a
+ * report mail with no report in it is worse than none, and the log says why.
+ */
+export class AttachmentMissing extends Error {
+  constructor(key: string) {
+    super(`attachment missing from the file store: ${key}`);
+    this.name = "AttachmentMissing";
+  }
+}
+
+/**
+ * The files a queued mail names, read at send time. The outbox holds only
+ * their keys: a 5 MB PDF copied into the payload of every one of 80 queued
+ * mails would be 400 MB of database for one send.
+ */
+async function attachmentsFor(
+  mail: typeof mailOutbox.$inferSelect,
+  store: FileStore,
+): Promise<{ name: string; content: Uint8Array }[]> {
+  const wanted = Array.isArray(mail.payload.attachments)
+    ? (mail.payload.attachments as { key: string; name: string }[])
+    : [];
+  const files: { name: string; content: Uint8Array }[] = [];
+
+  for (const { key, name } of wanted) {
+    const file = await store.get(key);
+
+    if (!file) {
+      throw new AttachmentMissing(key);
+    }
+
+    files.push({ name, content: file.body });
+  }
+
+  return files;
+}
+
 async function databaseNow(database: Database): Promise<Date> {
   const [row] = (await database.execute(sql`select clock_timestamp() as now`)) as unknown as { now: Date | string }[];
 
@@ -82,7 +121,14 @@ async function databaseNow(database: Database): Promise<Date> {
 
 export async function deliverPending(
   transport: Transport,
-  options: { database?: Database; now?: Date; limit?: number; env?: Record<string, string | undefined> } = {},
+  options: {
+    database?: Database;
+    now?: Date;
+    limit?: number;
+    env?: Record<string, string | undefined>;
+    /** Where attachments are read from; the configured store by default. */
+    store?: FileStore;
+  } = {},
 ): Promise<DeliveryResult> {
   const database = options.database ?? db();
   // The database's clock, not this process's: it stamped every time in the
@@ -132,6 +178,7 @@ export async function deliverPending(
         linkBase: linkBaseFor(domain, options.env),
         stored: await storedTemplate(database, mail),
       });
+      const attachments = await attachmentsFor(mail, options.store ?? fileStore());
       const { messageId } = await transport.send({
         to: mail.to,
         subject: rendered.subject,
@@ -139,6 +186,7 @@ export async function deliverPending(
         text: rendered.text,
         fromName: siteName ?? undefined,
         replyTo: typeof mail.payload.reply_to === "string" ? mail.payload.reply_to : undefined,
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
 
       await database
@@ -152,6 +200,7 @@ export async function deliverPending(
       const permanent =
         error instanceof UnknownTemplate ||
         error instanceof TemplateUnavailable ||
+        error instanceof AttachmentMissing ||
         (error instanceof SendError && error.permanent);
 
       if (permanent || mail.attempts >= MAX_ATTEMPTS) {

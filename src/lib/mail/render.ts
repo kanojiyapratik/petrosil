@@ -133,6 +133,16 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
     ]),
 
   /**
+   * A mail whose subject and body were written and personalised when it was
+   * queued — a report send, a sample — so delivery only has to send it.
+   */
+  prepared: (mail) => {
+    const html = String(mail.payload.html ?? "");
+
+    return { subject: mail.subject, html, text: htmlToText(html) };
+  },
+
+  /**
    * A newsletter issue sent to one member of staff before it goes to anyone
    * else. The body is the issue's own staff-written HTML, sent exactly as the
    * readers would get it.

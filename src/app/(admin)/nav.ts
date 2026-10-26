@@ -166,9 +166,9 @@ const SPECS: Spec[] = [
       ["Newsletters", "newsletters", "write and send to a list", true],
       ["Newsletter templates", "templates", "the layouts a newsletter uses", true],
       ["Email templates", "settings/mail-templates", "welcome, reminders, sample reports", true],
-      ["Send a report", "send-report", "to every paying reader", false],
-      ["Send a sample", "send-sample", "two reports to one reader", false],
-      ["Delivery log", "deliveries", "who was sent what, and who opened it", false],
+      ["Send a report", "send-report", "to every paying reader", true],
+      ["Send a sample", "send-sample", "reports to one prospect", true],
+      ["Delivery log", "deliveries", "who was sent what, and who opened it", true],
     ],
   },
   {

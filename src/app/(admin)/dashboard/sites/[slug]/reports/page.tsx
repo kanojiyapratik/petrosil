@@ -6,6 +6,8 @@
  * which of 584 reports anyone actually opened.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listReports } from "@/domain/dashboard/publishing";
@@ -104,6 +106,11 @@ export default async function ReportsPage({
                   <div className="small muted">
                     {row.file ? <code>{row.file}</code> : "no file attached"}
                   </div>
+                  {row.file ? (
+                    <Link className="small" href={`/dashboard/sites/${slug}/reports/${row.id}/send`}>
+                      Send to paying readers →
+                    </Link>
+                  ) : null}
                 </td>
                 <td>{row.site}</td>
                 <td>
