@@ -59,9 +59,9 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
           <thead>
             <tr>
               <th>Plan</th>
-              <th>Brand</th>
-              <th>Terms</th>
-              <th>Shown</th>
+              <th>Sold on</th>
+              <th>Prices</th>
+              <th>Status</th>
               <th className="num">Sold</th>
             </tr>
           </thead>
@@ -77,22 +77,45 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
                     {row.description ? ` · ${row.description}` : ""}
                   </div>
                 </td>
-                <td>{row.site_name}</td>
+                <td>
+                  {row.all_sites ? (
+                    <strong>All brands</strong>
+                  ) : (
+                    row.sites.map((brand) => brand.name).join(", ")
+                  )}
+                </td>
                 <td>
                   {row.terms.length === 0 ? (
                     <span className="muted">no price set</span>
                   ) : (
-                    row.terms.map((term) => (
-                      <span key={term.years} className="tag" style={{ marginRight: 4 }}>
-                        {term.years}y {money(term.amount, row.currency)}
-                      </span>
+                    row.currencies.map((currency) => (
+                      <div key={currency} style={{ marginBottom: 4 }}>
+                        {row.terms
+                          .filter((term) => term.currency === currency)
+                          .map((term) => (
+                            <span key={term.years} className="tag" style={{ marginRight: 4 }}>
+                              {term.years}y{" "}
+                              {row.on_sale && term.sale_amount !== null ? (
+                                <>
+                                  <s className="muted">{money(term.amount, currency)}</s> {money(term.sale_amount, currency)}
+                                </>
+                              ) : (
+                                money(term.amount, currency)
+                              )}
+                            </span>
+                          ))}
+                      </div>
                     ))
                   )}
                 </td>
                 <td>
-                  <span className={`badge ${row.visible ? "ok" : ""}`}>
-                    {row.visible ? "on sale" : "hidden"}
-                  </span>
+                  <span className={`badge ${row.visible ? "ok" : ""}`}>{row.visible ? "shown" : "hidden"}</span>
+                  {row.on_sale ? (
+                    <>
+                      {" "}
+                      <span className="badge warn">on sale</span>
+                    </>
+                  ) : null}
                 </td>
                 <td className="num">{count(row.sold)}</td>
               </tr>

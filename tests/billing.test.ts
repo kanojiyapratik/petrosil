@@ -22,7 +22,7 @@ import { GET as trialsRoute } from "@/app/api/dashboard/trials/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 
 import { db } from "@/db";
-import { auditLog, coupons, memberships, orders, payments, planPrices, plans, trialRequests, users } from "@/db/schema";
+import { auditLog, coupons, memberships, orders, payments, planPrices, planSites, plans, trialRequests, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 import { extendedUntil } from "@/domain/billing/term";
 import { applyCoupon } from "@/domain/billing/pricing";
@@ -56,11 +56,13 @@ async function makePlan(
 ): Promise<number> {
   const [plan] = await db()
     .insert(plans)
-    .values({ siteId: brand.siteId, code, name: `${code} plan`, currency })
+    .values({ code, name: `${code} plan` })
     .returning();
 
+  await db().insert(planSites).values({ planId: plan!.id, siteId: brand.siteId });
+
   for (const [years, amount] of Object.entries(terms)) {
-    await db().insert(planPrices).values({ planId: plan!.id, years: Number(years), amount });
+    await db().insert(planPrices).values({ planId: plan!.id, currency, years: Number(years), amount });
   }
 
   return plan!.id;
@@ -243,10 +245,11 @@ describe("the plans a brand sells", () => {
     ).json();
 
     expect(body.plans).toHaveLength(1);
-    expect(body.plans[0]).toMatchObject({ code: "annual", currency: "USD" });
+    // Every currency it is priced in; the buyer's country picks one at the checkout.
+    expect(body.plans[0]).toMatchObject({ code: "annual", currencies: ["USD"], on_sale: false });
     expect(body.plans[0].terms).toEqual([
-      { years: 1, amount: "600.00" },
-      { years: 2, amount: "1000.00" },
+      { currency: "USD", years: 1, amount: "600.00", sale_amount: null },
+      { currency: "USD", years: 2, amount: "1000.00", sale_amount: null },
     ]);
   });
 

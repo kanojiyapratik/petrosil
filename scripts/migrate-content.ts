@@ -2,10 +2,11 @@
  * Carry one brand's content out of its MariaDB dump and into the platform.
  *
  *   npm run migrate:content -- --from baseoilreport --site baseoil [--fresh]
- *   npm run migrate:content -- --from baseoilreport --site baseoil --only mails|enquiries
+ *   npm run migrate:content -- --from baseoilreport --site baseoil --only mails|enquiries|offer-owners
  *
  * `--only mails` or `--only enquiries` carries just that one section, replacing
  * what the brand already has, into a brand whose other content is already here.
+ * `--only offer-owners` fills in who posted each offer and changes nothing else.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -52,6 +53,7 @@ import {
   orders,
   pages,
   planPrices,
+  planSites,
   plans,
   reports,
   rolePermissions,
@@ -91,7 +93,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners]");
   }
 
   return {
@@ -260,6 +262,149 @@ async function carryMailTemplates(
  * (offers, which kept no link to their old ids); `about` keeps the name as
  * text either way.
  */
+/**
+ * Who posted each offer: `offers.user_id` on the old site, matched to our
+ * people by email.
+ *
+ * The first carry left it out, so every offer read as posted by nobody and
+ * no member could be shown, or later edit, their own. It is a fill-in, not a
+ * replace: enquiries already point at these offer rows. Old and new rows are
+ * paired by subject and creation time, as the enquiries carry does, because
+ * the new rows kept no old id; a pair that is not unique is left unmatched
+ * rather than guessed.
+ */
+async function carryOfferOwners(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (!have.has("offers")) {
+    console.log("offers       none at the source");
+    return;
+  }
+
+  const [rows] = await source.query<Row[]>(
+    `select o.subject, o.created_at, o.contact_email, o.company_name, o.description, u.email
+       from offers o
+       join users u on u.id = o.user_id
+      where o.deleted_at is null and o.user_id > 0`,
+  );
+
+  // Pairing keys: subject and creation time, and when that is not enough,
+  // the contact email, company and words on the row as well: offers from
+  // before 2010 carry a date with no time, and "Base Oil" recurs daily.
+  const fold = (value: unknown) => String(value ?? "").trim().toLowerCase();
+  const coarse = (subject: string | null, created: Date) => `${subject}|${created.toISOString()}`;
+  const fine = (base: string, contact: unknown, company: unknown, words: unknown) =>
+    `${base}|${fold(contact)}|${fold(company)}|${fold(words).slice(0, 300)}`;
+
+  const ours = new Map<string, number[]>();
+  const oursFine = new Map<string, number[]>();
+
+  for (const offer of await database
+    .select({
+      id: offers.id,
+      subject: offers.subject,
+      createdAt: offers.createdAt,
+      contactEmail: offers.contactEmail,
+      companyName: offers.companyName,
+      description: offers.description,
+    })
+    .from(offers)
+    .where(eq(offers.siteId, siteId))) {
+    const key = coarse(offer.subject, offer.createdAt);
+    const detailed = fine(key, offer.contactEmail, offer.companyName, offer.description);
+
+    ours.set(key, [...(ours.get(key) ?? []), offer.id]);
+    oursFine.set(detailed, [...(oursFine.get(detailed) ?? []), offer.id]);
+  }
+
+  const emails = [...new Set(rows.map((row) => text(row.email)?.toLowerCase()).filter((email): email is string => !!email))];
+  const people = new Map<string, number>();
+
+  for (let at = 0; at < emails.length; at += 500) {
+    for (const row of await database
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(inArray(users.email, emails.slice(at, at + 500)))) {
+      people.set(row.email.toLowerCase(), row.id);
+    }
+  }
+
+  // Who posted under each key. Bulk imports gave hundreds of offers one
+  // subject and one timestamp; when every old offer under a key has the same
+  // poster, all the new rows under it are theirs.
+  const posters = new Map<string, Set<string>>();
+  const postersFine = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const created = readDate(row.created_at);
+
+    if (created) {
+      const key = coarse(clipped(row.subject, 255), created);
+      const detailed = fine(key, row.contact_email, row.company_name, text(row.description));
+
+      posters.set(key, (posters.get(key) ?? new Set()).add(fold(row.email)));
+      postersFine.set(detailed, (postersFine.get(detailed) ?? new Set()).add(fold(row.email)));
+    }
+  }
+
+  const byOwner = new Map<number, number[]>();
+  let ambiguous = 0;
+  let noOffer = 0;
+  let noPerson = 0;
+
+  const assign = (matches: number[], emails: Set<string>) => {
+    const person = people.get([...emails][0]!);
+
+    if (person === undefined) {
+      noPerson += matches.length;
+    } else {
+      byOwner.set(person, [...(byOwner.get(person) ?? []), ...matches]);
+    }
+  };
+
+  for (const [key, emails] of posters) {
+    const matches = ours.get(key);
+
+    if (!matches) {
+      noOffer += 1;
+    } else if (emails.size === 1) {
+      assign(matches, emails);
+    } else {
+      // Several posters under one key: try the finer one for each.
+      for (const [detailed, finer] of postersFine) {
+        if (!detailed.startsWith(`${key}|`)) {
+          continue;
+        }
+
+        const narrowed = oursFine.get(detailed);
+
+        if (narrowed && finer.size === 1) {
+          assign(narrowed, finer);
+        } else if (narrowed) {
+          ambiguous += narrowed.length;
+        }
+      }
+    }
+  }
+
+  let filled = 0;
+
+  for (const [userId, ids] of byOwner) {
+    for (let at = 0; at < ids.length; at += 1000) {
+      await database.update(offers).set({ userId }).where(inArray(offers.id, ids.slice(at, at + 1000)));
+    }
+
+    filled += ids.length;
+  }
+
+  console.log(
+    `offers       ${filled} given their poster · ${noPerson} poster not carried · ${noOffer} not found here · ${ambiguous} ambiguous`,
+  );
+}
+
 async function carryEnquiries(
   source: mysql.Connection,
   database: ReturnType<typeof db>,
@@ -425,8 +570,11 @@ async function main(): Promise<void> {
       } else if (opts.only === "enquiries") {
         await database.delete(enquiries).where(eq(enquiries.siteId, brand.id));
         await carryEnquiries(source, database, brand.id, tables);
+      } else if (opts.only === "offer-owners") {
+        // A fill-in, not a replace: safe to run again.
+        await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails" and "enquiries"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries" and "offer-owners"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;
@@ -443,7 +591,7 @@ async function main(): Promise<void> {
      */
     const carried = [
       orders,
-      plans,
+      planSites,
       articles,
       articleCategories,
       pages,
@@ -491,8 +639,27 @@ async function main(): Promise<void> {
 
       // Only this brand's rows. `roles` and `currencies` are estate-wide and
       // are left alone: another brand may be holding them.
+      // Plans are not a brand's: one can be sold on several. Clearing this
+      // brand unlinks its plans, and removes those that are left on no brand.
+      const linked = (
+        await database.select({ id: planSites.planId }).from(planSites).where(eq(planSites.siteId, brand.id))
+      ).map((row) => row.id);
+
       for (const table of carried) {
         await database.delete(table as any).where(eq((table as any).siteId, brand.id));
+      }
+
+      if (linked.length > 0) {
+        const stillSold = new Set(
+          (await database.select({ id: planSites.planId }).from(planSites).where(inArray(planSites.planId, linked))).map(
+            (row) => row.id,
+          ),
+        );
+        const orphaned = linked.filter((id) => !stillSold.has(id));
+
+        if (orphaned.length > 0) {
+          await database.delete(plans).where(inArray(plans.id, orphaned));
+        }
       }
 
       console.log(`cleared ${held} rows of this brand's content (--fresh)`);
@@ -758,7 +925,8 @@ async function main(): Promise<void> {
           offerValue: clipped(row.offer_value, 64),
           image: clipped(row.attach_image, 512),
           file: clipped(row.attach_file, 512),
-          status: read.premium ? "premium" : read.status,
+          // The old "Suspend" is the editor's "suspended", not a withdrawal: the offer stays listed for staff.
+          status: read.premium ? "premium" : read.status === "withdrawn" ? "suspended" : read.status,
           clicks: Number(row.clicks ?? 0),
           authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
           createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
@@ -1158,28 +1326,33 @@ async function main(): Promise<void> {
         const title = clipped(row.title, 191) ?? `Plan ${row.id}`;
         const members = Number(row.members ?? 1);
 
+        // The old table had the same title at several seat counts, so the
+        // code carries the seats: "india-subcontinent-plan-5". Codes are unique
+        // across the estate, and the nine sites share titles, so one another
+        // brand already uses gets this brand's slug.
+        const local = uniqueSlug(`${title}${members > 1 ? ` ${members}` : ""}`, Number(row.id), seen);
+        const [clash] = await database.select({ id: plans.id }).from(plans).where(eq(plans.code, local)).limit(1);
+        const currency = currencyCodes.get(Number(row.currency_id)) ?? "USD";
+
         const [inserted] = await database
           .insert(plans)
           .values({
-            siteId: brand.id,
-            // The old table had the same title at several seat counts, so the
-            // code carries the seats: "india-subcontinent-plan-5".
-            code: uniqueSlug(`${title}${members > 1 ? ` ${members}` : ""}`, Number(row.id), seen),
+            code: clash ? `${local.slice(0, 63 - brand.slug.length)}-${brand.slug}` : local,
             name: title,
             description: text(row.description),
-            currency: currencyCodes.get(Number(row.currency_id)) ?? "USD",
             visible: readStatus(text(row.publish_options)).status === "published",
             sortOrder: Number(row.sequence ?? 0),
           })
           .returning();
 
+        await database.insert(planSites).values({ planId: inserted!.id, siteId: brand.id });
         planMap.set(Number(row.id), inserted!.id);
 
         const terms = termsFrom(row.cost, row.cost2, row.cost3);
 
         priced += await insertAll(
           planPrices,
-          terms.map((term) => ({ planId: inserted!.id, years: term.years, amount: term.amount })),
+          terms.map((term) => ({ planId: inserted!.id, currency, years: term.years, amount: term.amount })),
         );
       }
 

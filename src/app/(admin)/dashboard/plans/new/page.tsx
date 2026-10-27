@@ -17,7 +17,7 @@ export default async function NewPlanPage() {
         ← Plans
       </Link>
 
-      <Heading title="New plan" sub="On sale as soon as it is saved, unless you untick On sale." />
+      <Heading title="New plan" sub="Shown on the ticked brands as soon as it is saved, unless you untick Shown." />
 
       <PlanForm brands={await brandsFor(viewer.siteIds)} />
     </>

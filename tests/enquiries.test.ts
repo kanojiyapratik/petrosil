@@ -23,6 +23,7 @@ import {
   memberships,
   offers,
   planPrices,
+  planSites,
   plans,
   settings,
   users,
@@ -182,9 +183,10 @@ describe("asking about a plan", () => {
   it("records the plan and the server's price, and tells staff only", async () => {
     const [plan] = await db()
       .insert(plans)
-      .values({ siteId: baseoil.siteId, code: "annual", name: "Annual", currency: "USD" })
+      .values({ code: "annual", name: "Annual" })
       .returning();
-    await db().insert(planPrices).values({ planId: plan!.id, years: 2, amount: "1000.00" });
+    await db().insert(planSites).values({ planId: plan!.id, siteId: baseoil.siteId });
+    await db().insert(planPrices).values({ planId: plan!.id, currency: "USD", years: 2, amount: "1000.00" });
     const member = await person();
 
     const response = await enquire(await signIn(member.email), {

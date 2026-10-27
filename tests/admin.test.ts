@@ -19,6 +19,7 @@ import {
   orders,
   pages,
   planPrices,
+  planSites,
   plans,
   priceCrawlUrls,
   users,
@@ -119,14 +120,15 @@ describe("the plan catalogue", () => {
 
     const [plan] = await db()
       .insert(plans)
-      .values({ siteId: brand.siteId, code: "pro", name: "Professional", currency: "USD" })
+      .values({ code: "pro", name: "Professional" })
       .returning();
 
+    await db().insert(planSites).values({ planId: plan!.id, siteId: brand.siteId });
     await db()
       .insert(planPrices)
       .values([
-        { planId: plan!.id, years: 1, amount: "1200.00" },
-        { planId: plan!.id, years: 2, amount: "2200.00" },
+        { planId: plan!.id, currency: "USD", years: 1, amount: "1200.00" },
+        { planId: plan!.id, currency: "USD", years: 2, amount: "2200.00" },
       ]);
 
     const [person] = await db()
@@ -163,9 +165,10 @@ describe("the plan catalogue", () => {
 
     const [row] = await listPlans([]);
 
+    expect(row!.sites).toEqual([{ slug: "baseoil", name: "baseoil" }]);
     expect(row!.terms).toEqual([
-      { years: 1, amount: 1200 },
-      { years: 2, amount: 2200 },
+      { currency: "USD", years: 1, amount: 1200, sale_amount: null },
+      { currency: "USD", years: 2, amount: 2200, sale_amount: null },
     ]);
     // Paid only: a pending order has sold nothing yet.
     expect(row!.sold).toBe(1);

@@ -22,7 +22,8 @@
 import { and, asc, between, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { mailOutbox, mailTemplates, membershipReminders, memberships, planPrices, plans, sites, users } from "@/db/schema";
+import { mailOutbox, mailTemplates, membershipReminders, memberships, planPrices, planSites, plans, sites, users } from "@/db/schema";
+import { currencyFor } from "./pricing";
 import { linkBaseFor } from "@/lib/mail/deliver";
 import { fillPlaceholders, SYSTEM_PREFIX } from "@/lib/mail/render";
 import { addDays } from "./sweep";
@@ -78,15 +79,32 @@ export function reminderFor(
   return null;
 }
 
-/** The brand's renewal price: its first visible plan's one-year term. */
-async function renewalPrice(database: Database, siteId: number): Promise<{ price: string; symbol: string }> {
-  const [found] = await database
-    .select({ amount: planPrices.amount, currency: plans.currency })
+/**
+ * The brand's renewal price: its first visible plan's one-year term, in the
+ * currency the reader would pay (their country decides).
+ */
+async function renewalPrice(
+  database: Database,
+  siteId: number,
+  country: string | null,
+): Promise<{ price: string; symbol: string }> {
+  const [first] = await database
+    .select({ id: plans.id })
     .from(plans)
+    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
     .innerJoin(planPrices, and(eq(planPrices.planId, plans.id), eq(planPrices.years, 1)))
-    .where(and(eq(plans.siteId, siteId), eq(plans.visible, true)))
+    .where(eq(plans.visible, true))
     .orderBy(asc(plans.sortOrder), asc(plans.id))
     .limit(1);
+
+  const terms = first
+    ? await database
+        .select()
+        .from(planPrices)
+        .where(and(eq(planPrices.planId, first.id), eq(planPrices.years, 1)))
+    : [];
+  const currency = currencyFor(country, terms.map((term) => term.currency));
+  const found = terms.find((term) => term.currency === currency);
 
   return found
     ? { price: `${found.currency} ${found.amount}`, symbol: SYMBOLS[found.currency] ?? found.currency }
@@ -97,7 +115,7 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
   const candidates = await database
     .select({
       membership: memberships,
-      person: { email: users.email, name: users.name },
+      person: { email: users.email, name: users.name, country: users.country },
       site: { name: sites.name, domain: sites.legacyDomain },
     })
     .from(memberships)
@@ -137,7 +155,7 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
     );
 
   const subjects = new Map(enabled.map((row) => [`${row.siteId}:${row.key}`, row.subject]));
-  const prices = new Map<number, { price: string; symbol: string }>();
+  const prices = new Map<string, { price: string; symbol: string }>();
   let queued = 0;
 
   for (const { membership, person, site, reminder } of due) {
@@ -147,11 +165,14 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
       continue;
     }
 
-    if (!prices.has(membership.siteId)) {
-      prices.set(membership.siteId, await renewalPrice(database, membership.siteId));
+    // Per brand and currency rule: a rupee reader and a dollar reader see different prices.
+    const priceKey = `${membership.siteId}|${(person.country ?? "").trim().toLowerCase() === "india" ? "in" : "other"}`;
+
+    if (!prices.has(priceKey)) {
+      prices.set(priceKey, await renewalPrice(database, membership.siteId, person.country));
     }
 
-    const { price, symbol } = prices.get(membership.siteId)!;
+    const { price, symbol } = prices.get(priceKey)!;
     const vars = {
       name: person.name,
       email: person.email,

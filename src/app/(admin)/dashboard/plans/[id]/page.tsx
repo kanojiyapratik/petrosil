@@ -32,8 +32,9 @@ export default async function PlanPage({
         ← Plans
       </Link>
 
-      <Heading title={plan.name} sub={`${plan.site_name} · ${plan.currency}`}>
-        <span className={`badge ${plan.visible ? "ok" : ""}`}>{plan.visible ? "on sale" : "hidden"}</span>
+      <Heading title={plan.name} sub={`${plan.site_names.join(", ")} · ${plan.currencies.join(" and ") || "no prices yet"}`}>
+        <span className={`badge ${plan.visible ? "ok" : ""}`}>{plan.visible ? "shown" : "hidden"}</span>
+        {plan.on_sale ? <span className="badge warn">on sale</span> : null}
       </Heading>
 
       {justMade ? (

@@ -553,37 +553,59 @@ export const announcements = pgTable(
 /* ------------------------------------------------------------------ money */
 
 /**
- * What a brand sells.
+ * What the brands sell.
  *
  * The old sites kept `subscriptions` (the plan) and `subscription_users` (who
  * bought one) in one place and multi-year pricing in a second table reached
  * through `getPrice/{plan_id}/{year}`. The split is kept, because a plan
  * priced for one, two and three years is the shape the estate actually sells,
  * but the money is `numeric` here rather than the old float columns.
+ *
+ * A plan is no longer one brand's in one currency. The old sites had a
+ * rupee plan and a dollar plan for the same thing, on each of nine brands;
+ * here one plan carries both prices and applies to the brands in
+ * `plan_sites`, and the buyer's country decides which price they pay.
  */
 export const plans = pgTable(
   "plans",
   {
     id: serial("id").primaryKey(),
-    siteId: integer("site_id")
-      .notNull()
-      .references(() => sites.id, { onDelete: "cascade" }),
+    /** Unique across the estate: the checkout names a plan by it. */
     code: varchar("code", { length: 64 }).notNull(),
     name: varchar("name", { length: 191 }).notNull(),
     description: text("description"),
-    currency: varchar("currency", { length: 3 }).default("USD").notNull(),
     /** Hidden plans still honour the orders already placed against them. */
     visible: boolean("visible").default(true).notNull(),
+    /** When on, the checkout charges each term's sale price where it has one. */
+    onSale: boolean("on_sale").default(false).notNull(),
     sortOrder: integer("sort_order").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
-    codePerSite: uniqueIndex("plans_site_code_unique").on(t.siteId, t.code),
+    codeUnique: uniqueIndex("plans_code_unique").on(t.code),
   }),
 );
 
-/** One row per term a plan can be bought for: 1 year, 2 years, 3 years. */
+/** The brands a plan is sold on. */
+export const planSites = pgTable(
+  "plan_sites",
+  {
+    id: serial("id").primaryKey(),
+    planId: integer("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    once: uniqueIndex("plan_sites_plan_site_unique").on(t.planId, t.siteId),
+    bySite: index("plan_sites_site_idx").on(t.siteId),
+  }),
+);
+
+/** One row per currency and term a plan can be bought for: INR for 1 year, USD for 2 years. */
 export const planPrices = pgTable(
   "plan_prices",
   {
@@ -591,12 +613,15 @@ export const planPrices = pgTable(
     planId: integer("plan_id")
       .notNull()
       .references(() => plans.id, { onDelete: "cascade" }),
+    currency: varchar("currency", { length: 3 }).notNull(),
     years: integer("years").notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    /** What the term costs while the plan is on sale. Null: no sale price for it. */
+    saleAmount: numeric("sale_amount", { precision: 12, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
-    termPerPlan: uniqueIndex("plan_prices_plan_years_unique").on(t.planId, t.years),
+    termPerPlan: uniqueIndex("plan_prices_plan_currency_years_unique").on(t.planId, t.currency, t.years),
   }),
 );
 

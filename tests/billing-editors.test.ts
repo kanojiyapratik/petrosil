@@ -12,11 +12,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { auditLog, coupons, memberships, orders, payments, planPrices, plans, rolePermissions, roles, users } from "@/db/schema";
+import { auditLog, coupons, memberships, orders, payments, planPrices, planSites, plans, rolePermissions, roles, users } from "@/db/schema";
 import { AccessError } from "@/lib/auth/guard";
 import { savePlan } from "@/domain/billing/plans";
 import { saveCoupon } from "@/domain/billing/coupons";
 import { recordPayment } from "@/domain/billing/manual";
+import { plansFor, quote } from "@/domain/billing/orders";
 import { listTransactions } from "@/domain/dashboard/catalogue";
 import { addDays } from "@/domain/billing/sweep";
 import { addYears } from "@/domain/billing/term";
@@ -60,103 +61,268 @@ beforeEach(async () => {
 
 /* ------------------------------------------------------------------ plans */
 
+/** A plan for the tests: the given brands, INR only unless the terms say otherwise. */
+const plan = (extra: Partial<Parameters<typeof savePlan>[1]> = {}): Parameters<typeof savePlan>[1] => ({
+  name: "India Subcontinent Plan",
+  sites: ["baseoil"],
+  currencies: ["INR"],
+  terms: [
+    { currency: "INR", years: 1, amount: "15000" },
+    { currency: "INR", years: 2, amount: "25000.50" },
+  ],
+  ...extra,
+});
+
 describe("a plan", () => {
-  it("is created with a code from its name and its prices by term", async () => {
-    const made = await planOk(guard([]), {
-      site: "baseoil",
-      name: "India Subcontinent Plan",
-      currency: "INR",
-      visible: true,
-      terms: [
-        { years: 1, amount: "15000" },
-        { years: 2, amount: "25000.50" },
-      ],
-    });
+  it("is created with a code from its name, its brands and its prices", async () => {
+    const made = await planOk(guard([]), plan());
 
     const [row] = await db().select().from(plans).where(eq(plans.id, made.id));
+    const held = await db().select().from(planSites).where(eq(planSites.planId, made.id));
     const terms = await db().select().from(planPrices).where(eq(planPrices.planId, made.id)).orderBy(planPrices.years);
 
-    expect(row).toMatchObject({ code: "india-subcontinent-plan", currency: "INR", visible: true });
-    expect(terms.map((term) => [term.years, term.amount])).toEqual([
-      [1, "15000.00"],
-      [2, "25000.50"],
+    expect(row).toMatchObject({ code: "india-subcontinent-plan", visible: true, onSale: false });
+    expect(held.map((row) => row.siteId)).toEqual([baseoil.siteId]);
+    expect(terms.map((term) => [term.currency, term.years, term.amount, term.saleAmount])).toEqual([
+      ["INR", 1, "15000.00", null],
+      ["INR", 2, "25000.50", null],
     ]);
   });
 
-  it("gets a numbered code when the name is taken on the brand", async () => {
-    await savePlan(guard([]), { site: "baseoil", name: "Global", currency: "USD", terms: [] });
-    const second = await planOk(guard([]), { site: "baseoil", name: "Global", currency: "USD", terms: [] });
+  it("can be sold on several brands, in rupees and dollars at once", async () => {
+    const made = await planOk(
+      guard([]),
+      plan({
+        sites: ["baseoil", "bitumart"],
+        currencies: ["INR", "USD"],
+        terms: [
+          { currency: "INR", years: 1, amount: "15000" },
+          { currency: "USD", years: 1, amount: "540" },
+        ],
+      }),
+    );
+
+    const held = await db().select().from(planSites).where(eq(planSites.planId, made.id));
+    const terms = await db().select().from(planPrices).where(eq(planPrices.planId, made.id)).orderBy(planPrices.currency);
+
+    expect(held.map((row) => row.siteId).sort()).toEqual([baseoil.siteId, bitumart.siteId].sort());
+    expect(terms.map((term) => [term.currency, term.amount])).toEqual([
+      ["INR", "15000.00"],
+      ["USD", "540.00"],
+    ]);
+  });
+
+  it("ignores the prices of a currency that is not ticked, and needs a price in each one that is", async () => {
+    const made = await planOk(
+      guard([]),
+      plan({
+        currencies: ["USD"],
+        terms: [
+          { currency: "INR", years: 1, amount: "15000" },
+          { currency: "USD", years: 1, amount: "540" },
+        ],
+      }),
+    );
+
+    const terms = await db().select().from(planPrices).where(eq(planPrices.planId, made.id));
+
+    expect(terms.map((term) => term.currency)).toEqual(["USD"]);
+
+    await expect(savePlan(guard([]), plan({ currencies: ["INR", "USD"] }))).rejects.toMatchObject({ field: "terms" });
+    await expect(savePlan(guard([]), plan({ currencies: [] }))).rejects.toMatchObject({ field: "currencies" });
+    await expect(savePlan(guard([]), plan({ currencies: ["EUR"] }))).rejects.toMatchObject({ field: "currencies" });
+  });
+
+  it("keeps a sale price per term, below the regular one, and needs one to go on sale", async () => {
+    const made = await planOk(
+      guard([]),
+      plan({
+        on_sale: true,
+        terms: [
+          { currency: "INR", years: 1, amount: "15000", sale_amount: "12000" },
+          { currency: "INR", years: 2, amount: "25000" },
+        ],
+      }),
+    );
+
+    const terms = await db().select().from(planPrices).where(eq(planPrices.planId, made.id)).orderBy(planPrices.years);
+
+    expect(made.on_sale).toBe(true);
+    expect(terms.map((term) => term.saleAmount)).toEqual(["12000.00", null]);
+
+    await expect(
+      savePlan(guard([]), plan({ terms: [{ currency: "INR", years: 1, amount: "15000", sale_amount: "16000" }] })),
+    ).rejects.toMatchObject({ field: "terms" });
+    await expect(savePlan(guard([]), plan({ on_sale: true }))).rejects.toMatchObject({ field: "terms" });
+  });
+
+  it("gets a numbered code when the name is taken anywhere in the estate", async () => {
+    await planOk(guard([]), plan({ name: "Global" }));
+    const second = await planOk(guard([]), plan({ name: "Global", sites: ["bitumart"] }));
 
     expect(second.code).toBe("global-2");
   });
 
-  it("replaces its prices on save and keeps its code", async () => {
-    const made = await planOk(guard([]), {
-      site: "baseoil",
-      name: "{{ ADMIN_NAME }} - Global",
-      currency: "USD",
-      terms: [
-        { years: 1, amount: "500" },
-        { years: 3, amount: "1200" },
-      ],
-    });
+  it("replaces its brands and prices on save, keeps its code, and records both", async () => {
+    const made = await planOk(
+      guard([]),
+      plan({
+        name: "{{ ADMIN_NAME }} - Global",
+        terms: [
+          { currency: "INR", years: 1, amount: "500" },
+          { currency: "INR", years: 3, amount: "1200" },
+        ],
+      }),
+    );
 
-    const saved = await planOk(guard([]), {
-      id: made.id,
-      name: "Base Oil Report - Global",
-      currency: "USD",
-      visible: false,
-      terms: [{ years: 1, amount: "540" }],
-    });
+    const saved = await planOk(
+      guard([]),
+      plan({
+        id: made.id,
+        name: "Base Oil Report - Global",
+        sites: ["bitumart"],
+        visible: false,
+        terms: [{ currency: "INR", years: 1, amount: "540" }],
+      }),
+    );
 
+    const held = await db().select().from(planSites).where(eq(planSites.planId, made.id));
     const terms = await db().select().from(planPrices).where(eq(planPrices.planId, made.id));
 
     expect(saved).toMatchObject({ name: "Base Oil Report - Global", code: made.code, visible: false });
+    expect(held.map((row) => row.siteId)).toEqual([bitumart.siteId]);
     expect(terms.map((term) => [term.years, term.amount])).toEqual([[1, "540.00"]]);
 
-    const [entry] = await db().select().from(auditLog).where(eq(auditLog.action, "plan.update"));
+    // Both brands' trails record it: one lost the plan, one gained it.
+    const entries = await db().select().from(auditLog).where(eq(auditLog.action, "plan.update"));
 
-    expect(entry!.detail).toMatchObject({
-      was: { name: "{{ ADMIN_NAME }} - Global", terms: { 1: "500.00", 3: "1200.00" } },
-      now: { name: "Base Oil Report - Global", terms: { 1: "540.00" } },
+    expect(entries.map((entry) => entry.siteId).sort()).toEqual([baseoil.siteId, bitumart.siteId].sort());
+    expect(entries[0]!.detail).toMatchObject({
+      was: { name: "{{ ADMIN_NAME }} - Global", prices: { "INR 1y": "500.00", "INR 3y": "1200.00" } },
+      now: { name: "Base Oil Report - Global", prices: { "INR 1y": "540.00" } },
     });
   });
 
-  it("refuses a price that is not money, a term twice, and a currency that is not a code", async () => {
-    const base = { site: "baseoil", name: "P", currency: "USD" };
-
-    await expect(savePlan(guard([]), { ...base, terms: [{ years: 1, amount: "12.345" }] })).rejects.toMatchObject({
-      field: "terms",
-    });
-    await expect(savePlan(guard([]), { ...base, terms: [{ years: 1, amount: "-5" }] })).rejects.toMatchObject({
-      field: "terms",
-    });
+  it("refuses a price that is not money, a term twice, and no brand at all", async () => {
     await expect(
-      savePlan(guard([]), {
-        ...base,
-        terms: [
-          { years: 1, amount: "5" },
-          { years: 1, amount: "6" },
-        ],
-      }),
+      savePlan(guard([]), plan({ terms: [{ currency: "INR", years: 1, amount: "12.345" }] })),
     ).rejects.toMatchObject({ field: "terms" });
-    await expect(savePlan(guard([]), { ...base, currency: "rupees", terms: [] })).rejects.toMatchObject({
-      field: "currency",
-    });
+    await expect(
+      savePlan(guard([]), plan({ terms: [{ currency: "INR", years: 1, amount: "-5" }] })),
+    ).rejects.toMatchObject({ field: "terms" });
+    await expect(
+      savePlan(
+        guard([]),
+        plan({
+          terms: [
+            { currency: "INR", years: 1, amount: "5" },
+            { currency: "INR", years: 1, amount: "6" },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ field: "terms" });
+    await expect(savePlan(guard([]), plan({ sites: [] }))).rejects.toMatchObject({ field: "sites" });
   });
 
-  it("answers another brand's plan as missing", async () => {
-    const theirs = await planOk(guard([]), { site: "bitumart", name: "Theirs", currency: "USD", terms: [] });
+  it("is only for brands the editor manages, and a shared plan is not brand staff's to change", async () => {
+    await expect(savePlan(guard([baseoil.siteId]), plan({ sites: ["baseoil", "bitumart"] }))).rejects.toMatchObject({
+      status: 403,
+    });
 
-    expect(await savePlan(guard([baseoil.siteId]), { id: theirs.id, name: "Mine", currency: "USD", terms: [] })).toBeNull();
+    const shared = await planOk(guard([]), plan({ sites: ["baseoil", "bitumart"] }));
+
+    expect(await savePlan(guard([baseoil.siteId]), plan({ id: shared.id, name: "Mine now" }))).toBeNull();
+
+    const theirs = await planOk(guard([]), plan({ sites: ["bitumart"] }));
+
+    expect(await savePlan(guard([baseoil.siteId]), plan({ id: theirs.id }))).toBeNull();
   });
 
   it("needs the plan permissions when the editor holds a role", async () => {
     const limited = await withRole(baseoil, ["coupon-create"]);
 
-    await expect(savePlan(limited, { site: "baseoil", name: "P", currency: "USD", terms: [] })).rejects.toBeInstanceOf(
-      AccessError,
-    );
+    await expect(savePlan(limited, plan())).rejects.toBeInstanceOf(AccessError);
+  });
+});
+
+/* ------------------------------------------------------------ the checkout */
+
+describe("what the checkout charges", () => {
+  const both = () =>
+    plan({
+      name: "Global",
+      sites: ["baseoil"],
+      currencies: ["INR", "USD"],
+      terms: [
+        { currency: "INR", years: 1, amount: "15000", sale_amount: "12000" },
+        { currency: "USD", years: 1, amount: "540", sale_amount: "450" },
+      ],
+    });
+
+  it("charges rupees in India and dollars elsewhere when a plan has both", async () => {
+    const made = await planOk(guard([]), both());
+
+    const india = await quote(baseoil.siteId, made.code, 1, "", { country: "India" });
+    const uae = await quote(baseoil.siteId, made.code, 1, "", { country: "United Arab Emirates" });
+    const unknown = await quote(baseoil.siteId, made.code, 1, "", null);
+
+    expect([india.currency, india.priced.amount]).toEqual(["INR", "15000.00"]);
+    expect([uae.currency, uae.priced.amount]).toEqual(["USD", "540.00"]);
+    expect(unknown.currency).toBe("USD");
+  });
+
+  it("charges a one-currency plan in that currency to everybody", async () => {
+    const made = await planOk(guard([]), plan());
+
+    const abroad = await quote(baseoil.siteId, made.code, 1, "", { country: "Germany" });
+
+    expect([abroad.currency, abroad.priced.amount]).toEqual(["INR", "15000.00"]);
+  });
+
+  it("charges the sale price while on sale, with the regular price as the list", async () => {
+    const made = await planOk(guard([]), { ...both(), on_sale: true });
+
+    const priced = (await quote(baseoil.siteId, made.code, 1, "", { country: "India" })).priced;
+
+    expect(priced).toEqual({ list_amount: "15000.00", discount: "3000.00", amount: "12000.00" });
+
+    await planOk(guard([]), { ...both(), id: made.id, on_sale: false });
+
+    expect((await quote(baseoil.siteId, made.code, 1, "", { country: "India" })).priced.amount).toBe("15000.00");
+  });
+
+  it("takes a coupon off the sale price, and counts both as the discount", async () => {
+    const made = await planOk(guard([]), { ...both(), on_sale: true });
+
+    await couponOk(guard([]), { site: "baseoil", code: "TENOFF", kind: "percent", value: "10", enabled: true });
+
+    const priced = (await quote(baseoil.siteId, made.code, 1, "TENOFF", { country: "India" })).priced;
+
+    expect(priced).toEqual({ list_amount: "15000.00", discount: "4200.00", amount: "10800.00" });
+  });
+
+  it("does not sell a plan on a brand it was not ticked for", async () => {
+    const made = await planOk(guard([]), plan({ sites: ["bitumart"] }));
+
+    await expect(quote(baseoil.siteId, made.code, 1, "", null)).rejects.toMatchObject({ field: "plan" });
+  });
+
+  it("lists a brand's plans with every currency and the sale price", async () => {
+    await planOk(guard([]), { ...both(), on_sale: true });
+    await planOk(guard([]), plan({ name: "Bitumart only", sites: ["bitumart"] }));
+
+    const listed = await plansFor(baseoil.siteId);
+
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      name: "Global",
+      on_sale: true,
+      currencies: ["INR", "USD"],
+      terms: [
+        { currency: "INR", years: 1, amount: "15000.00", sale_amount: "12000.00" },
+        { currency: "USD", years: 1, amount: "540.00", sale_amount: "450.00" },
+      ],
+    });
   });
 });
 
@@ -267,21 +433,21 @@ describe("a coupon", () => {
 /* -------------------------------------------------------- record a payment */
 
 describe("recording a payment taken by hand", () => {
-  let plan: number;
+  let planId: number;
   let reader: number;
 
   beforeEach(async () => {
-    const made = await planOk(guard([]), {
-      site: "baseoil",
-      name: "India Subcontinent Plan",
-      currency: "INR",
-      terms: [
-        { years: 1, amount: "15000" },
-        { years: 2, amount: "25000" },
-      ],
-    });
+    const made = await planOk(
+      guard([]),
+      plan({
+        terms: [
+          { currency: "INR", years: 1, amount: "15000" },
+          { currency: "INR", years: 2, amount: "25000" },
+        ],
+      }),
+    );
 
-    plan = made.id;
+    planId = made.id;
 
     const [person] = await db().insert(users).values({ email: "buyer@company.example", name: "Buyer" }).returning();
 
@@ -291,7 +457,7 @@ describe("recording a payment taken by hand", () => {
   const base = () => ({
     user_id: reader,
     site: "baseoil",
-    plan_id: plan,
+    plan_id: planId,
     years: 1,
     amount: "9000",
     method: "bank",
@@ -371,12 +537,7 @@ describe("recording a payment taken by hand", () => {
   });
 
   it("refuses another brand's plan, a payment dated in the future and an unknown method", async () => {
-    const theirs = await planOk(guard([]), {
-      site: "bitumart",
-      name: "Theirs",
-      currency: "INR",
-      terms: [{ years: 1, amount: "100" }],
-    });
+    const theirs = await planOk(guard([]), plan({ name: "Theirs", sites: ["bitumart"] }));
 
     await expect(recordPayment(guard([]), { ...base(), plan_id: theirs.id })).rejects.toMatchObject({ field: "plan_id" });
     await expect(recordPayment(guard([]), { ...base(), paid_on: addDays(TODAY, 2) })).rejects.toMatchObject({

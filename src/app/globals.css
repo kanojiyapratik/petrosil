@@ -379,6 +379,7 @@ input[type="email"],
 input[type="password"],
 input[type="date"],
 input[type="search"],
+input[type="number"],
 select,
 textarea {
   width: 100%;
@@ -612,6 +613,58 @@ button.ghost,
 
 .cols.wide {
   grid-template-columns: 2fr 1fr;
+}
+
+/* Panels one under another in a column, with the same gap as between columns. */
+.stack {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+/* A grid of tick boxes, each with its label beside it. */
+.checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 16px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.check input {
+  margin: 0;
+  flex: none;
+}
+
+.check.all {
+  grid-column: 1 / -1;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+/* A table whose cells are inputs: the price grid on a plan. */
+table.inputs td,
+table.inputs th {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+table.inputs th:first-child,
+table.inputs td:first-child {
+  padding-left: 0;
+  white-space: nowrap;
+}
+
+table.inputs input {
+  text-align: right;
 }
 
 .kv {

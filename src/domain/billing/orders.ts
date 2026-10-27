@@ -19,13 +19,14 @@ import {
   orders,
   payments,
   planPrices,
+  planSites,
   plans,
   sites,
 } from "@/db/schema";
 import type { Identity } from "@/lib/auth/session";
 import { today } from "@/domain/price/dates";
 import { AccountError } from "@/domain/accounts/register";
-import { applyCoupon, minorUnits, undiscounted, type Priced } from "./pricing";
+import { applyCoupon, currencyFor, minorUnits, onTopOfSale, termPrice, undiscounted, type Priced } from "./pricing";
 import { extendedUntil } from "./term";
 import { createProviderOrder, razorpayKeys, verifySignature } from "@/lib/payments/razorpay";
 
@@ -83,49 +84,53 @@ export async function quote(
   planCode: unknown,
   years: unknown,
   code: unknown,
+  /** Who is buying, for the currency rule. Null for an anonymous price check. */
+  buyer: { country: string | null } | null,
   database: Database = db(),
 ): Promise<{
   plan: typeof plans.$inferSelect;
   years: number;
+  currency: string;
   priced: Priced;
   coupon: typeof coupons.$inferSelect | null;
 }> {
-  const [plan] = await database
-    .select()
+  // Sold on this brand: the plan has to name it, not merely exist.
+  const [found] = await database
+    .select({ plan: plans })
     .from(plans)
-    .where(
-      and(
-        eq(plans.siteId, siteId),
-        eq(plans.code, String(planCode ?? "")),
-        eq(plans.visible, true),
-      ),
-    )
+    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
+    .where(and(eq(plans.code, String(planCode ?? "")), eq(plans.visible, true)))
     .limit(1);
 
-  if (!plan) {
+  if (!found) {
     throw new AccountError("We do not sell that plan.", 422, "plan");
   }
 
+  const plan = found.plan;
   const term = Number(years);
 
   if (!Number.isInteger(term) || term < 1) {
     throw new AccountError("Choose how long you want to subscribe for.", 422, "years");
   }
 
-  const [price] = await database
+  const prices = await database
     .select()
     .from(planPrices)
-    .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, term)))
-    .limit(1);
+    .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, term)));
 
-  if (!price) {
+  // The server picks the currency from the buyer's country, never the request.
+  const currency = currencyFor(buyer?.country ?? null, prices.map((row) => row.currency));
+  const price = prices.find((row) => row.currency === currency);
+
+  if (!price || !currency) {
     throw new AccountError("That plan is not sold for that length of time.", 422, "years");
   }
 
+  const { list, charged } = termPrice(price, plan.onSale);
   const wanted = String(code ?? "").trim().toUpperCase();
 
   if (wanted.length === 0) {
-    return { plan, years: term, priced: undiscounted(price.amount), coupon: null };
+    return { plan, years: term, currency, priced: onTopOfSale(list, undiscounted(charged)), coupon: null };
   }
 
   const [coupon] = await database
@@ -134,9 +139,8 @@ export async function quote(
     .where(eq(sql`upper(${coupons.code})`, wanted))
     .limit(1);
 
-  const priced = coupon
-    ? applyCoupon(price.amount, coupon, siteId, plan.currency, today())
-    : null;
+  // A coupon applies to what the term costs now, the sale price included.
+  const priced = coupon ? applyCoupon(charged, coupon, siteId, currency, today()) : null;
 
   if (!coupon || !priced) {
     // One message for every reason. Naming the reason turns the checkout into
@@ -144,7 +148,7 @@ export async function quote(
     throw new AccountError("That code is not valid for this order.", 422, "code");
   }
 
-  return { plan, years: term, priced, coupon };
+  return { plan, years: term, currency, priced: onTopOfSale(list, priced), coupon };
 }
 
 /* ------------------------------------------------------------- placing one */
@@ -164,11 +168,12 @@ export async function placeOrder(
     throw new AccountError("We do not recognise that brand.", 422, "site");
   }
 
-  const { plan, years, priced, coupon } = await quote(
+  const { plan, years, currency, priced, coupon } = await quote(
     brand.id,
     body.plan,
     body.years,
     body.code,
+    { country: identity.user.country ?? null },
     database,
   );
 
@@ -181,7 +186,7 @@ export async function placeOrder(
     ? null
     : await createProviderOrder({
         amount: minorUnits(priced.amount),
-        currency: plan.currency,
+        currency: currency,
         receipt: `${brand.slug}-${identity.user.id}-${Date.now()}`,
       });
 
@@ -195,7 +200,7 @@ export async function placeOrder(
       // invoice someone already has.
       planName: plan.name,
       years,
-      currency: plan.currency,
+      currency: currency,
       listAmount: priced.list_amount,
       discount: priced.discount,
       amount: priced.amount,
@@ -218,7 +223,7 @@ export async function placeOrder(
             key: keys.id,
             order_id: providerOrderId,
             amount: minorUnits(priced.amount),
-            currency: plan.currency,
+            currency: currency,
             name: brand.name,
             prefill: { name: identity.user.name, email: identity.user.email },
           },
@@ -406,30 +411,51 @@ export async function ordersFor(
 
 /* ------------------------------------------------------------ what we sell */
 
-export async function plansFor(siteId: number, database: Database = db()) {
-  const rows = await database
-    .select({ plan: plans, years: planPrices.years, amount: planPrices.amount })
-    .from(plans)
-    .leftJoin(planPrices, eq(planPrices.planId, plans.id))
-    .where(and(eq(plans.siteId, siteId), eq(plans.visible, true)))
-    .orderBy(plans.sortOrder, plans.id, planPrices.years);
+export type PublicPlan = {
+  code: string;
+  name: string;
+  description: string | null;
+  on_sale: boolean;
+  /** The currencies it is priced in. Which one a buyer pays is decided by their country. */
+  currencies: string[];
+  /** `sale_amount` is what the term costs now when the plan is on sale; null otherwise. */
+  terms: { currency: string; years: number; amount: string; sale_amount: string | null }[];
+};
 
-  const byPlan = new Map<
-    number,
-    { code: string; name: string; description: string | null; currency: string; terms: { years: number; amount: string }[] }
-  >();
+export async function plansFor(siteId: number, database: Database = db()): Promise<PublicPlan[]> {
+  const rows = await database
+    .select({ plan: plans, price: planPrices })
+    .from(plans)
+    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
+    .leftJoin(planPrices, eq(planPrices.planId, plans.id))
+    .where(eq(plans.visible, true))
+    .orderBy(plans.sortOrder, plans.id, planPrices.currency, planPrices.years);
+
+  const byPlan = new Map<number, PublicPlan>();
 
   for (const row of rows) {
     const entry = byPlan.get(row.plan.id) ?? {
       code: row.plan.code,
       name: row.plan.name,
       description: row.plan.description,
-      currency: row.plan.currency,
+      on_sale: row.plan.onSale,
+      currencies: [],
       terms: [],
     };
 
-    if (row.years !== null && row.amount !== null) {
-      entry.terms.push({ years: row.years, amount: row.amount });
+    if (row.price) {
+      const { charged } = termPrice(row.price, row.plan.onSale);
+
+      entry.terms.push({
+        currency: row.price.currency,
+        years: row.price.years,
+        amount: row.price.amount,
+        sale_amount: charged !== Number(row.price.amount).toFixed(2) ? charged : null,
+      });
+
+      if (!entry.currencies.includes(row.price.currency)) {
+        entry.currencies.push(row.price.currency);
+      }
     }
 
     byPlan.set(row.plan.id, entry);

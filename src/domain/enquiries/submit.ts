@@ -18,7 +18,8 @@
 import { and, count, eq, gte } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { enquiries, mailOutbox, memberships, offers, planPrices, plans, sites, users } from "@/db/schema";
+import { enquiries, mailOutbox, memberships, offers, planPrices, planSites, plans, sites, users } from "@/db/schema";
+import { currencyFor } from "@/domain/billing/pricing";
 import type { Identity } from "@/lib/auth/session";
 import { AccountError } from "@/domain/accounts/register";
 import { brandSetting } from "@/domain/dashboard/settings";
@@ -58,6 +59,8 @@ async function targetFor(
   kind: EnquiryKind,
   id: number,
   body: Record<string, unknown>,
+  /** The member asking, whose country decides which price they are quoted. */
+  country: string | null,
 ): Promise<Target> {
   if (kind === "company") {
     // A company is a member of this brand: the directory is its readers.
@@ -94,11 +97,13 @@ async function targetFor(
     };
   }
 
-  const [plan] = await database
-    .select()
+  const [sold] = await database
+    .select({ plan: plans })
     .from(plans)
-    .where(and(eq(plans.id, id), eq(plans.siteId, siteId)))
+    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
+    .where(eq(plans.id, id))
     .limit(1);
+  const plan = sold?.plan;
 
   if (!plan) {
     throw new AccountError("We could not find that plan.", 404);
@@ -106,18 +111,20 @@ async function targetFor(
 
   const years = Math.max(1, Math.trunc(Number(body.years) || 1));
   const members = Math.max(1, Math.trunc(Number(body.members) || 1));
-  const [term] = await database
-    .select({ amount: planPrices.amount })
+  const terms = await database
+    .select({ amount: planPrices.amount, currency: planPrices.currency })
     .from(planPrices)
-    .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, years)))
-    .limit(1);
+    .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, years)));
+  // The price as this member would be quoted it.
+  const currency = currencyFor(country, terms.map((row) => row.currency));
+  const term = terms.find((row) => row.currency === currency);
 
   return {
     about: plan.name,
     // Plan questions are for the sales team, not anyone else.
     forwardTo: null,
     planId: plan.id,
-    detail: { years, members, price: term ? `${plan.currency} ${term.amount}` : null },
+    detail: { years, members, price: term ? `${term.currency} ${term.amount}` : null },
   };
 }
 
@@ -158,7 +165,7 @@ export async function submitEnquiry(
     throw new AccountError("That is a lot of messages in an hour. Please try again later.", 429);
   }
 
-  const target = await targetFor(database, brand.id, kind, Number(body.to), body);
+  const target = await targetFor(database, brand.id, kind, Number(body.to), body, identity.user.country);
   const subject = typeof body.subject === "string" && body.subject.trim() ? body.subject.trim().slice(0, 255) : null;
 
   const [sender] = await database.select().from(users).where(eq(users.id, identity.user.id)).limit(1);

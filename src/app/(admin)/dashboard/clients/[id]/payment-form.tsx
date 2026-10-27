@@ -13,7 +13,14 @@ import { useActionState, useState } from "react";
 
 import { recordPaymentAction, type BillingResult } from "../../billing-actions";
 
-type Plan = { id: number; site: string; name: string; currency: string; visible: boolean; terms: { years: number; amount: number }[] };
+type Plan = {
+  id: number;
+  name: string;
+  visible: boolean;
+  sites: { slug: string }[];
+  currencies: string[];
+  terms: { currency: string; years: number; amount: number }[];
+};
 
 export function PaymentForm({
   userId,
@@ -21,6 +28,7 @@ export function PaymentForm({
   plans,
   methods,
   defaultSite,
+  defaultCurrency,
   today,
 }: {
   userId: number;
@@ -28,20 +36,26 @@ export function PaymentForm({
   plans: Plan[];
   methods: readonly { key: string; label: string }[];
   defaultSite: string;
+  /** INR for a reader in India, otherwise USD: the checkout's rule. */
+  defaultCurrency: string;
   today: string;
 }) {
   const [state, action, pending] = useActionState(recordPaymentAction, null as BillingResult);
   const [site, setSite] = useState(defaultSite);
-  const offered = plans.filter((plan) => plan.site === site);
+  const offered = plans.filter((plan) => plan.sites.some((brand) => brand.slug === site));
   const [planId, setPlanId] = useState<number | null>(offered[0]?.id ?? null);
   const plan = offered.find((row) => row.id === planId) ?? offered[0];
   const [years, setYears] = useState(1);
-  const list = plan?.terms.find((term) => term.years === years)?.amount;
+  const [wanted, setWanted] = useState(defaultCurrency);
+  const currencyOf = (row: Plan | undefined) =>
+    row?.currencies.includes(wanted) ? wanted : (row?.currencies[0] ?? wanted);
+  const currency = currencyOf(plan);
+  const list = plan?.terms.find((term) => term.years === years && term.currency === currency)?.amount;
   const [amount, setAmount] = useState(list !== undefined ? String(list) : "");
   const bad = (field: string) => state?.field === field || undefined;
 
-  const pick = (nextPlan: Plan | undefined, nextYears: number) => {
-    const price = nextPlan?.terms.find((term) => term.years === nextYears)?.amount;
+  const pick = (nextPlan: Plan | undefined, nextYears: number, nextCurrency = currencyOf(nextPlan)) => {
+    const price = nextPlan?.terms.find((term) => term.years === nextYears && term.currency === nextCurrency)?.amount;
 
     setAmount(price !== undefined ? String(price) : "");
   };
@@ -69,7 +83,7 @@ export function PaymentForm({
             name="site"
             value={site}
             onChange={(event) => {
-              const next = plans.filter((row) => row.site === event.target.value);
+              const next = plans.filter((row) => row.sites.some((brand) => brand.slug === event.target.value));
 
               setSite(event.target.value);
               setPlanId(next[0]?.id ?? null);
@@ -102,7 +116,7 @@ export function PaymentForm({
             {offered.length === 0 ? <option value="">This brand has no plans</option> : null}
             {offered.map((row) => (
               <option key={row.id} value={row.id}>
-                {row.name} · {row.currency}
+                {row.name} · {row.currencies.join("/") || "no prices"}
                 {row.visible ? "" : " (hidden)"}
               </option>
             ))}
@@ -131,7 +145,27 @@ export function PaymentForm({
         </div>
 
         <div className="field">
-          <label htmlFor="pay-amount">Amount paid{plan ? ` (${plan.currency})` : ""}</label>
+          <label htmlFor="pay-currency">Currency</label>
+          <select
+            id="pay-currency"
+            name="currency"
+            value={currency}
+            aria-invalid={bad("currency")}
+            onChange={(event) => {
+              setWanted(event.target.value);
+              pick(plan, years, event.target.value);
+            }}
+          >
+            {(plan?.currencies ?? []).map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label htmlFor="pay-amount">Amount paid</label>
           <input
             id="pay-amount"
             name="amount"

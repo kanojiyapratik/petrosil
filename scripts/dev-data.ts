@@ -17,6 +17,7 @@ import {
   memberships,
   pages,
   planPrices,
+  planSites,
   plans,
   priceSummaries,
   prices,
@@ -168,25 +169,25 @@ async function main(): Promise<void> {
       continue;
     }
 
+    // Codes are unique across the estate, so each brand's demo plan carries its slug.
     const [plan] = await database
       .insert(plans)
       .values({
-        siteId: site.id,
-        code: "annual",
+        code: `${site.slug}-annual`,
         name: `${site.name} Price Service`,
         description: "Full access to every assessment, the history and the weekly note.",
-        currency: site.defaultCurrency,
       })
       .onConflictDoNothing()
       .returning();
 
     if (plan) {
+      await database.insert(planSites).values({ planId: plan.id, siteId: site.id }).onConflictDoNothing();
       await database
         .insert(planPrices)
         .values([
-          { planId: plan.id, years: 1, amount: "1200.00" },
-          { planId: plan.id, years: 2, amount: "2100.00" },
-          { planId: plan.id, years: 3, amount: "2900.00" },
+          { planId: plan.id, currency: site.defaultCurrency, years: 1, amount: "1200.00" },
+          { planId: plan.id, currency: site.defaultCurrency, years: 2, amount: "2100.00" },
+          { planId: plan.id, currency: site.defaultCurrency, years: 3, amount: "2900.00" },
         ])
         .onConflictDoNothing();
     }

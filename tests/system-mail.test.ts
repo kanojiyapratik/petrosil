@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { auditLog, mailOutbox, mailTemplates, memberships, planPrices, plans, users } from "@/db/schema";
+import { auditLog, mailOutbox, mailTemplates, memberships, planPrices, planSites, plans, users } from "@/db/schema";
 import { listMailTemplates, saveMailTemplate } from "@/domain/content/mail-templates";
 import { systemMailFor } from "@/domain/migrate/content";
 import { fillPlaceholders } from "@/lib/mail/render";
@@ -262,9 +262,10 @@ describe("expiry reminders", () => {
   it("quotes the brand's renewal price", async () => {
     const [plan] = await db()
       .insert(plans)
-      .values({ siteId: baseoil.siteId, code: "annual", name: "Annual", currency: "USD", sortOrder: 1 })
+      .values({ code: "annual", name: "Annual", sortOrder: 1 })
       .returning();
-    await db().insert(planPrices).values({ planId: plan!.id, years: 1, amount: "600.00" });
+    await db().insert(planSites).values({ planId: plan!.id, siteId: baseoil.siteId });
+    await db().insert(planPrices).values({ planId: plan!.id, currency: "USD", years: 1, amount: "600.00" });
 
     await member("premium", addDays(TODAY, 30));
     await remindExpiries(db(), TODAY);

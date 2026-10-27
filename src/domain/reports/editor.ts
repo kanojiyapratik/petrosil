@@ -12,7 +12,8 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { auditLog, mediaFiles, reports, sites } from "@/db/schema";
+import { auditLog, reports, sites } from "@/db/schema";
+import { attachable, storedFileId } from "@/domain/files/attach";
 import type { Guarded } from "@/lib/auth/guard";
 import { requirePermission } from "@/domain/staff/permissions";
 import { AccountError } from "@/domain/accounts/register";
@@ -104,44 +105,11 @@ function day(value: unknown): string | null {
   return text;
 }
 
-/** The id of a brand's file in one folder, by bare name, or null. */
-async function storedFile(siteId: number, folder: string, name: string, database: Database): Promise<number | null> {
-  const [found] = await database
-    .select({ id: mediaFiles.id })
-    .from(mediaFiles)
-    .where(and(eq(mediaFiles.siteId, siteId), eq(mediaFiles.folder, folder), eq(mediaFiles.name, name)))
-    .limit(1);
-
-  return found?.id ?? null;
-}
-
 /** A file name the report may carry: in the store, in this brand's folder. */
-async function attachable(
-  siteId: number,
-  field: "file" | "thumbnail",
-  value: unknown,
-  database: Database,
-): Promise<string | null | undefined> {
-  const name = optional(value, 512);
-
-  if (!name) {
-    return name;
-  }
-
-  const folder = field === "file" ? FILE_FOLDER : THUMBNAIL_FOLDER;
-
-  if ((await storedFile(siteId, folder, name, database)) === null) {
-    throw new AccountError(
-      field === "file"
-        ? "That PDF is not in this brand's report files. Upload it here first."
-        : "That picture is not in this brand's report thumbnails. Upload it here first.",
-      422,
-      field,
-    );
-  }
-
-  return name;
-}
+const attach = (siteId: number, field: "file" | "thumbnail", value: unknown, database: Database) =>
+  field === "file"
+    ? attachable(siteId, FILE_FOLDER, "file", value, "PDF", database)
+    : attachable(siteId, THUMBNAIL_FOLDER, "thumbnail", value, "picture", database);
 
 /** A slug from the title, numbered when the brand already has it. */
 async function slugFor(siteId: number, text: string, database: Database): Promise<string> {
@@ -222,8 +190,8 @@ export async function createReport(
     reportType: reportType(body.report_type),
     status: body.status === undefined ? "draft" : status(body.status),
     authoredOn: day(body.authored_on),
-    file: (await attachable(brand.id, "file", body.file, database)) ?? null,
-    thumbnail: (await attachable(brand.id, "thumbnail", body.thumbnail, database)) ?? null,
+    file: (await attach(brand.id, "file", body.file, database)) ?? null,
+    thumbnail: (await attach(brand.id, "thumbnail", body.thumbnail, database)) ?? null,
     metaTitle: optional(body.meta_title, 255) ?? null,
     metaDescription: optional(body.meta_description, 2000) ?? null,
   };
@@ -280,8 +248,8 @@ export async function updateReport(
   if (body.report_type !== undefined) changes.reportType = reportType(body.report_type);
   if (body.status !== undefined) changes.status = status(body.status);
   if (body.authored_on !== undefined) changes.authoredOn = day(body.authored_on);
-  if (body.file !== undefined) changes.file = await attachable(found.siteId, "file", body.file, database);
-  if (body.thumbnail !== undefined) changes.thumbnail = await attachable(found.siteId, "thumbnail", body.thumbnail, database);
+  if (body.file !== undefined) changes.file = await attach(found.siteId, "file", body.file, database);
+  if (body.thumbnail !== undefined) changes.thumbnail = await attach(found.siteId, "thumbnail", body.thumbnail, database);
   if (body.meta_title !== undefined) changes.metaTitle = optional(body.meta_title, 255);
   if (body.meta_description !== undefined) changes.metaDescription = optional(body.meta_description, 2000);
 
@@ -358,8 +326,8 @@ export async function reportForEdit(
   const { report } = row;
 
   const [fileId, thumbnailId] = await Promise.all([
-    report.file ? storedFile(report.siteId, FILE_FOLDER, report.file, database) : null,
-    report.thumbnail ? storedFile(report.siteId, THUMBNAIL_FOLDER, report.thumbnail, database) : null,
+    report.file ? storedFileId(report.siteId, FILE_FOLDER, report.file, database) : null,
+    report.thumbnail ? storedFileId(report.siteId, THUMBNAIL_FOLDER, report.thumbnail, database) : null,
   ]);
 
   return {

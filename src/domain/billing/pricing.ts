@@ -93,3 +93,49 @@ export const undiscounted = (listAmount: string): Priced => ({
 
 /** Razorpay and most providers charge in the smallest unit of the currency. */
 export const minorUnits = (amount: string): number => toMinor(amount);
+
+/**
+ * Which of a plan's currencies a buyer pays in.
+ *
+ * The manager's rule: the country decides. A buyer in India pays the rupee
+ * price, everyone else the dollar price. A plan priced in only one currency
+ * is sold in that one to everybody, which is how every carried plan works.
+ * Null when the plan has no price at all.
+ */
+export function currencyFor(country: string | null | undefined, offered: string[]): string | null {
+  const unique = [...new Set(offered)];
+
+  if (unique.length <= 1) {
+    return unique[0] ?? null;
+  }
+
+  const wanted = (country ?? "").trim().toLowerCase() === "india" ? "INR" : "USD";
+
+  return unique.includes(wanted) ? wanted : unique.sort()[0]!;
+}
+
+/**
+ * A term's price as the checkout charges it: the sale price while the plan
+ * is on sale and the term has one, otherwise the regular price. The regular
+ * price stays the list price, so the saving shows as a discount.
+ */
+export function termPrice(
+  term: { amount: string; saleAmount: string | null },
+  onSale: boolean,
+): { list: string; charged: string } {
+  const sale = onSale && term.saleAmount !== null && toMinor(term.saleAmount) < toMinor(term.amount);
+
+  return {
+    list: toDecimal(toMinor(term.amount)),
+    charged: toDecimal(toMinor(sale ? term.saleAmount! : term.amount)),
+  };
+}
+
+/** A sale price, then a coupon on top of it, as one list/discount/amount. */
+export function onTopOfSale(list: string, priced: Priced): Priced {
+  return {
+    list_amount: toDecimal(toMinor(list)),
+    discount: toDecimal(toMinor(list) - toMinor(priced.amount)),
+    amount: priced.amount,
+  };
+}

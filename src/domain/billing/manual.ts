@@ -19,7 +19,8 @@
 import { and, eq } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { auditLog, memberships, orders, payments, planPrices, plans, sites, users } from "@/db/schema";
+import { auditLog, memberships, orders, payments, planPrices, planSites, plans, sites, users } from "@/db/schema";
+import { currencyFor } from "./pricing";
 import type { Guarded } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import { requirePermission } from "@/domain/staff/permissions";
@@ -48,6 +49,8 @@ export type ManualPayment = {
   paid_on?: unknown;
   /** The end date the team agreed, when it is not the usual one. */
   until?: unknown;
+  /** INR or USD. Blank: as the checkout would have charged them. */
+  currency?: unknown;
 };
 
 export type Recorded = { order_id: number; until: string };
@@ -81,11 +84,13 @@ export async function recordPayment(
     throw new AccountError("We cannot find that person.", 404, "user_id");
   }
 
-  const [plan] = await database
-    .select()
+  const [sold] = await database
+    .select({ plan: plans })
     .from(plans)
-    .where(and(eq(plans.id, input.plan_id), eq(plans.siteId, brand.id)))
+    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, brand.id)))
+    .where(eq(plans.id, input.plan_id))
     .limit(1);
+  const plan = sold?.plan;
 
   if (!plan) {
     throw new AccountError(`Choose one of ${brand.name}'s plans.`, 422, "plan_id");
@@ -130,11 +135,26 @@ export async function recordPayment(
     }
   }
 
-  const [term] = await database
-    .select({ amount: planPrices.amount })
+  // The currency they paid in: as the team says, or else as the checkout would
+  // have charged them, by their country.
+  const offered = await database
+    .select({ currency: planPrices.currency, years: planPrices.years, amount: planPrices.amount })
     .from(planPrices)
-    .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, years)))
-    .limit(1);
+    .where(eq(planPrices.planId, plan.id));
+  const currencies = [...new Set(offered.map((row) => row.currency))];
+  const asked = String(input.currency ?? "").trim().toUpperCase();
+
+  if (asked !== "" && !currencies.includes(asked)) {
+    throw new AccountError(`${plan.name} is not priced in ${asked}.`, 422, "currency");
+  }
+
+  const currency = asked || currencyFor(person.country, currencies);
+
+  if (!currency) {
+    throw new AccountError(`${plan.name} has no price yet. Set one on the Plans screen first.`, 422, "plan_id");
+  }
+
+  const term = offered.find((row) => row.currency === currency && row.years === years);
 
   // The invoice must add up: list less discount is what was paid. Below the
   // list price the difference is the discount; above it, the agreed price is
@@ -162,7 +182,7 @@ export async function recordPayment(
         planId: plan.id,
         planName: plan.name,
         years,
-        currency: plan.currency,
+        currency: currency,
         listAmount,
         discount,
         amount,
@@ -179,7 +199,7 @@ export async function recordPayment(
       provider: method.key,
       providerPaymentId: reference,
       amount,
-      currency: plan.currency,
+      currency: currency,
       status: "succeeded",
     });
 
@@ -210,7 +230,7 @@ export async function recordPayment(
         plan: plan.name,
         years,
         amount,
-        currency: plan.currency,
+        currency: currency,
         list: listPrice,
         method: method.key,
         reference,

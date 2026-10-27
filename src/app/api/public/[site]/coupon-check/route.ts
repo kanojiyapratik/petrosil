@@ -8,6 +8,8 @@
 import { NextResponse } from "next/server";
 
 import { jsonBody } from "@/lib/auth/account";
+import { tokenFrom } from "@/lib/auth/guard";
+import { identify } from "@/lib/auth/session";
 import { publicApi } from "@/lib/public/route";
 import { quote } from "@/domain/billing/orders";
 import { AccountError } from "@/domain/accounts/register";
@@ -18,9 +20,13 @@ export const POST = publicApi(async ({ request, brand }) => {
   const body = await jsonBody(request);
 
   try {
-    const { priced } = await quote(brand.id, body.plan, body.years, body.code);
+    // The price a signed-in reader would actually pay: their country picks the currency.
+    const identity = await identify(tokenFrom(request));
+    const { priced, currency } = await quote(brand.id, body.plan, body.years, body.code, {
+      country: identity?.user.country ?? null,
+    });
 
-    return NextResponse.json({ valid: true, ...priced });
+    return NextResponse.json({ valid: true, currency, ...priced });
   } catch (error) {
     if (error instanceof AccountError) {
       // A bad plan or term is the caller's mistake and worth saying; a bad

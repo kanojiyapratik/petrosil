@@ -46,15 +46,23 @@ function failed(error: unknown, what: string): BillingResult {
   return { error: "Something went wrong. Nothing was saved." };
 }
 
-/** The form posts `term_1` … `term_5`; a blank box means that term is not offered. */
+/**
+ * The form posts `price_INR_1`, `sale_INR_1`, `price_USD_2` …; a blank
+ * price means that term is not offered in that currency.
+ */
 function termsFrom(form: FormData) {
-  const terms: { years: number; amount: string }[] = [];
+  const terms: { currency: string; years: number; amount: string; sale_amount: string }[] = [];
 
   for (const [name, value] of form.entries()) {
-    const match = /^term_(\d+)$/.exec(name);
+    const match = /^price_([A-Z]{3})_(d+)$/.exec(name);
 
     if (match && String(value).trim() !== "") {
-      terms.push({ years: Number(match[1]), amount: String(value) });
+      terms.push({
+        currency: match[1]!,
+        years: Number(match[2]),
+        amount: String(value),
+        sale_amount: text(form, `sale_${match[1]}_${match[2]}`),
+      });
     }
   }
 
@@ -71,11 +79,12 @@ export async function savePlanAction(_state: unknown, form: FormData): Promise<B
       viewer,
       {
         id: id === "" ? undefined : Number(id),
-        site: text(form, "site"),
         name: text(form, "name"),
         description: text(form, "description"),
-        currency: text(form, "currency"),
+        sites: form.getAll("site").map(String),
+        currencies: form.getAll("currency").map(String),
         visible: form.get("visible") === "on",
+        on_sale: form.get("on_sale") === "on",
         sort_order: text(form, "sort_order"),
         terms: termsFrom(form),
       },
@@ -159,6 +168,7 @@ export async function recordPaymentAction(_state: unknown, form: FormData): Prom
         reference: text(form, "reference"),
         paid_on: text(form, "paid_on"),
         until: text(form, "until"),
+        currency: text(form, "currency"),
       },
       { ip: await callerIp() },
     );

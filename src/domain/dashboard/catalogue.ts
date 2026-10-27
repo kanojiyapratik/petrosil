@@ -26,6 +26,7 @@ import {
   pages,
   payments,
   planPrices,
+  planSites,
   plans,
   priceCrawlActivities,
   priceCrawlUrls,
@@ -171,15 +172,18 @@ export async function listCategories(
 
 export type StaffPlan = {
   id: number;
-  site: string;
-  site_name: string;
+  /** The brands it is sold on, by slug and name. */
+  sites: { slug: string; name: string }[];
+  /** Ticked for every brand there is. */
+  all_sites: boolean;
   code: string;
   name: string;
   description: string | null;
-  currency: string;
   visible: boolean;
+  on_sale: boolean;
   sort_order: number;
-  terms: { years: number; amount: number }[];
+  currencies: string[];
+  terms: { currency: string; years: number; amount: number; sale_amount: number | null }[];
   /** Orders actually paid. A pending order has sold nothing. */
   sold: number;
 };
@@ -191,54 +195,66 @@ export async function listPlans(
 ): Promise<StaffPlan[]> {
   const only = await siteScope(siteIds, query.site, database);
 
-  const rows = await database
-    .select({ plan: plans, slug: sites.slug, name: sites.name })
-    .from(plans)
-    .innerJoin(sites, eq(sites.id, plans.siteId))
-    .where(only ? inArray(plans.siteId, only) : undefined)
-    .orderBy(asc(sites.slug), asc(plans.sortOrder), asc(plans.name));
+  // A plan is listed when any of its brands is in scope.
+  const ids = (
+    await database
+      .selectDistinct({ id: planSites.planId })
+      .from(planSites)
+      .where(only ? inArray(planSites.siteId, only) : undefined)
+  ).map((row) => row.id);
 
-  if (rows.length === 0) {
+  if (ids.length === 0) {
     return [];
   }
 
-  const ids = rows.map((row) => row.plan.id);
-
-  const terms = await database
-    .select()
-    .from(planPrices)
-    .where(inArray(planPrices.planId, ids))
-    .orderBy(asc(planPrices.years));
-
-  const sold = await database
-    .select({ planId: orders.planId, n: sql<number>`count(*)` })
-    .from(orders)
-    .where(and(inArray(orders.planId, ids), eq(orders.status, "paid")))
-    .groupBy(orders.planId);
-
-  const byPlan = new Map<number, { years: number; amount: number }[]>();
-
-  for (const term of terms) {
-    const list = byPlan.get(term.planId) ?? [];
-    list.push({ years: term.years, amount: Number(term.amount) });
-    byPlan.set(term.planId, list);
-  }
+  const [rows, held, terms, sold, [everyBrand]] = await Promise.all([
+    database.select().from(plans).where(inArray(plans.id, ids)).orderBy(asc(plans.sortOrder), asc(plans.name)),
+    database
+      .select({ planId: planSites.planId, slug: sites.slug, name: sites.name })
+      .from(planSites)
+      .innerJoin(sites, eq(sites.id, planSites.siteId))
+      .where(inArray(planSites.planId, ids))
+      .orderBy(asc(sites.slug)),
+    database
+      .select()
+      .from(planPrices)
+      .where(inArray(planPrices.planId, ids))
+      .orderBy(asc(planPrices.currency), asc(planPrices.years)),
+    database
+      .select({ planId: orders.planId, n: sql<number>`count(*)` })
+      .from(orders)
+      .where(and(inArray(orders.planId, ids), eq(orders.status, "paid")))
+      .groupBy(orders.planId),
+    database.select({ n: sql<number>`count(*)` }).from(sites),
+  ]);
 
   const counts = new Map(sold.map((row) => [row.planId, Number(row.n)]));
+  const total = Number(everyBrand?.n ?? 0);
 
-  return rows.map(({ plan, slug, name }) => ({
-    id: plan.id,
-    site: slug,
-    site_name: name,
-    code: plan.code,
-    name: plan.name,
-    description: plan.description,
-    currency: plan.currency,
-    visible: plan.visible,
-    sort_order: plan.sortOrder,
-    terms: byPlan.get(plan.id) ?? [],
-    sold: counts.get(plan.id) ?? 0,
-  }));
+  return rows.map((plan) => {
+    const brands = held.filter((row) => row.planId === plan.id).map(({ slug, name }) => ({ slug, name }));
+    const prices = terms.filter((term) => term.planId === plan.id);
+
+    return {
+      id: plan.id,
+      sites: brands,
+      all_sites: total > 1 && brands.length === total,
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      visible: plan.visible,
+      on_sale: plan.onSale,
+      sort_order: plan.sortOrder,
+      currencies: [...new Set(prices.map((term) => term.currency))],
+      terms: prices.map((term) => ({
+        currency: term.currency,
+        years: term.years,
+        amount: Number(term.amount),
+        sale_amount: term.saleAmount === null ? null : Number(term.saleAmount),
+      })),
+      sold: counts.get(plan.id) ?? 0,
+    };
+  });
 }
 
 export type CouponState = "live" | "off" | "expired" | "used up" | "scheduled";
