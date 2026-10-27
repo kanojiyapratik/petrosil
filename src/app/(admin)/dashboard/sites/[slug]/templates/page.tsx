@@ -6,6 +6,8 @@
  * what says which are real.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listTemplates } from "@/domain/dashboard/promotion";
@@ -41,7 +43,11 @@ export default async function TemplatesPage({
 
   return (
     <>
-      <Heading title="Templates" sub="The wrapper a newsletter is sent in." />
+      <Heading title="Templates" sub="The wrapper a newsletter is sent in.">
+        <Link className="button small" href={`/dashboard/sites/${slug}/templates/new`}>
+          New template
+        </Link>
+      </Heading>
 
       <Panel title={`${count(rows.length)} template${rows.length === 1 ? "" : "s"}`}>
         <table>
@@ -58,7 +64,9 @@ export default async function TemplatesPage({
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/sites/${slug}/templates/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                 </td>
                 <td>{row.site_name}</td>
                 <td>
