@@ -31,8 +31,8 @@ const group = (nav: NavSection[], name: string) => nav.find((s) => s.group === n
 const hrefs = (nav: NavSection[], name: string) => group(nav, name).items.map((i) => i.href);
 
 describe("the three groups", () => {
-  it("gives exactly Overview, Sites and Billing, in that order", () => {
-    expect(navFor(BRANDS).map((s) => s.group)).toEqual(["Overview", "Sites", "Billing"]);
+  it("gives exactly Overview, Sites, Billing and Global settings, in that order", () => {
+    expect(navFor(BRANDS).map((s) => s.group)).toEqual(["Overview", "Sites", "Billing", "Global settings"]);
   });
 
   it("holds the whole estate in three Overview entries", () => {
@@ -58,11 +58,20 @@ describe("the three groups", () => {
       "/dashboard/plans",
       "/dashboard/transactions",
       "/dashboard/coupons",
+    ]);
+  });
+
+  it("puts what every brand shares under Global settings", () => {
+    // Edited once and applied to the brands ticked; currencies are one list for all.
+    expect(hrefs(navFor(BRANDS), "Global settings")).toEqual([
+      "/dashboard/global/emails",
+      "/dashboard/global/pages",
+      "/dashboard/global/visibility",
       "/dashboard/currencies",
     ]);
   });
 
-  it("stays at sixteen entries for the nine real brands", () => {
+  it("stays at nineteen entries for the nine real brands", () => {
     // The number is the point: the rail must fit on one screen without
     // scrolling, which is what forty entries did not.
     const nine = Array.from({ length: 9 }, (_, at) => ({
@@ -71,7 +80,7 @@ describe("the three groups", () => {
       freshness: "fresh" as const,
     }));
 
-    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(16);
+    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(19);
   });
 
   it("never nests: no entry carries children of its own", () => {
@@ -107,7 +116,7 @@ describe("one entry per brand", () => {
   });
 
   it("drops the Sites group entirely for a viewer with no brands", () => {
-    expect(navFor([]).map((s) => s.group)).toEqual(["Overview", "Billing"]);
+    expect(navFor([]).map((s) => s.group)).toEqual(["Overview", "Billing", "Global settings"]);
   });
 });
 

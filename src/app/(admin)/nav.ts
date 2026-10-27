@@ -1,5 +1,5 @@
 /**
- * The admin's three groups: Overview, Sites, Billing.
+ * The admin's groups: Overview, Sites, Billing, and Global settings.
  *
  * Two earlier versions of this file are worth remembering, because each was
  * wrong in a different way.
@@ -38,8 +38,9 @@ export type NavSection = { group: string; items: NavItem[] };
  * The rail.
  *
  * Overview holds what belongs to the whole estate; Sites holds one entry per
- * brand the viewer may see; Billing holds what access costs. A viewer with no
- * brands gets no Sites group rather than an empty heading.
+ * brand the viewer may see; Billing holds what access costs; Global settings
+ * holds what every brand shares. A viewer with no brands gets no Sites group
+ * rather than an empty heading.
  */
 export function navFor(brands: NavBrand[]): NavSection[] {
   const sections: NavSection[] = [
@@ -73,6 +74,17 @@ export function navFor(brands: NavBrand[]): NavSection[] {
       { label: "Plans and pricing", href: "/dashboard/plans" },
       { label: "Payments", href: "/dashboard/transactions" },
       { label: "Coupons", href: "/dashboard/coupons" },
+    ],
+  });
+
+  // What every brand has its own copy of, edited once and applied to the
+  // brands ticked; and the currencies, which are one list for all of them.
+  sections.push({
+    group: "Global settings",
+    items: [
+      { label: "System emails", href: "/dashboard/global/emails" },
+      { label: "Common pages", href: "/dashboard/global/pages" },
+      { label: "Field visibility", href: "/dashboard/global/visibility" },
       { label: "Currencies", href: "/dashboard/currencies" },
     ],
   });

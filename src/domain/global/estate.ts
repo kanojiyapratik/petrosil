@@ -1,0 +1,455 @@
+/**
+ * Global settings: the things every brand has, edited once.
+ *
+ * The nine brands each hold their own copy of the same pages, the same
+ * twelve system emails and the same field-visibility rules. Most copies say
+ * the same thing but for the brand's own name, and keeping them in step
+ * meant nine edits. Here a copy is read with the brand's name taken out
+ * (`{brand}` in its place), so copies that differ only by name group into
+ * one version; and one version is applied to every brand ticked, with
+ * `{brand}` written as each brand's name.
+ *
+ * Applying writes each brand's own row. A brand that needs to say something
+ * different keeps its row and is simply not ticked, and the brand screens
+ * still edit one brand at a time.
+ */
+
+import { and, asc, eq, inArray } from "drizzle-orm";
+
+import { db, type Database } from "@/db";
+import { auditLog, formFields, mailTemplates, pages, sites } from "@/db/schema";
+import type { Guarded } from "@/lib/auth/guard";
+import { AccountError } from "@/domain/accounts/register";
+import { requirePermission } from "@/domain/staff/permissions";
+
+type Brand = { id: number; slug: string; name: string };
+
+/** `{brand}` written as the brand's name. */
+export function brandText(text: string, name: string): string {
+  return text.split("{brand}").join(name);
+}
+
+/** The brand's name taken out, so copies that differ only by it compare equal. */
+function neutral(text: string, name: string): string {
+  return name ? text.split(name).join("{brand}") : text;
+}
+
+/** The brands in view: all for a superadmin, the granted ones otherwise. */
+async function brandsIn(siteIds: number[], database: Database): Promise<Brand[]> {
+  return database
+    .select({ id: sites.id, slug: sites.slug, name: sites.name })
+    .from(sites)
+    .where(siteIds.length > 0 ? inArray(sites.id, siteIds) : undefined)
+    .orderBy(asc(sites.slug));
+}
+
+/** The ticked brands, every one of them the editor's, or a refusal before anything is written. */
+async function ticked(guard: Guarded, slugs: unknown[], database: Database): Promise<Brand[]> {
+  const wanted = [...new Set(slugs.map((value) => String(value ?? "").trim()).filter(Boolean))];
+
+  if (wanted.length === 0) {
+    throw new AccountError("Tick at least one brand.", 422, "sites");
+  }
+
+  const found = await database
+    .select({ id: sites.id, slug: sites.slug, name: sites.name })
+    .from(sites)
+    .where(inArray(sites.slug, wanted))
+    .orderBy(asc(sites.slug));
+
+  if (found.length !== wanted.length) {
+    throw new AccountError("One of those brands does not exist.", 422, "sites");
+  }
+
+  if (!guard.isSuperadmin && found.some((brand) => !guard.siteIds.includes(brand.id))) {
+    throw new AccountError("You can only apply this to brands you manage.", 403, "sites");
+  }
+
+  return found;
+}
+
+export type Version<T> = T & { brands: { slug: string; name: string }[] };
+
+/** Copies grouped by what they say, the biggest group first. */
+function group<T>(copies: { brand: Brand; value: T }[]): Version<T>[] {
+  const byKey = new Map<string, Version<T>>();
+
+  for (const { brand, value } of copies) {
+    const key = JSON.stringify(value);
+    const version = byKey.get(key) ?? { ...value, brands: [] };
+
+    version.brands.push({ slug: brand.slug, name: brand.name });
+    byKey.set(key, version);
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) => b.brands.length - a.brands.length || a.brands[0]!.slug.localeCompare(b.brands[0]!.slug),
+  );
+}
+
+/* ------------------------------------------------------------------ pages */
+
+type PageVersion = { title: string; body: string; visible: boolean };
+
+async function pageCopies(siteIds: number[], database: Database, slug?: string) {
+  const brands = await brandsIn(siteIds, database);
+  const byId = new Map(brands.map((brand) => [brand.id, brand]));
+  const rows = brands.length
+    ? await database
+        .select()
+        .from(pages)
+        .where(and(inArray(pages.siteId, [...byId.keys()]), slug ? eq(pages.slug, slug) : undefined))
+    : [];
+
+  return { brands, rows: rows.map((row) => ({ row, brand: byId.get(row.siteId)! })) };
+}
+
+/** Every page address in view, with how many brands have it and in how many versions. */
+export async function globalPages(siteIds: number[], database: Database = db()) {
+  const { brands, rows } = await pageCopies(siteIds, database);
+  const bySlug = new Map<string, typeof rows>();
+
+  for (const copy of rows) {
+    bySlug.set(copy.row.slug, [...(bySlug.get(copy.row.slug) ?? []), copy]);
+  }
+
+  return [...bySlug.entries()]
+    .map(([slug, copies]) => {
+      const versions = group<PageVersion>(
+        copies.map(({ row, brand }) => ({
+          brand,
+          value: { title: neutral(row.title, brand.name), body: neutral(row.body, brand.name), visible: row.visible },
+        })),
+      );
+
+      return { slug, title: versions[0]!.title, brands: copies.length, of: brands.length, versions: versions.length };
+    })
+    .sort((a, b) => b.brands - a.brands || a.slug.localeCompare(b.slug));
+}
+
+/** One page address across the brands in view. */
+export async function globalPage(siteIds: number[], slug: string, database: Database = db()) {
+  const { brands, rows } = await pageCopies(siteIds, database, slug);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const holding = new Set(rows.map(({ brand }) => brand.id));
+
+  return {
+    slug,
+    versions: group<PageVersion>(
+      rows.map(({ row, brand }) => ({
+        brand,
+        value: { title: neutral(row.title, brand.name), body: neutral(row.body, brand.name), visible: row.visible },
+      })),
+    ),
+    missing: brands.filter((brand) => !holding.has(brand.id)).map(({ slug: s, name }) => ({ slug: s, name })),
+  };
+}
+
+const PAGE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Write one version of a page to every brand ticked; created where a brand lacks it. */
+export async function applyPage(
+  guard: Guarded,
+  input: { slug: string; title: unknown; body: unknown; visible: boolean; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ created: number; updated: number }> {
+  const slug = String(input.slug ?? "").trim();
+  const title = String(input.title ?? "").trim().replace(/\s+/g, " ").slice(0, 255);
+  const body = String(input.body ?? "");
+
+  if (!PAGE_SLUG.test(slug)) {
+    throw new AccountError("An address is lower-case words joined by hyphens.", 422, "slug");
+  }
+
+  if (title === "") {
+    throw new AccountError("Give the page a title.", 422, "title");
+  }
+
+  const brands = await ticked(guard, input.sites, database);
+  const existing = await database
+    .select({ id: pages.id, siteId: pages.siteId })
+    .from(pages)
+    .where(and(eq(pages.slug, slug), inArray(pages.siteId, brands.map((brand) => brand.id))));
+  const has = new Map(existing.map((row) => [row.siteId, row.id]));
+
+  for (const brand of brands) {
+    await requirePermission(guard, brand.id, has.has(brand.id) ? "page-edit" : "page-create", database);
+  }
+
+  return database.transaction(async (tx) => {
+    let created = 0;
+
+    for (const brand of brands) {
+      const values = { title: brandText(title, brand.name), body: brandText(body, brand.name), visible: input.visible, updatedAt: new Date() };
+      const id = has.get(brand.id);
+
+      const [row] = id
+        ? await tx.update(pages).set(values).where(eq(pages.id, id)).returning({ id: pages.id })
+        : await tx.insert(pages).values({ ...values, siteId: brand.id, slug }).returning({ id: pages.id });
+
+      created += id ? 0 : 1;
+
+      await tx.insert(auditLog).values({
+        siteId: brand.id,
+        userId: guard.identity.user.id,
+        action: "page.global",
+        entity: "page",
+        entityId: row!.id,
+        detail: { slug, title: values.title, created: !id, brands: brands.map((b) => b.slug) },
+        ip: context.ip ?? null,
+      });
+    }
+
+    return { created, updated: brands.length - created };
+  });
+}
+
+/* ---------------------------------------------------------- system emails */
+
+type EmailVersion = { subject: string; body: string; enabled: boolean };
+
+async function emailCopies(siteIds: number[], database: Database, key?: string, variant?: string) {
+  const brands = await brandsIn(siteIds, database);
+  const byId = new Map(brands.map((brand) => [brand.id, brand]));
+  const rows = brands.length
+    ? await database
+        .select()
+        .from(mailTemplates)
+        .where(
+          and(
+            inArray(mailTemplates.siteId, [...byId.keys()]),
+            key ? eq(mailTemplates.key, key) : undefined,
+            variant ? eq(mailTemplates.variant, variant) : undefined,
+          ),
+        )
+    : [];
+
+  return { brands, rows: rows.map((row) => ({ row, brand: byId.get(row.siteId)! })) };
+}
+
+const emailVersion = (row: typeof mailTemplates.$inferSelect, brand: Brand): EmailVersion => ({
+  subject: neutral(row.subject, brand.name),
+  body: neutral(row.body, brand.name),
+  enabled: row.enabled,
+});
+
+/** Every system email in view, with how many brands have it and in how many versions. */
+export async function globalEmails(siteIds: number[], database: Database = db()) {
+  const { brands, rows } = await emailCopies(siteIds, database);
+  const byKey = new Map<string, typeof rows>();
+
+  for (const copy of rows) {
+    const id = `${copy.row.key}|${copy.row.variant}`;
+
+    byKey.set(id, [...(byKey.get(id) ?? []), copy]);
+  }
+
+  return [...byKey.values()]
+    .map((copies) => ({
+      key: copies[0]!.row.key,
+      variant: copies[0]!.row.variant,
+      title: copies[0]!.row.title,
+      brands: copies.length,
+      of: brands.length,
+      versions: group(copies.map(({ row, brand }) => ({ brand, value: emailVersion(row, brand) }))).length,
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title) || a.variant.localeCompare(b.variant));
+}
+
+/** One system email across the brands in view. */
+export async function globalEmail(siteIds: number[], key: string, variant: string, database: Database = db()) {
+  const { brands, rows } = await emailCopies(siteIds, database, key, variant);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const holding = new Set(rows.map(({ brand }) => brand.id));
+
+  return {
+    key,
+    variant,
+    title: rows[0]!.row.title,
+    versions: group(rows.map(({ row, brand }) => ({ brand, value: emailVersion(row, brand) }))),
+    missing: brands.filter((brand) => !holding.has(brand.id)).map(({ slug, name }) => ({ slug, name })),
+  };
+}
+
+/**
+ * Write one version of a system email to every brand ticked.
+ *
+ * `{brand}` is written now; the email's own placeholders (`{name}`,
+ * `{expiry_date}` …) are left as typed for the sender to fill.
+ */
+export async function applyEmail(
+  guard: Guarded,
+  input: { key: string; variant: string; subject: unknown; body: unknown; enabled: boolean; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ created: number; updated: number }> {
+  const subject = String(input.subject ?? "").trim().slice(0, 255);
+  const body = String(input.body ?? "").trim();
+
+  if (subject === "") {
+    throw new AccountError("A mail needs a subject.", 422, "subject");
+  }
+
+  if (body === "") {
+    throw new AccountError("A mail needs something to say.", 422, "body");
+  }
+
+  const [known] = await database
+    .select({ title: mailTemplates.title })
+    .from(mailTemplates)
+    .where(and(eq(mailTemplates.key, input.key), eq(mailTemplates.variant, input.variant)))
+    .limit(1);
+
+  if (!known) {
+    throw new AccountError("We do not know that email.", 404);
+  }
+
+  const brands = await ticked(guard, input.sites, database);
+  const existing = await database
+    .select({ id: mailTemplates.id, siteId: mailTemplates.siteId })
+    .from(mailTemplates)
+    .where(
+      and(
+        eq(mailTemplates.key, input.key),
+        eq(mailTemplates.variant, input.variant),
+        inArray(mailTemplates.siteId, brands.map((brand) => brand.id)),
+      ),
+    );
+  const has = new Map(existing.map((row) => [row.siteId, row.id]));
+
+  for (const brand of brands) {
+    await requirePermission(guard, brand.id, has.has(brand.id) ? "mail-edit" : "mail-create", database);
+  }
+
+  return database.transaction(async (tx) => {
+    let created = 0;
+
+    for (const brand of brands) {
+      const values = {
+        subject: brandText(subject, brand.name).slice(0, 255),
+        body: brandText(body, brand.name),
+        enabled: input.enabled,
+        updatedAt: new Date(),
+      };
+      const id = has.get(brand.id);
+
+      const [row] = id
+        ? await tx.update(mailTemplates).set(values).where(eq(mailTemplates.id, id)).returning({ id: mailTemplates.id })
+        : await tx
+            .insert(mailTemplates)
+            .values({ ...values, siteId: brand.id, key: input.key, variant: input.variant, title: known.title })
+            .returning({ id: mailTemplates.id });
+
+      created += id ? 0 : 1;
+
+      await tx.insert(auditLog).values({
+        siteId: brand.id,
+        userId: guard.identity.user.id,
+        action: "mail_template.global",
+        entity: "mail_template",
+        entityId: row!.id,
+        detail: { key: input.key, variant: input.variant, created: !id, brands: brands.map((b) => b.slug) },
+        ip: context.ip ?? null,
+      });
+    }
+
+    return { created, updated: brands.length - created };
+  });
+}
+
+/* ------------------------------------------------------- field visibility */
+
+export type FieldForm = "directory" | "offer";
+
+/** Each field of a form, and how many brands show it to free and paying readers. */
+export async function globalFields(siteIds: number[], form: FieldForm, database: Database = db()) {
+  const brands = await brandsIn(siteIds, database);
+  const rows = brands.length
+    ? await database
+        .select()
+        .from(formFields)
+        .where(and(eq(formFields.form, form), inArray(formFields.siteId, brands.map((brand) => brand.id))))
+        .orderBy(asc(formFields.sortOrder), asc(formFields.key))
+    : [];
+
+  const byKey = new Map<string, typeof rows>();
+
+  for (const row of rows) {
+    byKey.set(row.key, [...(byKey.get(row.key) ?? []), row]);
+  }
+
+  return [...byKey.entries()].map(([key, copies]) => {
+    const rule = (row: (typeof copies)[number]) => `${row.showFree}|${row.showPremium}|${row.enabled}`;
+
+    return {
+      key,
+      label: copies[0]!.label,
+      brands: copies.length,
+      of: brands.length,
+      free: copies.filter((row) => row.showFree).length,
+      premium: copies.filter((row) => row.showPremium).length,
+      enabled: copies.filter((row) => row.enabled).length,
+      agreed: new Set(copies.map(rule)).size === 1,
+    };
+  });
+}
+
+/** Set one field's rule on every brand ticked. Brands without that field are reported, not given one. */
+export async function applyField(
+  guard: Guarded,
+  input: { form: FieldForm; key: string; show_free: boolean; show_premium: boolean; enabled: boolean; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ updated: number; missing: string[] }> {
+  if (input.form !== "directory" && input.form !== "offer") {
+    throw new AccountError("Choose the directory or the offer form.", 422, "form");
+  }
+
+  const brands = await ticked(guard, input.sites, database);
+
+  for (const brand of brands) {
+    await requirePermission(guard, brand.id, "setting-edit", database);
+  }
+
+  const rows = await database
+    .select({ id: formFields.id, siteId: formFields.siteId })
+    .from(formFields)
+    .where(
+      and(
+        eq(formFields.form, input.form),
+        eq(formFields.key, input.key),
+        inArray(formFields.siteId, brands.map((brand) => brand.id)),
+      ),
+    );
+  const holding = new Set(rows.map((row) => row.siteId));
+
+  if (rows.length > 0) {
+    await database
+      .update(formFields)
+      .set({ showFree: input.show_free, showPremium: input.show_premium, enabled: input.enabled })
+      .where(inArray(formFields.id, rows.map((row) => row.id)));
+
+    await database.insert(auditLog).values(
+      rows.map((row) => ({
+        siteId: row.siteId,
+        userId: guard.identity.user.id,
+        action: "form-field.global",
+        entity: "form_fields",
+        entityId: row.id,
+        detail: { form: input.form, field: input.key, free: input.show_free, premium: input.show_premium, enabled: input.enabled },
+        ip: context.ip ?? null,
+      })),
+    );
+  }
+
+  return { updated: rows.length, missing: brands.filter((brand) => !holding.has(brand.id)).map((brand) => brand.slug) };
+}
