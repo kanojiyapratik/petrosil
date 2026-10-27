@@ -13,6 +13,7 @@ import Link from "next/link";
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listTransactions } from "@/domain/dashboard/catalogue";
+import { PAYMENT_METHODS } from "@/domain/billing/manual";
 import { ORDER_STATUSES } from "@/db/schema";
 import {
   BrandField,
@@ -31,6 +32,8 @@ import {
 
 export const metadata = { title: "Transactions · Petrosil" };
 export const dynamic = "force-dynamic";
+
+const METHOD: Record<string, string> = Object.fromEntries(PAYMENT_METHODS.map((row) => [row.key, row.label.toLowerCase()]));
 
 const TONE: Record<string, string> = {
   paid: "ok",
@@ -153,6 +156,8 @@ export default async function TransactionsPage({
                   <span className={`badge ${TONE[row.status] ?? ""}`}>{row.status}</span>
                   <div className="small muted">
                     {row.provider}
+                    {row.method ? ` · ${METHOD[row.method] ?? row.method}` : ""}
+                    {row.provider === "manual" && row.provider_payment_id ? ` · ${row.provider_payment_id}` : ""}
                     {row.attempts > 1 ? ` · ${row.attempts} attempts` : ""}
                   </div>
                 </td>

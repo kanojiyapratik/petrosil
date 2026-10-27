@@ -348,6 +348,8 @@ export type Transaction = {
   status: string;
   provider: string;
   provider_payment_id: string | null;
+  /** For a manual order: bank, cheque, card, online, cash or other. */
+  method: string | null;
   granted_until: string | null;
   attempts: number;
   created_at: string;
@@ -383,6 +385,8 @@ export async function listTransactions(
       who: users.name,
       email: users.email,
       attempts: sql<number>`(select count(*) from ${payments} where ${payments.orderId} = ${orders.id})`,
+      // How a payment taken by hand was made: the method is the payment row's provider.
+      method: sql<string | null>`(select ${payments.provider} from ${payments} where ${payments.orderId} = ${orders.id} and ${payments.status} = 'succeeded' order by ${payments.id} desc limit 1)`,
     })
     .from(orders)
     .innerJoin(sites, eq(sites.id, orders.siteId))
@@ -393,7 +397,7 @@ export async function listTransactions(
     .offset((page - 1) * perPage);
 
   return {
-    rows: rows.map(({ order, slug, name, who, email, attempts }) => ({
+    rows: rows.map(({ order, slug, name, who, email, attempts, method }) => ({
       id: order.id,
       site: slug,
       site_name: name,
@@ -410,6 +414,7 @@ export async function listTransactions(
       status: order.status,
       provider: order.provider,
       provider_payment_id: order.providerPaymentId,
+      method: order.provider === "manual" ? method : null,
       granted_until: order.grantedUntil,
       attempts: Number(attempts),
       created_at: order.createdAt.toISOString(),

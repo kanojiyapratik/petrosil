@@ -7,6 +7,8 @@
  * could not be read in one go.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listPlans } from "@/domain/dashboard/catalogue";
@@ -40,7 +42,11 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
       <Heading
         title="Plans"
         sub="What each brand sells, and for how long. Hidden plans still honour the orders already placed against them."
-      />
+      >
+        <Link className="button small" href="/dashboard/plans/new">
+          New plan
+        </Link>
+      </Heading>
 
       <Panel flush={false}>
         <Filters action="/dashboard/plans" site={site}>
@@ -63,7 +69,9 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.name}</strong>
+                  <Link href={`/dashboard/plans/${row.id}`}>
+                    <strong>{row.name}</strong>
+                  </Link>
                   <div className="small muted">
                     <code>{row.code}</code>
                     {row.description ? ` · ${row.description}` : ""}

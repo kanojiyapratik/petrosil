@@ -6,9 +6,13 @@
  * support thread about codes that had expired or been spent.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
+import { brandsFor } from "@/domain/dashboard/brands";
 import { listCoupons } from "@/domain/dashboard/catalogue";
-import { Empty, Heading, Panel, count, money } from "../../ui";
+import { CouponForm } from "./form";
+import { Empty, Heading, Panel, count, money, one, type Search } from "../../ui";
 
 export const metadata = { title: "Coupons · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -21,9 +25,12 @@ const TONE: Record<string, string> = {
   off: "",
 };
 
-export default async function CouponsPage() {
+export default async function CouponsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const viewer = (await currentViewer())!;
-  const rows = await listCoupons(viewer.siteIds);
+  const [rows, brands] = await Promise.all([listCoupons(viewer.siteIds), brandsFor(viewer.siteIds)]);
+  const justMade = one(await searchParams, "saved") === "1";
+  // Estate-wide codes are listed for everyone but only a superadmin may change one.
+  const editable = (site: string | null) => site !== null || viewer.isSuperadmin;
 
   const live = rows.filter((row) => row.state === "live").length;
 
@@ -49,6 +56,16 @@ export default async function CouponsPage() {
         </div>
       </div>
 
+      {justMade ? (
+        <p className="flash" role="status">
+          Code created.
+        </p>
+      ) : null}
+
+      <Panel title="New code" flush={false}>
+        <CouponForm brands={brands} superadmin={viewer.isSuperadmin} />
+      </Panel>
+
       <Panel title={`${count(rows.length)} code${rows.length === 1 ? "" : "s"}`}>
         <table>
           <thead>
@@ -65,9 +82,17 @@ export default async function CouponsPage() {
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>
-                    <code>{row.code}</code>
-                  </strong>
+                  {editable(row.site) ? (
+                    <Link href={`/dashboard/coupons/${row.id}`}>
+                      <strong>
+                        <code>{row.code}</code>
+                      </strong>
+                    </Link>
+                  ) : (
+                    <strong>
+                      <code>{row.code}</code>
+                    </strong>
+                  )}
                 </td>
                 <td>
                   {row.percent_off !== null

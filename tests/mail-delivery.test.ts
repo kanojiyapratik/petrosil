@@ -57,6 +57,17 @@ async function queueVerify(to = "reader@company.example"): Promise<number> {
   });
 }
 
+/**
+ * "Now" as the database tells it. A queued mail is due from the database's
+ * clock, which in Docker runs a few milliseconds ahead of Node's: a test that
+ * passes `new Date()` straight after queueing could find nothing due yet.
+ */
+async function databaseClock(): Promise<Date> {
+  const [found] = (await db().execute(sql`select clock_timestamp() as now`)) as unknown as { now: Date | string }[];
+
+  return new Date(found!.now);
+}
+
 async function row(id: number) {
   const [found] = await db().select().from(mailOutbox).where(eq(mailOutbox.id, id));
 
@@ -237,7 +248,7 @@ describe("draining the outbox", () => {
 
   it("puts a failed mail back for later rather than retrying at once", async () => {
     const id = await queueVerify();
-    const now = new Date();
+    const now = await databaseClock();
     const transport = recorder(() => new SendError("Brevo answered 503", false));
 
     const result = await deliverPending(transport, { now });
@@ -267,7 +278,7 @@ describe("draining the outbox", () => {
   it("gives up after the last attempt and keeps the reason", async () => {
     const id = await queueVerify();
     const transport = recorder(() => new SendError("Brevo answered 500", false));
-    let now = new Date();
+    let now = await databaseClock();
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       await deliverPending(transport, { now });

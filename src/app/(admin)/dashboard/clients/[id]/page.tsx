@@ -12,7 +12,12 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { clientDetail } from "@/domain/dashboard/clients";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { listPlans } from "@/domain/dashboard/catalogue";
+import { PAYMENT_METHODS } from "@/domain/billing/manual";
+import { today } from "@/domain/price/dates";
 import { MembershipForm } from "./membership-form";
+import { PaymentForm } from "./payment-form";
 import { Empty, Heading, Panel, when } from "../../../ui";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +39,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   if (!client) {
     notFound();
   }
+
+  const [brands, plans] = await Promise.all([brandsFor(viewer.siteIds), listPlans(viewer.siteIds)]);
 
   return (
     <>
@@ -63,6 +70,21 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                 </div>
               ))
             )}
+          </Panel>
+
+          <Panel
+            title="Record a payment"
+            flush={false}
+            hint="A transfer, cheque or card payment taken by hand. It becomes a paid order on Transactions and makes them premium."
+          >
+            <PaymentForm
+              userId={client.id}
+              brands={brands}
+              plans={plans}
+              methods={PAYMENT_METHODS}
+              defaultSite={client.brands.find((held) => brands.some((brand) => brand.slug === held.slug))?.slug ?? brands[0]?.slug ?? ""}
+              today={today()}
+            />
           </Panel>
 
           <Panel title="Recent sign-ins">
