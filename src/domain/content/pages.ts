@@ -12,6 +12,7 @@ import { db, type Database } from "@/db";
 import { announcements, auditLog, pages, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { requirePermission } from "@/domain/staff/permissions";
+import { AccountError } from "@/domain/accounts/register";
 
 export type Page = { slug: string; title: string; body: string; updated_at: string };
 
@@ -237,3 +238,181 @@ export async function removeAnnouncement(
 
   return true;
 }
+
+/* ------------------------------------------------------------ page editor */
+
+/** An address: lower-case words joined by hyphens, as the old sites' paths were. */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const slugOf = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 191);
+
+export type PageInput = {
+  id?: number;
+  /** The brand, on a new page only. */
+  site?: string;
+  title: unknown;
+  /** Blank on a new page: made from the title. */
+  slug?: unknown;
+  body: unknown;
+  visible?: boolean;
+};
+
+export type PageSaved = { id: number; slug: string; title: string; visible: boolean };
+
+/**
+ * Create or change a page. Null when it is another brand's.
+ *
+ * The address can be changed — "terms" becoming "terms-of-use" is an
+ * editorial decision — but never to one the brand already uses, which would
+ * leave two pages answering one link.
+ */
+export async function savePage(
+  guard: Guarded,
+  input: PageInput,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<PageSaved | null> {
+  let existing: typeof pages.$inferSelect | undefined;
+  let siteId: number;
+
+  if (input.id !== undefined) {
+    [existing] = await database.select().from(pages).where(eq(pages.id, input.id)).limit(1);
+
+    if (!existing || (!guard.isSuperadmin && !guard.siteIds.includes(existing.siteId))) {
+      return null;
+    }
+
+    siteId = existing.siteId;
+    await requirePermission(guard, siteId, "page-edit", database);
+  } else {
+    const [brand] = await database.select().from(sites).where(eq(sites.slug, String(input.site ?? ""))).limit(1);
+
+    if (!brand) {
+      throw new AccountError("We do not recognise that brand.", 422, "site");
+    }
+
+    if (!guard.isSuperadmin && !guard.siteIds.includes(brand.id)) {
+      throw new AccountError("You do not have access to that brand.", 403, "site");
+    }
+
+    siteId = brand.id;
+    await requirePermission(guard, siteId, "page-create", database);
+  }
+
+  const title = String(input.title ?? "").trim().replace(/\s+/g, " ").slice(0, 255);
+
+  if (title === "") {
+    throw new AccountError("Give the page a title.", 422, "title");
+  }
+
+  const asked = String(input.slug ?? "").trim().toLowerCase();
+  const slug = asked === "" ? (existing?.slug ?? slugOf(title)) : asked;
+
+  if (!SLUG.test(slug)) {
+    throw new AccountError("An address is lower-case words joined by hyphens, like terms-of-use.", 422, "slug");
+  }
+
+  const [taken] = await database
+    .select({ id: pages.id })
+    .from(pages)
+    .where(and(eq(pages.siteId, siteId), eq(pages.slug, slug)))
+    .limit(1);
+
+  if (taken && taken.id !== existing?.id) {
+    throw new AccountError(`This brand already has a page at /${slug}.`, 409, "slug");
+  }
+
+  const values = {
+    title,
+    slug,
+    body: String(input.body ?? ""),
+    visible: input.visible ?? true,
+    updatedAt: new Date(),
+  };
+
+  const [row] = existing
+    ? await database.update(pages).set(values).where(eq(pages.id, existing.id)).returning()
+    : await database.insert(pages).values({ ...values, siteId }).returning();
+
+  await database.insert(auditLog).values({
+    siteId,
+    userId: guard.identity.user.id,
+    action: existing ? "page.update" : "page.create",
+    entity: "page",
+    entityId: row!.id,
+    detail: existing
+      ? {
+          title,
+          ...(existing.slug !== slug ? { moved: { from: existing.slug, to: slug } } : {}),
+          ...(existing.visible !== values.visible ? { visible: values.visible } : {}),
+        }
+      : { title, slug },
+    ip: context.ip ?? null,
+  });
+
+  return { id: row!.id, slug: row!.slug, title: row!.title, visible: row!.visible };
+}
+
+/** A page is deleted for good: nothing points at a page row, and hiding is there for "not now". */
+export async function deletePage(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<boolean> {
+  const [found] = await database.select().from(pages).where(eq(pages.id, id)).limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return false;
+  }
+
+  await requirePermission(guard, found.siteId, "page-delete", database);
+
+  await database.delete(pages).where(eq(pages.id, id));
+
+  // The words go in the trail, so a page deleted by mistake can be put back.
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "page.delete",
+    entity: "page",
+    entityId: id,
+    detail: { title: found.title, slug: found.slug, body: found.body },
+    ip: context.ip ?? null,
+  });
+
+  return true;
+}
+
+/** One page for its editor, scoped like every dashboard read. */
+export async function pageForEdit(siteIds: number[], id: number, database: Database = db()) {
+  const [row] = await database
+    .select({ page: pages, slug: sites.slug, name: sites.name })
+    .from(pages)
+    .innerJoin(sites, eq(sites.id, pages.siteId))
+    .where(eq(pages.id, id))
+    .limit(1);
+
+  if (!row || (siteIds.length > 0 && !siteIds.includes(row.page.siteId))) {
+    return null;
+  }
+
+  return {
+    id: row.page.id,
+    site: row.slug,
+    site_name: row.name,
+    slug: row.page.slug,
+    title: row.page.title,
+    body: row.page.body,
+    visible: row.page.visible,
+    updated_at: row.page.updatedAt.toISOString(),
+  };
+}
+
+export type PageForEdit = NonNullable<Awaited<ReturnType<typeof pageForEdit>>>;

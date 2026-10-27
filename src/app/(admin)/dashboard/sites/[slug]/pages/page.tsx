@@ -7,6 +7,8 @@
  * other is something nobody can currently see.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { staffPages } from "@/domain/dashboard/catalogue";
@@ -53,7 +55,11 @@ export default async function PagesPage({
       <Heading
         title="Pages"
         sub="The pages staff edit rather than deploy. A slug that appears on several brands is maintained several times."
-      />
+      >
+        <Link className="button small" href={`/dashboard/sites/${slug}/pages/new`}>
+          New page
+        </Link>
+      </Heading>
 
       <Panel title={`${count(rows.length)} page${rows.length === 1 ? "" : "s"}`}>
         <table>
@@ -70,7 +76,9 @@ export default async function PagesPage({
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/sites/${slug}/pages/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                   <div className="small muted">/{row.slug}</div>
                 </td>
                 <td>

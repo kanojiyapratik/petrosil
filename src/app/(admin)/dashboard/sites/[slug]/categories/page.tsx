@@ -7,8 +7,8 @@
  */
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
 import { listCategories } from "@/domain/dashboard/catalogue";
+import { CategoryRow, NewCategory } from "./forms";
 import {
   Empty,
   Heading,
@@ -33,10 +33,7 @@ export default async function CategoriesPage({
   const search = await searchParams;
   const site = slug;
 
-  const [brands, rows] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listCategories(viewer.siteIds, { site }),
-  ]);
+  const rows = await listCategories(viewer.siteIds, { site });
 
   return (
     <>
@@ -45,33 +42,26 @@ export default async function CategoriesPage({
         sub="How articles are filed on each brand site, and how much is actually filed there."
       />
 
-      <Panel title={`${count(rows.length)} categor${rows.length === 1 ? "y" : "ies"}`}>
-        <table>
+      <Panel title="New category" flush={false}>
+        <NewCategory slug={slug} />
+      </Panel>
+
+      <Panel
+        title={`${count(rows.length)} categor${rows.length === 1 ? "y" : "ies"}`}
+        hint="Change a name or position and press Save on its row. The address under each name does not change."
+      >
+        <table className="tight">
           <thead>
             <tr>
               <th>Category</th>
-              <th>Brand</th>
-              <th className="num">Order</th>
+              <th>Position</th>
               <th className="num">Articles</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <strong>{row.name}</strong>
-                  <div className="small muted">/{row.slug}</div>
-                </td>
-                <td>{row.site_name}</td>
-                <td className="num">{row.sort_order}</td>
-                <td className="num">
-                  {row.articles === 0 ? (
-                    <span className="muted">unused</span>
-                  ) : (
-                    count(row.articles)
-                  )}
-                </td>
-              </tr>
+              <CategoryRow key={row.id} slug={slug} row={row} />
             ))}
             {rows.length === 0 ? (
               <tr>
