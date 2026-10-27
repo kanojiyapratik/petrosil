@@ -46,7 +46,7 @@ function optional(value: unknown, max: number): string | null {
   return text === "" ? null : text.slice(0, max);
 }
 
-function subject(value: unknown): string {
+export function subject(value: unknown): string {
   const text = String(value ?? "").trim().replace(/\s+/g, " ");
 
   if (text === "") {
@@ -56,7 +56,7 @@ function subject(value: unknown): string {
   return text.slice(0, 255);
 }
 
-function offerType(value: unknown): "buy" | "sell" {
+export function offerType(value: unknown): "buy" | "sell" {
   if (value !== "buy" && value !== "sell") {
     throw new AccountError("Say whether they are buying or selling.", 422, "offer_type");
   }
@@ -72,7 +72,7 @@ function status(value: unknown): string {
   return String(value);
 }
 
-function contactEmail(value: unknown): string | null {
+export function contactEmail(value: unknown): string | null {
   const text = optional(value, 191);
 
   if (text !== null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
@@ -127,7 +127,7 @@ const saved = (row: Row): OfferSaved => ({
 });
 
 /** The text columns the body names; undefined ones are left alone. */
-function textChanges(body: Record<string, unknown>): Partial<typeof offers.$inferInsert> {
+export function textChanges(body: Record<string, unknown>): Partial<typeof offers.$inferInsert> {
   const changes: Record<string, string | null> = {};
 
   for (const [field, [column, max]] of Object.entries(TEXT)) {

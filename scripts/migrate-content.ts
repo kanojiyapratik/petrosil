@@ -7,6 +7,7 @@
  * `--only mails` or `--only enquiries` carries just that one section, replacing
  * what the brand already has, into a brand whose other content is already here.
  * `--only offer-owners` fills in who posted each offer and changes nothing else.
+ * `--only offer-countries` names the offers whose country came across as a number.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -32,7 +33,7 @@
  */
 
 import mysql from "mysql2/promise";
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { closeDb, db } from "@/db";
 import {
@@ -93,7 +94,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries]");
   }
 
   return {
@@ -273,6 +274,48 @@ async function carryMailTemplates(
  * the new rows kept no old id; a pair that is not unique is left unmatched
  * rather than guessed.
  */
+/**
+ * Offers whose country came across as the old sites' country number ("112")
+ * rather than its name: some old forms stored `countries.id` in the text
+ * column. Looked up in the source's own country list; a number it does not
+ * know is left as it is. A fill-in, so it is safe to run again.
+ */
+async function carryOfferCountries(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (!have.has("countries")) {
+    console.log("countries    none at the source");
+    return;
+  }
+
+  const [rows] = await source.query<Row[]>("select id, name from countries");
+  const names = new Map(rows.map((row) => [String(row.id), text(row.name)]));
+  const numbered = await database
+    .select({ id: offers.id, country: offers.country })
+    .from(offers)
+    .where(and(eq(offers.siteId, siteId), sql`${offers.country} ~ '^[0-9]+$'`));
+
+  let fixed = 0;
+  let unknown = 0;
+
+  for (const row of numbered) {
+    const name = names.get(String(row.country));
+
+    if (!name) {
+      unknown += 1;
+      continue;
+    }
+
+    await database.update(offers).set({ country: clipped(name, 96) }).where(eq(offers.id, row.id));
+    fixed += 1;
+  }
+
+  console.log(`offers       ${fixed} country numbers named · ${unknown} not in the source's list`);
+}
+
 async function carryOfferOwners(
   source: mysql.Connection,
   database: ReturnType<typeof db>,
@@ -570,11 +613,13 @@ async function main(): Promise<void> {
       } else if (opts.only === "enquiries") {
         await database.delete(enquiries).where(eq(enquiries.siteId, brand.id));
         await carryEnquiries(source, database, brand.id, tables);
+      } else if (opts.only === "offer-countries") {
+        await carryOfferCountries(source, database, brand.id, tables);
       } else if (opts.only === "offer-owners") {
         // A fill-in, not a replace: safe to run again.
         await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails", "enquiries" and "offer-owners"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries", "offer-owners" and "offer-countries"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;
@@ -937,6 +982,8 @@ async function main(): Promise<void> {
 
       await insertAll(offers, values);
       console.log(`offers       ${values.length} carried`);
+      // Some old forms stored the country number, not its name.
+      await carryOfferCountries(source, database, brand.id, have);
     }
 
     /* -------------------------------------------------------- impex sheets */

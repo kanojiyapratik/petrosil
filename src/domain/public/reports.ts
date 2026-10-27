@@ -160,10 +160,10 @@ export type Download =
   | { ok: true; file: StoredFile; filename: string }
   | { ok: false; status: 401 | 403 | 404; reason: Refusal | "not_found"; message: string };
 
-const MESSAGES: Record<Refusal, string> = {
-  sign_in: "Sign in to download this report.",
-  subscribe: "This report is for subscribers. Subscribe to download it.",
-  renew: "Your subscription has ended. Renew to download this report.",
+export const REFUSAL_MESSAGES: Record<Refusal, string> = {
+  sign_in: "Sign in to download this.",
+  subscribe: "This is for subscribers. Subscribe to download it.",
+  renew: "Your subscription has ended. Renew to download this.",
 };
 
 /**
@@ -189,7 +189,7 @@ export async function reportDownload(
   const refusal = refusalFor(row, entitlement);
 
   if (refusal) {
-    return { ok: false, status: refusal === "sign_in" ? 401 : 403, reason: refusal, message: MESSAGES[refusal] };
+    return { ok: false, status: refusal === "sign_in" ? 401 : 403, reason: refusal, message: REFUSAL_MESSAGES[refusal] };
   }
 
   const path = await storedPath(siteId, row.file, database);
