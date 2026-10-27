@@ -48,9 +48,12 @@ export function ReportForm({
   slug,
   types,
   report,
+  kind,
 }: {
   slug: string;
   types: string[];
+  /** The kind a new report starts as: "sample" from the Sample reports screen. */
+  kind?: string;
   report?: ReportForEdit;
 }) {
   const editing = report !== undefined;
@@ -160,7 +163,7 @@ export function ReportForm({
                   list="report-types"
                   required
                   maxLength={64}
-                  defaultValue={report?.report_type ?? "report"}
+                  defaultValue={report?.report_type ?? kind ?? "report"}
                 />
                 <datalist id="report-types">
                   {types.map((type) => (

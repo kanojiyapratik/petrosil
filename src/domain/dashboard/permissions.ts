@@ -88,6 +88,7 @@ export const PERMISSIONS: PermissionGroup[] = [
       { key: "report-send", label: "Send a report or a sample" },
       { key: "file-upload", label: "Upload files" },
       { key: "trade-qty-edit", label: "Enter import and export quantities" },
+      { key: "price-note-edit", label: "Correct the published price note" },
     ],
   },
 ];

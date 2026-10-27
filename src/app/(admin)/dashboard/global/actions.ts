@@ -2,6 +2,7 @@
 
 /** Applying a page, a system email or a field rule to the brands ticked. The rules are in `domain/global/estate.ts`. */
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { currentViewer, type Viewer } from "@/lib/auth/server";
@@ -14,6 +15,7 @@ import {
   applyPage,
   applySlot,
   removeCategory,
+  removePage,
   removeSlot,
   type FieldForm,
 } from "@/domain/global/estate";
@@ -52,14 +54,27 @@ const applied = (result: { created: number; updated: number }) =>
   `Applied to ${result.created + result.updated} brand${result.created + result.updated === 1 ? "" : "s"}` +
   (result.created ? `, ${result.created} of them new.` : ".");
 
+/** Apply a page to the ticked brands, or delete it from them, by which button was pressed. */
 export async function applyPageAction(_state: unknown, form: FormData): Promise<GlobalResult> {
   const viewer = await staff();
+  const slug = text(form, "slug");
+  const target = text(form, "new_slug") || slug;
+  let moved = false;
 
   try {
+    if (text(form, "intent") === "remove") {
+      const result = await removePage(viewer, { slug, sites: brands(form) }, { ip: await callerIp() });
+
+      revalidatePath("/dashboard/global/pages", "layout");
+
+      return { saved: `Deleted from ${result.removed} brand${result.removed === 1 ? "" : "s"}. The audit trail keeps the words.` };
+    }
+
     const result = await applyPage(
       viewer,
       {
-        slug: text(form, "slug"),
+        slug,
+        new_slug: target,
         title: text(form, "title"),
         body: String(form.get("body") ?? ""),
         visible: form.get("visible") === "on",
@@ -69,11 +84,39 @@ export async function applyPageAction(_state: unknown, form: FormData): Promise<
     );
 
     revalidatePath("/dashboard/global/pages", "layout");
+    moved = target !== slug;
 
-    return { saved: applied(result) };
+    if (!moved) {
+      return { saved: applied(result) };
+    }
   } catch (error) {
     return failed(error);
   }
+
+  // Outside the try: redirect() works by throwing. The page now lives at its new address.
+  redirect(`/dashboard/global/pages/${target}`);
+}
+
+/** Start a new page on the ticked brands, then open it for its words. */
+export async function newPageAction(_state: unknown, form: FormData): Promise<GlobalResult> {
+  const viewer = await staff();
+  const title = text(form, "title");
+  const slug =
+    text(form, "slug").toLowerCase() ||
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 191);
+
+  try {
+    await applyPage(viewer, { slug, title, body: "", visible: false, sites: brands(form) }, { ip: await callerIp() });
+  } catch (error) {
+    return failed(error);
+  }
+
+  revalidatePath("/dashboard/global/pages", "layout");
+  redirect(`/dashboard/global/pages/${slug}`);
 }
 
 export async function applyEmailAction(_state: unknown, form: FormData): Promise<GlobalResult> {
@@ -176,7 +219,7 @@ export async function categoryAction(_state: unknown, form: FormData): Promise<G
 
     const result = await applyCategory(
       viewer,
-      { name: text(form, "title"), new_name: text(form, "new_title"), sites: brands(form) },
+      { name: text(form, "title"), new_name: text(form, "new_title"), sort_order: text(form, "sort_order"), sites: brands(form) },
       { ip: await callerIp() },
     );
 

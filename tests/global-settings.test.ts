@@ -23,6 +23,7 @@ import {
   globalFields,
   globalPage,
   globalPages,
+  removePage,
 } from "@/domain/global/estate";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
 
@@ -110,6 +111,36 @@ describe("common pages", () => {
     expect(bySite.has(bitumart.siteId)).toBe(false);
 
     const entries = await db().select().from(auditLog).where(eq(auditLog.action, "page.global"));
+
+    expect(entries).toHaveLength(2);
+  });
+
+  it("moves a page to a new address on the brands ticked, but not onto one a brand already uses", async () => {
+    await applyPage(guard([]), {
+      slug: "about-us",
+      new_slug: "about",
+      title: "About {brand}",
+      body: "x",
+      visible: true,
+      sites: ["baseoil", "bitumart"],
+    });
+
+    const rows = await db().select().from(pages).where(eq(pages.slug, "about"));
+
+    expect(rows.map((row) => row.siteId).sort()).toEqual([baseoil.siteId, bitumart.siteId].sort());
+    // Wax Report was not ticked, so its page stays where it was.
+    expect((await db().select().from(pages).where(eq(pages.slug, "about-us"))).map((row) => row.siteId)).toEqual([wax.siteId]);
+
+    await expect(
+      applyPage(guard([]), { slug: "about", new_slug: "terms", title: "T", body: "x", visible: true, sites: ["baseoil"] }),
+    ).rejects.toMatchObject({ field: "slug", status: 409 });
+  });
+
+  it("deletes a page from the brands ticked, keeping its words in the trail", async () => {
+    expect(await removePage(guard([]), { slug: "about-us", sites: ["baseoil", "bitumart"] })).toEqual({ removed: 2 });
+    expect((await db().select().from(pages).where(eq(pages.slug, "about-us"))).map((row) => row.siteId)).toEqual([wax.siteId]);
+
+    const entries = await db().select().from(auditLog).where(eq(auditLog.action, "page.delete"));
 
     expect(entries).toHaveLength(2);
   });

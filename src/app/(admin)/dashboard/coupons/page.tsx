@@ -13,6 +13,7 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listCoupons } from "@/domain/dashboard/catalogue";
 import { CouponForm } from "./form";
 import { Empty, Heading, Panel, count, money, one, type Search } from "../../ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Coupons · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -39,7 +40,11 @@ export default async function CouponsPage({ searchParams }: { searchParams: Prom
       <Heading
         title="Coupons"
         sub="A code with no brand works on every brand. Codes are matched upper-cased, however they are typed."
-      />
+      >
+        <Popup label="New code" title="New discount code">
+          <CouponForm brands={brands} superadmin={viewer.isSuperadmin} />
+        </Popup>
+      </Heading>
 
       <div className="tiles">
         <div className="tile">
@@ -61,10 +66,6 @@ export default async function CouponsPage({ searchParams }: { searchParams: Prom
           Code created.
         </p>
       ) : null}
-
-      <Panel title="New code" flush={false}>
-        <CouponForm brands={brands} superadmin={viewer.isSuperadmin} />
-      </Panel>
 
       <Panel title={`${count(rows.length)} code${rows.length === 1 ? "" : "s"}`}>
         <table>

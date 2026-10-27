@@ -15,8 +15,8 @@ import { articleTally } from "@/domain/dashboard/catalogue";
 import {
   Chips,
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Panel,
   count,
   one,
@@ -69,28 +69,18 @@ export default async function ArticlesPage({
         </Link>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/articles`}>
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title or excerpt" />
-          </div>
-          {status ? <input type="hidden" name="status" value={status} /> : null}
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
-        <Chips
-          base={`/dashboard/sites/${slug}/articles`}
-          param="status"
-          here={{ site, q }}
-          value={status}
-          options={[
-            { value: "", label: "All", n: tally.all },
-            ...STATUSES.map((value) => ({ value, label: value, n: tally[value] })),
-          ]}
-        />
-      </div>
+      <ListBar action={`/dashboard/sites/${slug}/articles`} q={q} placeholder="Search: title or excerpt" keep={{ status }}>
+      <Chips
+        base={`/dashboard/sites/${slug}/articles`}
+        param="status"
+        here={{ site, q }}
+        value={status}
+        options={[
+          { value: "", label: "All", n: tally.all },
+          ...STATUSES.map((value) => ({ value, label: value, n: tally[value] })),
+        ]}
+      />
+      </ListBar>
 
       <Panel
         title={`${count(tally.all)} article${tally.all === 1 ? "" : "s"}`}

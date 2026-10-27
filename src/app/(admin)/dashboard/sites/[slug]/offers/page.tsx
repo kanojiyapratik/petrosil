@@ -17,8 +17,8 @@ import { listOffers } from "@/domain/dashboard/publishing";
 import {
   Chips,
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Pager,
   Panel,
   count,
@@ -61,7 +61,7 @@ export default async function OffersPage({
         title="Offers"
         sub="Buy and sell notices. Which contact details a reader sees is set per brand."
       >
-        <Link className="button ghost small" href={`/dashboard/sites/${slug}/settings/offers`}>
+        <Link className="button ghost small" href="/dashboard/global/visibility">
           Offer fields
         </Link>
         <Link className="button small" href={`/dashboard/sites/${slug}/offers/new`}>
@@ -69,48 +69,31 @@ export default async function OffersPage({
         </Link>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/offers`}>
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input
-              id="q"
-              name="q"
-              type="search"
-              defaultValue={q ?? ""}
-              placeholder="Subject, company or keyword"
-            />
-          </div>
-          {type ? <input type="hidden" name="type" value={type} /> : null}
-          {status ? <input type="hidden" name="status" value={status} /> : null}
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
-        <Chips
-          base={`/dashboard/sites/${slug}/offers`}
-          param="type"
-          here={{ site, q, status }}
-          value={type}
-          options={[
-            { value: "", label: "Both" },
-            { value: "sell", label: "Selling" },
-            { value: "buy", label: "Buying" },
-          ]}
-        />{" "}
-        <Chips
-          base={`/dashboard/sites/${slug}/offers`}
-          param="status"
-          here={{ site, q, type }}
-          value={status}
-          options={[
-            { value: "", label: "Any status" },
-            { value: "published", label: "Published" },
-            { value: "draft", label: "Draft" },
-            { value: "suspended", label: "Suspended" },
-          ]}
-        />
-      </div>
+      <ListBar action={`/dashboard/sites/${slug}/offers`} q={q} placeholder="Search: subject, company or keyword" keep={{ type, status }}>
+      <Chips
+        base={`/dashboard/sites/${slug}/offers`}
+        param="type"
+        here={{ site, q, status }}
+        value={type}
+        options={[
+          { value: "", label: "Both" },
+          { value: "sell", label: "Selling" },
+          { value: "buy", label: "Buying" },
+        ]}
+      />{" "}
+      <Chips
+        base={`/dashboard/sites/${slug}/offers`}
+        param="status"
+        here={{ site, q, type }}
+        value={status}
+        options={[
+          { value: "", label: "Any status" },
+          { value: "published", label: "Published" },
+          { value: "draft", label: "Draft" },
+          { value: "suspended", label: "Suspended" },
+        ]}
+      />
+      </ListBar>
 
       <Panel title={`${count(paged.total)} offer${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">

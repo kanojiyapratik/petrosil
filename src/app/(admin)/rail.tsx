@@ -72,7 +72,27 @@ export function Rail({ brands }: { brands: NavBrand[] }) {
 
       {navFor(brands).map((group) => (
         <div key={group.group}>
-          <div className="rail-group">{group.group}</div>
+          {group.group === "Sites" ? (
+            // The dots mean nothing without this, and an unexplained colour is
+            // worse than no colour. It sits beside the heading, where the eye
+            // already is when it reads the list below.
+            <div className="rail-group with-legend">
+              <span>{group.group}</span>
+              <span className="rail-legend">
+                <span>
+                  <i className="freshdot ok" /> up to date
+                </span>
+                <span>
+                  <i className="freshdot warn" /> due
+                </span>
+                <span>
+                  <i className="freshdot bad" /> overdue
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div className="rail-group">{group.group}</div>
+          )}
 
           {group.items.map((item) => (
             <Link
@@ -91,21 +111,6 @@ export function Rail({ brands }: { brands: NavBrand[] }) {
             </Link>
           ))}
 
-          {/* The dots mean nothing without this, and an unexplained colour is
-              worse than no colour. */}
-          {group.group === "Sites" ? (
-            <div className="rail-legend">
-              <span>
-                <i className="freshdot ok" /> prices up to date
-              </span>
-              <span>
-                <i className="freshdot warn" /> update due
-              </span>
-              <span>
-                <i className="freshdot bad" /> overdue
-              </span>
-            </div>
-          ) : null}
         </div>
       ))}
     </nav>

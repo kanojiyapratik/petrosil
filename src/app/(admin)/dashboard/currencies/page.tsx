@@ -15,6 +15,7 @@ import { currentViewer } from "@/lib/auth/server";
 import { listCurrencies, unknownCurrencies } from "@/domain/dashboard/masters";
 import { CurrencyRow, NewCurrency } from "./forms";
 import { Empty, Heading, Panel, count } from "../../ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Currencies · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -29,7 +30,13 @@ export default async function CurrenciesPage() {
       <Heading
         title="Currencies"
         sub="One list for the whole estate. A location names its currency by code."
-      />
+      >
+        {viewer.isSuperadmin ? (
+          <Popup label="New currency" title="New currency">
+            <NewCurrency />
+          </Popup>
+        ) : null}
+      </Heading>
 
       {stranded.length > 0 ? (
         <div className="note" style={{ marginBottom: 16 }}>
@@ -39,11 +46,7 @@ export default async function CurrenciesPage() {
         </div>
       ) : null}
 
-      {viewer.isSuperadmin ? (
-        <Panel title="Add a currency" flush={false}>
-          <NewCurrency />
-        </Panel>
-      ) : (
+      {viewer.isSuperadmin ? null : (
         <p className="note">Currencies are shared by every brand, so only a superadmin can change them.</p>
       )}
 

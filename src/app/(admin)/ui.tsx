@@ -63,15 +63,60 @@ export function Heading({
   sub?: string;
   children?: React.ReactNode;
 }) {
+  // One block, so the page's spacing does not push the line under the title
+  // away from it: the title, its actions on the right, and one line of what
+  // the screen is.
   return (
-    <>
+    <header className="pagehead">
       <div className="heading">
         <h1>{title}</h1>
         <span className="spacer" />
         {children}
       </div>
       {sub ? <p className="sub">{sub}</p> : null}
-    </>
+    </header>
+  );
+}
+
+/**
+ * The bar above a list: its filter chips on the left and its search on the
+ * right, on one line. Every list screen uses it, so search is always in the
+ * same place. `keep` carries the filters already chosen through a search.
+ */
+export function ListBar({
+  action,
+  q,
+  placeholder = "Search",
+  keep = {},
+  children,
+}: {
+  action: string;
+  q?: string;
+  placeholder?: string;
+  keep?: Record<string, string | undefined>;
+  children?: React.ReactNode;
+}) {
+  const kept = Object.entries(keep).filter((entry): entry is [string, string] => Boolean(entry[1]));
+  const cleared = kept.length ? `${action}?${new URLSearchParams(kept).toString()}` : action;
+
+  return (
+    <div className="listbar">
+      <div className="listbar-chips">{children}</div>
+      <form className="listbar-search" action={action} method="get" role="search">
+        {kept.map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={value} />
+        ))}
+        <input type="search" name="q" defaultValue={q ?? ""} placeholder={placeholder} aria-label={placeholder} />
+        <button type="submit" className="small">
+          Search
+        </button>
+        {q ? (
+          <Link className="button ghost small" href={cleared}>
+            Clear
+          </Link>
+        ) : null}
+      </form>
+    </div>
   );
 }
 

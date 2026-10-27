@@ -12,7 +12,7 @@ import Link from "next/link";
 import { currentViewer } from "@/lib/auth/server";
 import { listEnquiries } from "@/domain/enquiries/inbox";
 import { KIND, STATUS } from "./labels";
-import { Chips, Empty, Filters, Heading, Pager, Panel, Tile, count, one, pageParam, when, type Search } from "@/app/(admin)/ui";
+import { Chips, Empty, Heading, ListBar, Pager, Panel, Tile, count, one, pageParam, when, type Search } from "@/app/(admin)/ui";
 
 export const metadata = { title: "Enquiries · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -55,18 +55,7 @@ export default async function EnquiriesPage({
         <Tile n={paged.counts.archived} k="from the old site" />
       </div>
 
-      <Panel flush={false}>
-        <Filters action={base}>
-          <input type="hidden" name="status" value={status} />
-          {kind ? <input type="hidden" name="kind" value={kind} /> : null}
-          <div className="field grow">
-            <label htmlFor="q">Contains</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="A name, a company, an email, words in the message" />
-          </div>
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0", display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <ListBar action={base} q={q} placeholder="Search: name, company, email, message" keep={{ status, kind }}>
         <Chips
           base={base}
           param="status"
@@ -91,7 +80,7 @@ export default async function EnquiriesPage({
             { value: "plan", label: KIND.plan! },
           ]}
         />
-      </div>
+      </ListBar>
 
       <Panel title={`${count(paged.total)} enquir${paged.total === 1 ? "y" : "ies"}`}>
         <table className="tight">

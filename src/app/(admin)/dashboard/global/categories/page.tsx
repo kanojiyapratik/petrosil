@@ -12,6 +12,7 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { globalCategories } from "@/domain/global/estate";
 import { AddName, NameTable } from "../names";
 import { Empty, Heading, Panel, count } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Categories · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -23,13 +24,11 @@ export default async function GlobalCategoriesPage() {
 
   return (
     <>
-      <Heading title="Categories" sub="How articles are filed on the brand sites, across the brands." />
-
-      <Panel title="Add a category" flush={false}>
-        <AddName kind="category" brands={shown} />
-      </Panel>
-
-      <div style={{ height: 16 }} />
+      <Heading title="Categories" sub="How articles are filed on the brand sites, across the brands.">
+        <Popup label="New category" title="New category">
+          <AddName kind="category" brands={shown} />
+        </Popup>
+      </Heading>
 
       <Panel title={`${count(categories.length)} categor${categories.length === 1 ? "y" : "ies"}`} hint="Faded: a brand without it.">
         {categories.length ? (

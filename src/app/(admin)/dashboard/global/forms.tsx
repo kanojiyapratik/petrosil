@@ -10,7 +10,7 @@
 
 import { useActionState, useState } from "react";
 
-import { applyEmailAction, applyFieldAction, applyPageAction, type GlobalResult } from "./actions";
+import { applyEmailAction, applyFieldAction, applyPageAction, newPageAction, type GlobalResult } from "./actions";
 
 type Brand = { slug: string; name: string };
 
@@ -97,7 +97,8 @@ type PageVersion = { title: string; body: string; visible: boolean; brands: Bran
 export function GlobalPageForm({ slug, versions, brands }: { slug: string; versions: PageVersion[]; brands: Brand[] }) {
   const [state, action, pending] = useActionState(applyPageAction, null as GlobalResult);
   const [at, setAt] = useState(0);
-  const [chosen, setChosen] = useState(brands.map((brand) => brand.slug));
+  // The brands that have this page, to start with: ticking every brand would hand a one-brand page to all nine.
+  const [chosen, setChosen] = useState(versions.flatMap((v) => v.brands.map((brand) => brand.slug)));
   const version = versions[at]!;
 
   return (
@@ -112,14 +113,23 @@ export function GlobalPageForm({ slug, versions, brands }: { slug: string; versi
           </div>
           <div className="body">
             <VersionPicker versions={versions} at={at} onPick={setAt} />
-            <div className="field">
-              <label htmlFor="title">Title</label>
-              <input id="title" name="title" type="text" required maxLength={255} defaultValue={version.title} />
+            <div className="bar" style={{ marginBottom: 14 }}>
+              <div className="field grow">
+                <label htmlFor="title">Title</label>
+                <input id="title" name="title" type="text" required maxLength={255} defaultValue={version.title} />
+              </div>
+              <div className="field grow">
+                <label htmlFor="new_slug">Address</label>
+                <input id="new_slug" name="new_slug" type="text" maxLength={191} defaultValue={slug} />
+              </div>
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
               <label htmlFor="body">Body (HTML)</label>
               <textarea id="body" name="body" className="code" rows={22} defaultValue={version.body} />
-              <div className="small muted">{MARKER_NOTE}</div>
+              <div className="small muted">
+                {MARKER_NOTE} Changing the address moves the page on the brands ticked, and every link to the old one
+                stops working.
+              </div>
             </div>
           </div>
         </div>
@@ -138,15 +148,45 @@ export function GlobalPageForm({ slug, versions, brands }: { slug: string; versi
             </div>
           </div>
           <div className="actions">
-            <button type="submit" disabled={pending || chosen.length === 0}>
+            <button type="submit" name="intent" value="apply" disabled={pending || chosen.length === 0}>
               {pending ? "Applying…" : `Apply to ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
+            </button>
+            <button type="submit" name="intent" value="remove" className="ghost" disabled={pending || chosen.length === 0}>
+              Delete from them
             </button>
           </div>
           <p className="small muted" style={{ margin: 0 }}>
-            Each brand's own page is replaced; a brand without this page gets one. Brands not ticked are left as they are.
+            Apply replaces each ticked brand&apos;s own page, and gives one to a ticked brand without it. Delete removes
+            it from the ticked brands; the audit trail keeps the words. Brands not ticked are left as they are.
           </p>
         </div>
       </div>
+    </form>
+  );
+}
+
+/** Start a new page on the ticked brands: it opens next for its words, hidden until you show it. */
+export function NewGlobalPage({ brands }: { brands: Brand[] }) {
+  const [state, action, pending] = useActionState(newPageAction, null as GlobalResult);
+  const [chosen, setChosen] = useState(brands.map((brand) => brand.slug));
+
+  return (
+    <form action={action}>
+      <Flash state={state} />
+      <div className="bar" style={{ marginBottom: 12 }}>
+        <div className="field grow">
+          <label htmlFor="new-title">Title</label>
+          <input id="new-title" name="title" type="text" required maxLength={255} placeholder="Advertise with {brand}" />
+        </div>
+        <div className="field grow">
+          <label htmlFor="new-slug">Address</label>
+          <input id="new-slug" name="slug" type="text" maxLength={191} placeholder="made from the title" />
+        </div>
+        <button type="submit" disabled={pending || chosen.length === 0}>
+          {pending ? "Creating…" : `Create on ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
+        </button>
+      </div>
+      <BrandTicks brands={brands} chosen={chosen} onChange={setChosen} />
     </form>
   );
 }
@@ -168,7 +208,8 @@ export function GlobalEmailForm({
 }) {
   const [state, action, pending] = useActionState(applyEmailAction, null as GlobalResult);
   const [at, setAt] = useState(0);
-  const [chosen, setChosen] = useState(brands.map((brand) => brand.slug));
+  // The brands that have this email, to start with.
+  const [chosen, setChosen] = useState(versions.flatMap((v) => v.brands.map((brand) => brand.slug)));
   const version = versions[at]!;
 
   return (

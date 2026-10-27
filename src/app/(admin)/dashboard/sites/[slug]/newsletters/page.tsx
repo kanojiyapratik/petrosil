@@ -12,12 +12,13 @@ import Link from "next/link";
 import { currentViewer } from "@/lib/auth/server";
 import { listNewsletters, listTemplates } from "@/domain/dashboard/promotion";
 import { ComposeForm } from "./forms";
+import { Popup } from "@/app/(admin)/popup";
 import { STATUS } from "./status";
 import {
   Chips,
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Pager,
   Panel,
   count,
@@ -56,26 +57,16 @@ export default async function NewslettersPage({
       <Heading
         title="Newsletters"
         sub="Start an issue from a template, edit it, and send yourself a test. Issues from the old site are kept to read and copy."
-      />
+      >
+        <Popup label="New issue" title="New issue">
+          <ComposeForm
+            site={slug}
+            templates={templates.filter((row) => row.enabled).map((row) => ({ id: row.id, title: row.title }))}
+          />
+        </Popup>
+      </Heading>
 
-      <Panel title="New issue" flush={false}>
-        <ComposeForm
-          site={slug}
-          templates={templates.filter((row) => row.enabled).map((row) => ({ id: row.id, title: row.title }))}
-        />
-      </Panel>
-
-      <Panel flush={false}>
-        <Filters action={base}>
-          {status ? <input type="hidden" name="status" value={status} /> : null}
-          <div className="field grow">
-            <label htmlFor="q">Title contains</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Singapore, Group II, May 2026…" />
-          </div>
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
+      <ListBar action={base} q={q} placeholder="Search: title" keep={{ status }}>
         <Chips
           base={base}
           param="status"
@@ -88,7 +79,7 @@ export default async function NewslettersPage({
             { value: "archived", label: "From the old site" },
           ]}
         />
-      </div>
+      </ListBar>
 
       <Panel title={`${count(paged.total)} issue${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">

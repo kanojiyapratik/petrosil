@@ -84,6 +84,12 @@ export function AddName({ kind, brands }: { kind: Kind; brands: Brand[] }) {
           <label htmlFor={`add-${kind}`}>New {words.noun}</label>
           <input id={`add-${kind}`} name="title" type="text" required maxLength={191} />
         </div>
+        {kind === "category" ? (
+          <div className="field" style={{ minWidth: 0, width: 110 }}>
+            <label htmlFor="add-position">Position</label>
+            <input id="add-position" name="sort_order" type="number" step={1} defaultValue={0} />
+          </div>
+        ) : null}
         <button type="submit" disabled={pending || chosen.length === 0}>
           {pending ? "Adding…" : `Add to ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
         </button>
@@ -146,6 +152,12 @@ function NameRow({ kind, row, brands }: { kind: Kind; row: Row; brands: Brand[] 
                   <label htmlFor={`rename-${kind}-${row.title}`}>Name on the brands ticked</label>
                   <input id={`rename-${kind}-${row.title}`} name="new_title" type="text" maxLength={191} defaultValue={row.title} />
                 </div>
+                {kind === "category" ? (
+                  <div className="field" style={{ minWidth: 0, width: 110 }}>
+                    <label htmlFor={`position-${row.title}`}>Position</label>
+                    <input id={`position-${row.title}`} name="sort_order" type="number" step={1} placeholder="keep" />
+                  </div>
+                ) : null}
                 {words.offered ? (
                   <label className="check" style={{ marginBottom: 8 }}>
                     <input type="checkbox" name="enabled" defaultChecked={offered > 0} />

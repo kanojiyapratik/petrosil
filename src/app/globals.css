@@ -599,9 +599,70 @@ button.ghost,
 }
 
 .sub {
-  margin: 0 0 18px;
+  margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.86rem;
+}
+
+/* The title, its actions and its one-line description, as one block. */
+.pagehead .heading {
+  margin-bottom: 2px;
+}
+
+/* Above a list: chips on the left, search on the right, one line. */
+.listbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.listbar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.listbar-search {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 380px;
+  min-width: 240px;
+}
+
+.listbar-search input[type="search"] {
+  padding: 0.38rem 0.6rem;
+}
+
+/* A small form in a popup. */
+dialog.popup {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0;
+  width: min(680px, 94vw);
+  max-height: 90vh;
+}
+
+dialog.popup::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.popup-body {
+  padding: 1rem;
 }
 
 .cols {
@@ -931,22 +992,28 @@ button.quick-one:hover {
   background: #f87171;
 }
 
+/* The Sites heading carries the dot legend on its right. */
+.rail-group.with-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .rail-legend {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin: 0.55rem 1.15rem 0;
-  padding-top: 0.55rem;
-  border-top: 1px solid var(--rail-line);
-  font-size: 0.72rem;
-  color: var(--rail-ink);
-  opacity: 0.7;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.66rem;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .rail-legend span {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.35rem;
 }
 
 /* A page's own sections. */

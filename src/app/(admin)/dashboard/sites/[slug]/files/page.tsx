@@ -19,7 +19,8 @@ import { missingReferences } from "@/domain/files/import";
 import { FOLDERS, isPublicFolder } from "@/domain/files/folders";
 import { MAX_UPLOAD_BYTES } from "@/domain/files/access";
 import { brandsFor } from "@/domain/dashboard/brands";
-import { Chips, Empty, Filters, Heading, Pager, Panel, count, one, pageParam, when, type Search } from "@/app/(admin)/ui";
+import { Chips, Empty, Heading, ListBar, Pager, Panel, count, one, pageParam, when, type Search } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Files · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -65,8 +66,34 @@ export default async function FilesPage({
     <>
       <Heading
         title="Files"
-        sub="Report PDFs, trade sheets, article and ad images. Pictures in public folders are served to the site; PDFs and attachments only to staff, until the paid download is built."
-      />
+        sub="Report PDFs, trade sheets, article and ad images. Pictures in public folders are served to the site; PDFs and attachments only to staff."
+      >
+        <Popup label="Upload a file" title="Upload a file">
+          <form action="/api/dashboard/files" method="post" encType="multipart/form-data">
+            <input type="hidden" name="site" value={slug} />
+            <div className="field">
+              <label htmlFor="folder-up">Folder</label>
+              <select id="folder-up" name="folder" defaultValue={folder ?? "reports/files"}>
+                {FOLDERS.map((name) => (
+                  <option key={name} value={name}>
+                    {name} {isPublicFolder(name) ? "(public)" : "(staff only)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="file">File</label>
+              <input id="file" name="file" type="file" required />
+            </div>
+            <div className="actions">
+              <button type="submit">Upload</button>
+              <span className="small muted">
+                PDF, images, video, Office and CSV, up to {MAX_UPLOAD_BYTES / 1024 / 1024} MB, renamed so it cannot clash.
+              </span>
+            </div>
+          </form>
+        </Popup>
+      </Heading>
 
       {uploaded ? (
         <p className="flash" role="status">
@@ -78,33 +105,6 @@ export default async function FilesPage({
           {error}
         </p>
       ) : null}
-
-      <Panel title="Upload" flush={false}>
-        <form action="/api/dashboard/files" method="post" encType="multipart/form-data">
-          <input type="hidden" name="site" value={slug} />
-          <div className="bar">
-            <div className="field">
-              <label htmlFor="folder-up">Folder</label>
-              <select id="folder-up" name="folder" defaultValue={folder ?? "reports/files"}>
-                {FOLDERS.map((name) => (
-                  <option key={name} value={name}>
-                    {name} {isPublicFolder(name) ? "(public)" : "(staff only)"}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field grow">
-              <label htmlFor="file">File</label>
-              <input id="file" name="file" type="file" required />
-            </div>
-            <button type="submit">Upload</button>
-          </div>
-          <p className="small muted" style={{ margin: ".4rem 0 0" }}>
-            PDF, images, video, Office and CSV, up to {MAX_UPLOAD_BYTES / 1024 / 1024} MB. The file gets a new
-            name that cannot clash with one already here.
-          </p>
-        </form>
-      </Panel>
 
       {missing.length > 0 ? (
         <Panel title={`${count(missing.length)} file${missing.length === 1 ? "" : "s"} named by content but not here`} flush={false}>
@@ -123,17 +123,7 @@ export default async function FilesPage({
         </Panel>
       ) : null}
 
-      <Panel flush={false}>
-        <Filters action={base}>
-          {folder ? <input type="hidden" name="folder" value={folder} /> : null}
-          <div className="field grow">
-            <label htmlFor="q">Name contains</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="584, february-2020, singapore…" />
-          </div>
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
+      <ListBar action={base} q={q} placeholder="Search: file name" keep={{ folder }}>
         <Chips
           base={base}
           param="folder"
@@ -141,7 +131,7 @@ export default async function FilesPage({
           value={folder}
           options={[{ value: "", label: "Every folder" }, ...FOLDERS.map((name) => ({ value: name, label: name }))]}
         />
-      </div>
+      </ListBar>
 
       <Panel title={`${count(paged.total)} file${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">

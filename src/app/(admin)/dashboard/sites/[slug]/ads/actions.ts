@@ -1,6 +1,9 @@
 "use server";
 
-/** Saving and withdrawing an ad, and an ad slot. The rules are in `domain/ads/editor.ts`. */
+/**
+ * Saving and withdrawing an ad. The rules are in `domain/ads/editor.ts`; ad
+ * slots are edited across the brands under Global settings.
+ */
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -8,7 +11,7 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { deletePlacement, saveAd, savePlacement, withdrawAd } from "@/domain/ads/editor";
+import { saveAd, withdrawAd } from "@/domain/ads/editor";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type AdResult = { error?: string; field?: string; saved?: string } | null;
@@ -106,43 +109,3 @@ export async function withdrawAdAction(_state: unknown, form: FormData): Promise
   redirect(`/dashboard/sites/${slug}/ads`);
 }
 
-export async function savePlacementAction(_state: unknown, form: FormData): Promise<AdResult> {
-  const viewer = await staff();
-  const slug = text(form, "site");
-  const id = idOf(form);
-
-  try {
-    const saved = await savePlacement(
-      viewer,
-      { id, site: slug, title: text(form, "title"), enabled: ticked(form, "enabled") },
-      { ip: await callerIp() },
-    );
-
-    if (!saved) {
-      return { error: "That slot is not yours to change." };
-    }
-  } catch (error) {
-    return failed(error, "an ad slot");
-  }
-
-  revalidatePath(`/dashboard/sites/${slug}/ad-locations`);
-
-  return { saved: id === undefined ? "Added." : "Saved." };
-}
-
-export async function deletePlacementAction(_state: unknown, form: FormData): Promise<AdResult> {
-  const viewer = await staff();
-  const slug = text(form, "site");
-
-  try {
-    if (!(await deletePlacement(viewer, Number(form.get("id")), { ip: await callerIp() }))) {
-      return { error: "That slot is not yours to change." };
-    }
-  } catch (error) {
-    return failed(error, "an ad slot");
-  }
-
-  revalidatePath(`/dashboard/sites/${slug}/ad-locations`);
-
-  return { saved: "Deleted." };
-}

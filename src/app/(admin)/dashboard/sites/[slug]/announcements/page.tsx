@@ -19,6 +19,7 @@ import {
   one,
   type Search,
 } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Announcements · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -47,11 +48,11 @@ export default async function AnnouncementsPage({
       <Heading
         title="Announcements"
         sub="The strip across the top of a brand site, with the window it shows in."
-      />
-
-      <Panel title="Add a notice" flush={false}>
-        <NoticeForm brands={brands} onlySite={site} />
-      </Panel>
+      >
+        <Popup label="New notice" title="New notice">
+          <NoticeForm brands={brands} onlySite={site} />
+        </Popup>
+      </Heading>
 
       <div className="tiles">
         <div className="tile">

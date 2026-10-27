@@ -49,7 +49,7 @@ export default async function AdsPage({
         title="Ads"
         sub="Running is judged against today, not against the publish flag."
       >
-        <Link className="button ghost small" href={`/dashboard/sites/${slug}/ad-locations`}>
+        <Link className="button ghost small" href="/dashboard/global/ad-slots">
           Slots
         </Link>
         <Link className="button small" href={`/dashboard/sites/${slug}/ads/new`}>

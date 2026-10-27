@@ -20,10 +20,14 @@ export function SiteTabs({ slug, name }: { slug: string; name: string }) {
   const path = usePathname();
   const tabs = siteTabs(slug);
 
-  const open =
-    tabs
-      .filter((tab) => path === tab.href || path.startsWith(`${tab.href}/`))
-      .sort((a, b) => b.href.length - a.href.length)[0] ?? tabs[0];
+  // A tab owns every screen in it, not only the one it lands on: Offers is
+  // Content's as much as Articles is. The deepest matching screen wins, and
+  // the brand's dashboard — a prefix of everything — only on an exact match.
+  const within = (href: string) => path === href || path.startsWith(`${href}/`);
+  const best = tabs
+    .flatMap((tab) => tab.items.filter((item) => within(item.href)).map((item) => ({ tab, length: item.href.length })))
+    .sort((a, b) => b.length - a.length)[0];
+  const open = best?.tab ?? tabs[0];
 
   return (
     <>

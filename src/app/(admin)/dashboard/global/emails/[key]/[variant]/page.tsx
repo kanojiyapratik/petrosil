@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { globalEmail } from "@/domain/global/estate";
+import { emailSender } from "@/domain/content/mail-templates";
 import { GlobalEmailForm } from "../../../forms";
 import { Heading, Panel } from "@/app/(admin)/ui";
 
@@ -15,6 +16,7 @@ export default async function GlobalEmailPage({ params }: { params: Promise<{ ke
   const viewer = (await currentViewer())!;
   const { key, variant } = await params;
   const [email, brands] = await Promise.all([globalEmail(viewer.siteIds, key, variant), brandsFor(viewer.siteIds)]);
+  const sender = emailSender(key);
 
   if (!email) {
     notFound();
@@ -34,6 +36,13 @@ export default async function GlobalEmailPage({ params }: { params: Promise<{ ke
             : `${email.versions.length} versions across the brands.`
         }
       />
+
+      {sender ? (
+        <p className="note">
+          Sent by <strong>{sender.sentBy}</strong>. It fills {sender.fields.map((field) => `{${field}}`).join(" ")}; any other
+          placeholder reaches the reader as typed.
+        </p>
+      ) : null}
 
       <Panel title="Who has which version" flush={false}>
         <ol style={{ margin: 0, paddingLeft: 20 }}>

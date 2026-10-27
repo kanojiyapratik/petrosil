@@ -146,6 +146,12 @@ type Spec = { label: string; slug: string; items: [string, string, string, boole
  * report sends to 8,931 recipients, 318 sample sends, and a 17,052-row
  * delivery log with open tracking.
  */
+/*
+ * Pages, categories, system emails, ad slots and field visibility are not
+ * here: every brand has them, so they are edited once under Global settings,
+ * with the brands to apply them to ticked there. Listing them in each brand
+ * as well would be the same thing in two places.
+ */
 const SPECS: Spec[] = [
   { label: "Dashboard", slug: "dashboard", items: [] },
   {
@@ -167,10 +173,8 @@ const SPECS: Spec[] = [
       ["Reports", "reports", "paid research", true],
       ["Member offers", "offers", "what members post", true],
       ["Announcements", "announcements", "site notices", true],
-      ["Pages", "pages", "about, pricing, terms", true],
-      ["Categories", "categories", "how content is filed", true],
       ["Files", "files", "images and attachments", true],
-      ["Sample reports", "sample-reports", "not built yet", false],
+      ["Sample reports", "sample-reports", "free reports for prospects", true],
     ],
   },
   {
@@ -179,7 +183,6 @@ const SPECS: Spec[] = [
     items: [
       ["Newsletters", "newsletters", "write and send to a list", true],
       ["Newsletter templates", "templates", "the layouts a newsletter uses", true],
-      ["Email templates", "settings/mail-templates", "welcome, reminders, sample reports", true],
       ["Send a report", "send-report", "to every paying reader", true],
       ["Send a sample", "send-sample", "reports to one prospect", true],
       ["Delivery log", "deliveries", "who was sent what, and who opened it", true],
@@ -193,7 +196,6 @@ const SPECS: Spec[] = [
       // while the public forms kept writing into it: 1,189 unread on bitumart.
       ["Enquiries", "enquiries", "messages to companies, offers, plans", true],
       ["Adverts", "ads", "campaigns and clicks", true],
-      ["Advert slots", "ad-locations", "where they appear", true],
     ],
   },
   {
@@ -202,7 +204,7 @@ const SPECS: Spec[] = [
     items: [
       ["Price update", "batches", "what the module staged", true],
       ["Watched pages", "crawl", "where prices are read from", true],
-      ["Published AI note", "ai-note", "not built yet", false],
+      ["Published AI note", "ai-note", "the note above the prices", true],
       ["Per-market rules", "rules", "set in the console, invisible here", false],
     ],
   },
@@ -211,8 +213,6 @@ const SPECS: Spec[] = [
     slug: "settings",
     items: [
       ["General", "settings", "title, description, keywords", true],
-      ["Directory visibility", "settings/directory", "which fields free readers see", true],
-      ["Offer visibility", "settings/offers", "the same, for member offers", true],
       // The old `settings` table carries the SMTP and provider credentials
       // this screen would edit. They are not ours to move.
       ["Mail credentials", "settings/mail", "stays on the old host", false],

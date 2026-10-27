@@ -11,6 +11,7 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { globalSlots } from "@/domain/global/estate";
 import { AddName, NameTable } from "../names";
 import { Empty, Heading, Panel, count } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Ad slots · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -22,13 +23,11 @@ export default async function GlobalSlotsPage() {
 
   return (
     <>
-      <Heading title="Ad slots" sub="The places on the brand sites an ad can run, across the brands." />
-
-      <Panel title="Add a slot" flush={false}>
-        <AddName kind="slot" brands={shown} />
-      </Panel>
-
-      <div style={{ height: 16 }} />
+      <Heading title="Ad slots" sub="The places on the brand sites an ad can run, across the brands.">
+        <Popup label="New slot" title="New ad slot">
+          <AddName kind="slot" brands={shown} />
+        </Popup>
+      </Heading>
 
       <Panel title={`${count(slots.length)} slot name${slots.length === 1 ? "" : "s"}`} hint="Faded: a brand without it.">
         {slots.length ? (

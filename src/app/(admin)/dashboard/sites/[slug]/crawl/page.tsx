@@ -24,6 +24,7 @@ import {
   when,
   type Search,
 } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Watched URLs · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -87,19 +88,21 @@ export default async function CrawlPage({
       <Heading
         title="Watched URLs"
         sub="Pages the crawler reads for prices. Removing one disables it; its findings stay."
-      />
+      >
+        {editing ? (
+          <Popup label="Edit the watch list" title={`What ${editing.brand.name} watches`}>
+            <WatchListForm
+              site={editing.brand.slug}
+              siteName={editing.brand.name}
+              urls={editing.urls}
+              instructions={editing.settings.instructions}
+              intervalMinutes={editing.settings.intervalMinutes}
+            />
+          </Popup>
+        ) : null}
+      </Heading>
 
-      {editing ? (
-        <div style={{ marginTop: 16 }}>
-          <WatchListForm
-            site={editing.brand.slug}
-            siteName={editing.brand.name}
-            urls={editing.urls}
-            instructions={editing.settings.instructions}
-            intervalMinutes={editing.settings.intervalMinutes}
-          />
-        </div>
-      ) : brands.length > 1 ? (
+      {editing ? null : brands.length > 1 ? (
         <div className="note" style={{ marginTop: 16 }}>
           Pick a brand above to change what it watches. The list belongs to one brand and is
           replaced whole, so there is nothing sensible to edit across all of them at once.

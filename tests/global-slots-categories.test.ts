@@ -147,6 +147,15 @@ describe("categories across the brands", () => {
     ]);
   });
 
+  it("sets a position on the brands ticked, and leaves each brand's own when none is given", async () => {
+    await applyCategory(guard([]), { name: "AMEA Events", sort_order: "5", sites: ["baseoil"] });
+    await applyCategory(guard([]), { name: "AMEA Events", sort_order: "", sites: ["bitumart"] });
+
+    const rows = await db().select().from(articleCategories).orderBy(articleCategories.siteId);
+
+    expect(rows.map((row) => row.sortOrder)).toEqual([5, 0]);
+  });
+
   it("removes it where nothing is filed and keeps it where articles are", async () => {
     const [category] = await db()
       .select()

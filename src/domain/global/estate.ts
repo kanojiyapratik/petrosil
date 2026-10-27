@@ -33,6 +33,7 @@ import { AccountError } from "@/domain/accounts/register";
 import { requirePermission } from "@/domain/staff/permissions";
 import { deletePlacement, savePlacement } from "@/domain/ads/editor";
 import { deleteCategory, saveCategory } from "@/domain/content/categories";
+import { deletePage } from "@/domain/content/pages";
 
 type Brand = { id: number; slug: string; name: string };
 
@@ -166,16 +167,25 @@ const PAGE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Write one version of a page to every brand ticked; created where a brand lacks it. */
 export async function applyPage(
   guard: Guarded,
-  input: { slug: string; title: unknown; body: unknown; visible: boolean; sites: unknown[] },
+  input: {
+    slug: string;
+    /** A new address for the page on the ticked brands. Blank or absent: it stays where it is. */
+    new_slug?: string;
+    title: unknown;
+    body: unknown;
+    visible: boolean;
+    sites: unknown[];
+  },
   context: { ip?: string | null } = {},
   database: Database = db(),
 ): Promise<{ created: number; updated: number }> {
   const slug = String(input.slug ?? "").trim();
+  const target = String(input.new_slug ?? "").trim().toLowerCase() || slug;
   const title = String(input.title ?? "").trim().replace(/\s+/g, " ").slice(0, 255);
   const body = String(input.body ?? "");
 
-  if (!PAGE_SLUG.test(slug)) {
-    throw new AccountError("An address is lower-case words joined by hyphens.", 422, "slug");
+  if (!PAGE_SLUG.test(slug) || !PAGE_SLUG.test(target)) {
+    throw new AccountError("An address is lower-case words joined by hyphens, like terms-of-use.", 422, "slug");
   }
 
   if (title === "") {
@@ -183,26 +193,37 @@ export async function applyPage(
   }
 
   const brands = await ticked(guard, input.sites, database);
-  const existing = await database
-    .select({ id: pages.id, siteId: pages.siteId })
+  const rows = await database
+    .select({ id: pages.id, siteId: pages.siteId, slug: pages.slug })
     .from(pages)
-    .where(and(eq(pages.slug, slug), inArray(pages.siteId, brands.map((brand) => brand.id))));
-  const has = new Map(existing.map((row) => [row.siteId, row.id]));
+    .where(and(inArray(pages.slug, [slug, target]), inArray(pages.siteId, brands.map((brand) => brand.id))));
+  const has = new Map(rows.filter((row) => row.slug === slug).map((row) => [row.siteId, row.id]));
 
   for (const brand of brands) {
     await requirePermission(guard, brand.id, has.has(brand.id) ? "page-edit" : "page-create", database);
+
+    // Moving to an address a brand already uses would leave two pages on one link.
+    if (target !== slug && rows.some((row) => row.siteId === brand.id && row.slug === target)) {
+      throw new AccountError(`${brand.name} already has a page at /${target}.`, 409, "slug");
+    }
   }
 
   return database.transaction(async (tx) => {
     let created = 0;
 
     for (const brand of brands) {
-      const values = { title: brandText(title, brand.name), body: brandText(body, brand.name), visible: input.visible, updatedAt: new Date() };
+      const values = {
+        title: brandText(title, brand.name),
+        body: brandText(body, brand.name),
+        visible: input.visible,
+        slug: target,
+        updatedAt: new Date(),
+      };
       const id = has.get(brand.id);
 
       const [row] = id
         ? await tx.update(pages).set(values).where(eq(pages.id, id)).returning({ id: pages.id })
-        : await tx.insert(pages).values({ ...values, siteId: brand.id, slug }).returning({ id: pages.id });
+        : await tx.insert(pages).values({ ...values, siteId: brand.id }).returning({ id: pages.id });
 
       created += id ? 0 : 1;
 
@@ -212,13 +233,45 @@ export async function applyPage(
         action: "page.global",
         entity: "page",
         entityId: row!.id,
-        detail: { slug, title: values.title, created: !id, brands: brands.map((b) => b.slug) },
+        detail: {
+          slug: target,
+          ...(id && target !== slug ? { moved: { from: slug, to: target } } : {}),
+          title: values.title,
+          created: !id,
+          brands: brands.map((b) => b.slug),
+        },
         ip: context.ip ?? null,
       });
     }
 
     return { created, updated: brands.length - created };
   });
+}
+
+/** Delete a page from the ticked brands. Its words are kept in each brand's audit trail. */
+export async function removePage(
+  guard: Guarded,
+  input: { slug: string; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ removed: number }> {
+  const brands = await ticked(guard, input.sites, database);
+  const rows = await database
+    .select({ id: pages.id, siteId: pages.siteId })
+    .from(pages)
+    .where(and(eq(pages.slug, String(input.slug ?? "")), inArray(pages.siteId, brands.map((brand) => brand.id))));
+
+  for (const row of rows) {
+    await requirePermission(guard, row.siteId, "page-delete", database);
+  }
+
+  let removed = 0;
+
+  for (const row of rows) {
+    removed += (await deletePage(guard, row.id, context, database)) ? 1 : 0;
+  }
+
+  return { removed };
 }
 
 /* ---------------------------------------------------------- system emails */
@@ -637,7 +690,7 @@ export async function globalCategories(siteIds: number[], database: Database = d
 /** Add a category to the ticked brands that lack it; rename it where they have it. The slug never moves. */
 export async function applyCategory(
   guard: Guarded,
-  input: { name: string; new_name?: string; sites: unknown[] },
+  input: { name: string; new_name?: string; sort_order?: unknown; sites: unknown[] },
   context: { ip?: string | null } = {},
   database: Database = db(),
 ): Promise<{ created: number; updated: number }> {
@@ -665,10 +718,16 @@ export async function applyCategory(
     }
   }
 
+  // A position, when one is given, is set on every ticked brand; blank keeps each brand's own.
+  const position = String(input.sort_order ?? "").trim();
+  const sortOrder = position !== "" && Number.isInteger(Number(position)) ? Number(position) : undefined;
+
   for (const { brand, existing } of plan) {
     await saveCategory(
       guard,
-      existing ? { id: existing.id, name: to, sort_order: existing.sortOrder } : { site: brand.slug, name: to },
+      existing
+        ? { id: existing.id, name: to, sort_order: sortOrder ?? existing.sortOrder }
+        : { site: brand.slug, name: to, sort_order: sortOrder },
       context,
       database,
     );

@@ -11,15 +11,15 @@
 import Link from "next/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
 import { enabledCurrencies, listLocations } from "@/domain/dashboard/locations";
 import { LocationForm } from "./form";
+import { Popup } from "@/app/(admin)/popup";
 import {
   Change,
   Chips,
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Pager,
   Panel,
   count,
@@ -48,8 +48,7 @@ export default async function LocationsPage({
   const shown = one(search, "shown");
   const page = pageParam(one(search, "page"));
 
-  const [brands, rows] = await Promise.all([
-    brandsFor(viewer.siteIds),
+  const [rows] = await Promise.all([
     listLocations(viewer.siteIds, {
       site,
       search: q,
@@ -70,24 +69,14 @@ export default async function LocationsPage({
     <>
       <Heading
         title="Locations"
-        sub="Every market this estate assesses. A held location keeps its history but is not published."
-      />
+        sub="Every market this brand assesses. A held location keeps its history but is not published."
+      >
+        <Popup label="New location" title="New location">
+          <LocationForm slug={slug} currencies={await enabledCurrencies()} />
+        </Popup>
+      </Heading>
 
-      <Panel title="Add a location" flush={false}>
-        <LocationForm slug={slug} currencies={await enabledCurrencies()} />
-      </Panel>
-
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/locations`}>
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Singapore SN 150" />
-          </div>
-          {shown ? <input type="hidden" name="shown" value={shown} /> : null}
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
+      <ListBar action={`/dashboard/sites/${slug}/locations`} q={q} placeholder="Search locations" keep={{ shown }}>
         <Chips
           base={`/dashboard/sites/${slug}/locations`}
           param="shown"
@@ -99,21 +88,21 @@ export default async function LocationsPage({
             { value: "held", label: "Held", n: rows.length - live },
           ]}
         />
-      </div>
+      </ListBar>
 
       <Panel
         title={`${count(rows.length)} location${rows.length === 1 ? "" : "s"}`}
         hint="Latest figure and how it moved against the one before it."
       >
-        <table>
+        <table className="tight">
           <thead>
             <tr>
               <th>Location</th>
-              <th>Latest</th>
-              <th>Change</th>
+              <th className="num">Latest</th>
+              <th className="num">Change</th>
               <th>As of</th>
               <th className="num">Prices</th>
-              <th>Published</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -123,16 +112,10 @@ export default async function LocationsPage({
                   <Link href={`/dashboard/sites/${slug}/locations/${row.id}`}>
                     <strong>{row.title}</strong>
                   </Link>
-                  <div className="small muted">
-                    {brands.length === 1 ? row.currency ?? "" : `${row.site_name}${row.currency ? ` · ${row.currency}` : ""}`}
-                  </div>
                 </td>
-                <td>{money(row.latest_price, row.currency)}</td>
-                <td>
+                <td className="num">{money(row.latest_price, row.currency)}</td>
+                <td className="num" title={row.previous_price !== null ? `was ${money(row.previous_price, row.currency)}` : undefined}>
                   <Change pct={row.change_pct} />
-                  {row.previous_price !== null ? (
-                    <div className="small muted">was {money(row.previous_price)}</div>
-                  ) : null}
                 </td>
                 <td>{row.latest_pricedate ?? <span className="muted">never</span>}</td>
                 <td className="num">{count(row.price_rows)}</td>

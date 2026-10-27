@@ -28,6 +28,7 @@ import {
   when,
   type Search,
 } from "../../ui";
+import { Popup } from "@/app/(admin)/popup";
 
 export const metadata = { title: "Directory · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -81,7 +82,37 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
             ? `Paying members whose subscription runs out within ${due} days.`
             : "Everyone registered across the estate. One person, one row, however many brands they read."
         }
-      />
+      >
+        <Popup label="Download a list" title="Download a list">
+          <form action="/api/dashboard/exports/people" method="get" className="bar">
+            <div className="field">
+              <label htmlFor="export-site">Brand</label>
+              <select id="export-site" name="site" defaultValue={site ?? brands[0]?.slug ?? ""} required>
+                {brands.map((brand) => (
+                  <option key={brand.slug} value={brand.slug}>
+                    {brand.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="export-segment">List</label>
+              <select id="export-segment" name="segment" defaultValue={segment ?? "all"}>
+                {EXPORT_SEGMENTS.map((row) => (
+                  <option key={row.key} value={row.key}>
+                    {row.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="submit">Download CSV</button>
+          </form>
+          <p className="small muted" style={{ margin: ".4rem 0 0" }}>
+            Readers only: staff and closed accounts are left out. Standing is worked out from today&apos;s date on that
+            brand, so a lapsed subscription is in Expired premium even if nobody has touched it.
+          </p>
+        </Popup>
+      </Heading>
 
       <Panel flush={false}>
         <Filters action="/dashboard/clients" site={site}>
@@ -186,35 +217,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         />
       </Panel>
 
-      <Panel title="Download a list" hint="One brand at a time, as a spreadsheet. Each download is recorded in the audit log." flush={false}>
-        <form action="/api/dashboard/exports/people" method="get" className="bar">
-          <div className="field">
-            <label htmlFor="export-site">Brand</label>
-            <select id="export-site" name="site" defaultValue={site ?? brands[0]?.slug ?? ""} required>
-              {brands.map((brand) => (
-                <option key={brand.slug} value={brand.slug}>
-                  {brand.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="export-segment">List</label>
-            <select id="export-segment" name="segment" defaultValue={segment ?? "all"}>
-              {EXPORT_SEGMENTS.map((row) => (
-                <option key={row.key} value={row.key}>
-                  {row.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="submit">Download CSV</button>
-        </form>
-        <p className="small muted" style={{ margin: ".4rem 0 0" }}>
-          Readers only: staff and closed accounts are left out. Standing is worked out from today&apos;s date on that
-          brand, so a lapsed subscription is in Expired premium even if nobody has touched it.
-        </p>
-      </Panel>
     </>
   );
 }

@@ -192,7 +192,7 @@ describe("a brand's own tabs", () => {
       .flatMap((tab) => tab.items)
       .filter((item) => !item.built);
 
-    expect(unbuilt.map((item) => item.label)).toContain("Sample reports");
+    expect(unbuilt.map((item) => item.label)).toContain("Enter prices by hand");
 
     for (const item of unbuilt) {
       expect(item.note).toBeTruthy();
@@ -203,6 +203,17 @@ describe("a brand's own tabs", () => {
     for (const item of siteTabs("baseoil").flatMap((tab) => tab.items)) {
       expect(item.note).toBeTruthy();
     }
+  });
+});
+
+describe("a brand's tabs and Global settings", () => {
+  it("never list the same thing twice", () => {
+    const global = new Set(["pages", "categories", "ad-locations", "settings/mail-templates", "settings/directory", "settings/offers"]);
+    const routes = siteTabs("baseoil")
+      .flatMap((tab) => tab.items)
+      .map((item) => item.href.replace("/dashboard/sites/baseoil/", ""));
+
+    expect(routes.filter((route) => global.has(route))).toEqual([]);
   });
 });
 
@@ -223,7 +234,6 @@ describe("the emailer", () => {
     expect(emailer.items.map((i) => i.label)).toEqual([
       "Newsletters",
       "Newsletter templates",
-      "Email templates",
       "Send a report",
       "Send a sample",
       "Delivery log",
@@ -236,11 +246,17 @@ describe("the emailer", () => {
 
     expect(built("Newsletters")).toBe(true);
     expect(built("Newsletter templates")).toBe(true);
-    expect(built("Email templates")).toBe(true);
     // The report-delivery machine: send, sample, and the log of both.
     expect(built("Send a report")).toBe(true);
     expect(built("Send a sample")).toBe(true);
     expect(built("Delivery log")).toBe(true);
+  });
+
+  it("leaves the system emails to Global settings, rather than listing them twice", () => {
+    // Every brand sends the same twelve, so they are edited once, across the brands.
+    const emailer = siteTabs("baseoil").find((t) => t.label === "Emailer")!;
+
+    expect(emailer.items.map((i) => i.label)).not.toContain("Email templates");
   });
 
   it("still groups a brand into no more than seven tabs", () => {
@@ -284,23 +300,19 @@ describe("the cards tell the truth", () => {
         "reports",
         "offers",
         "announcements",
-        "pages",
-        "categories",
         "files",
         "newsletters",
         "templates",
         "ads",
-        "ad-locations",
         "batches",
         "crawl",
         "trade-analysis",
         "settings",
-        "settings/directory",
-        "settings/offers",
-        "settings/mail-templates",
         "enquiries",
         "send-report",
         "send-sample",
+        "sample-reports",
+        "ai-note",
         "deliveries",
       ].map(under),
     );

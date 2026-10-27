@@ -14,8 +14,8 @@ import { listReports } from "@/domain/dashboard/publishing";
 import {
   Chips,
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Pager,
   Panel,
   count,
@@ -65,30 +65,20 @@ export default async function ReportsPage({
         </Link>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/reports`}>
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title" />
-          </div>
-          {status ? <input type="hidden" name="status" value={status} /> : null}
-        </Filters>
-      </Panel>
-
-      <div style={{ margin: "14px 0" }}>
-        <Chips
-          base={`/dashboard/sites/${slug}/reports`}
-          param="status"
-          here={{ site, q }}
-          value={status}
-          options={[
-            { value: "", label: "All" },
-            { value: "published", label: "Open to everyone" },
-            { value: "premium", label: "Subscribers only" },
-            { value: "draft", label: "Draft" },
-          ]}
-        />
-      </div>
+      <ListBar action={`/dashboard/sites/${slug}/reports`} q={q} placeholder="Search: title" keep={{ status }}>
+      <Chips
+        base={`/dashboard/sites/${slug}/reports`}
+        param="status"
+        here={{ site, q }}
+        value={status}
+        options={[
+          { value: "", label: "All" },
+          { value: "published", label: "Open to everyone" },
+          { value: "premium", label: "Subscribers only" },
+          { value: "draft", label: "Draft" },
+        ]}
+      />
+      </ListBar>
 
       <Panel title={`${count(paged.total)} report${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">

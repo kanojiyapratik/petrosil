@@ -29,6 +29,11 @@ const SENDERS: Record<string, { sentBy: string; fields: string[] }> = {
   "subscription-expired": { sentBy: "Renewal reminders, daily at 10:00", fields: REMINDER_FIELDS },
 };
 
+/** What sends an email and which placeholders it fills, or null when nothing sends it yet. */
+export function emailSender(key: string): { sentBy: string; fields: string[] } | null {
+  return SENDERS[key] ?? null;
+}
+
 export type MailTemplateRow = {
   id: number;
   site: string;

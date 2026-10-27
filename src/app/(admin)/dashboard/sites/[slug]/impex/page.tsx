@@ -13,8 +13,8 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listImpex } from "@/domain/dashboard/publishing";
 import {
   Empty,
-  Filters,
   Heading,
+  ListBar,
   Pager,
   Panel,
   count,
@@ -57,14 +57,7 @@ export default async function ImpexPage({
         </Link>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/impex`}>
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input id="q" name="q" type="search" defaultValue={q ?? ""} placeholder="Title" />
-          </div>
-        </Filters>
-      </Panel>
+      <ListBar action={`/dashboard/sites/${slug}/impex`} q={q} placeholder="Search: title" />
 
       <Panel title={`${count(paged.total)} sheet${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">
