@@ -87,6 +87,7 @@ export const PERMISSIONS: PermissionGroup[] = [
       { key: "enquiry-edit", label: "Mark enquiries handled" },
       { key: "report-send", label: "Send a report or a sample" },
       { key: "file-upload", label: "Upload files" },
+      { key: "trade-qty-edit", label: "Enter import and export quantities" },
     ],
   },
 ];
