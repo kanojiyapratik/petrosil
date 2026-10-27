@@ -10,7 +10,11 @@
 import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { auditLog, locations, priceBatchItems, priceBatches, prices, sites } from "@/db/schema";
+import { auditLog, currencies, locations, priceBatchItems, priceBatches, prices, sites } from "@/db/schema";
+import type { Guarded } from "@/lib/auth/guard";
+import { AccountError } from "@/domain/accounts/register";
+import { requirePermission } from "@/domain/staff/permissions";
+import { normaliseName } from "@/domain/price/locations";
 
 export type LocationRow = {
   id: number;
@@ -251,3 +255,152 @@ export async function setVisibility(
 }
 
 export { asc };
+
+/* -------------------------------------------------------- adding, renaming */
+
+export type LocationInput = {
+  id?: number;
+  /** The brand, on a new location only. */
+  site?: string;
+  title: unknown;
+  currency: unknown;
+  unit?: unknown;
+  visible?: boolean;
+  sort_order?: unknown;
+};
+
+/**
+ * Add a location or change one. Null when it is another brand's.
+ *
+ * The name is how the price module, the crawler and the upload sheets find
+ * a location, compared with case and spacing ignored. Two names equal that
+ * way would make both ambiguous, so a new or changed name may not match
+ * another of the brand's like that. A rename is recorded with the old name:
+ * prices sent under it will now come back unmatched until the sender changes.
+ */
+export async function saveLocation(
+  guard: Guarded,
+  input: LocationInput,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<typeof locations.$inferSelect | null> {
+  let existing: typeof locations.$inferSelect | undefined;
+  let siteId: number;
+
+  if (input.id !== undefined) {
+    [existing] = await database
+      .select()
+      .from(locations)
+      .where(and(eq(locations.id, input.id), isNull(locations.deletedAt)))
+      .limit(1);
+
+    if (!existing || (!guard.isSuperadmin && !guard.siteIds.includes(existing.siteId))) {
+      return null;
+    }
+
+    siteId = existing.siteId;
+    await requirePermission(guard, siteId, "location-edit", database);
+  } else {
+    const [brand] = await database.select().from(sites).where(eq(sites.slug, String(input.site ?? ""))).limit(1);
+
+    if (!brand) {
+      throw new AccountError("We do not recognise that brand.", 422, "site");
+    }
+
+    if (!guard.isSuperadmin && !guard.siteIds.includes(brand.id)) {
+      throw new AccountError("You do not have access to that brand.", 403, "site");
+    }
+
+    siteId = brand.id;
+    await requirePermission(guard, siteId, "location-create", database);
+  }
+
+  const title = String(input.title ?? "").trim().replace(/\s+/g, " ").slice(0, 191);
+
+  if (title === "") {
+    throw new AccountError("Give the location a name.", 422, "title");
+  }
+
+  const [clash] = await database
+    .select({ id: locations.id, title: locations.title })
+    .from(locations)
+    .where(
+      and(
+        eq(locations.siteId, siteId),
+        sql`lower(regexp_replace(trim(${locations.title}), '\s+', ' ', 'g')) = ${normaliseName(title)}`,
+        existing ? sql`${locations.id} <> ${existing.id}` : undefined,
+      ),
+    )
+    .limit(1);
+
+  if (clash) {
+    throw new AccountError(
+      `"${clash.title}" already has that name, as the price module reads it. Two locations named alike make both ambiguous.`,
+      409,
+      "title",
+    );
+  }
+
+  const code = String(input.currency ?? "").trim().toUpperCase();
+  const [currency] = await database
+    .select()
+    .from(currencies)
+    .where(and(eq(currencies.code, code), eq(currencies.enabled, true)))
+    .limit(1);
+
+  if (!currency) {
+    throw new AccountError("Choose one of the currencies that is switched on.", 422, "currency");
+  }
+
+  const unit = String(input.unit ?? "").trim().slice(0, 32) || null;
+  const sortOrder = Number.isInteger(Number(input.sort_order)) ? Number(input.sort_order) : (existing?.sortOrder ?? 0);
+  const values = { title, currency: currency.code, unit, visible: input.visible ?? true, sortOrder, updatedAt: new Date() };
+
+  const [row] = existing
+    ? await database.update(locations).set(values).where(eq(locations.id, existing.id)).returning()
+    : await database.insert(locations).values({ ...values, siteId }).returning();
+
+  await database.insert(auditLog).values({
+    siteId,
+    userId: guard.identity.user.id,
+    action: existing ? "location.update" : "location.create",
+    entity: "location",
+    entityId: row!.id,
+    detail: existing
+      ? {
+          ...(existing.title !== title ? { renamed: { from: existing.title, to: title } } : {}),
+          ...(existing.currency !== values.currency ? { currency: { from: existing.currency, to: values.currency } } : {}),
+          ...(existing.visible !== values.visible ? { visible: values.visible } : {}),
+        }
+      : { title, currency: values.currency, unit },
+    ip: context.ip ?? null,
+  });
+
+  return row!;
+}
+
+/** The fields the location form edits, scoped like every dashboard read. */
+export async function locationForEdit(siteIds: number[], id: number, database: Database = db()) {
+  const [row] = await database
+    .select()
+    .from(locations)
+    .where(and(eq(locations.id, id), isNull(locations.deletedAt)))
+    .limit(1);
+
+  if (!row || (siteIds.length > 0 && !siteIds.includes(row.siteId))) {
+    return null;
+  }
+
+  return { id: row.id, title: row.title, currency: row.currency, unit: row.unit, visible: row.visible, sort_order: row.sortOrder };
+}
+
+export type LocationForEdit = NonNullable<Awaited<ReturnType<typeof locationForEdit>>>;
+
+/** The currencies a location may be priced in: those switched on. */
+export async function enabledCurrencies(database: Database = db()) {
+  return database
+    .select({ code: currencies.code, title: currencies.title })
+    .from(currencies)
+    .where(eq(currencies.enabled, true))
+    .orderBy(currencies.code);
+}

@@ -6,17 +6,21 @@
  * is what makes the list actionable: a currency nothing uses can go, and a
  * currency a location names but this list does not have is a bug worth
  * seeing — so that is called out rather than left to be discovered.
+ *
+ * Shared by every brand, so a superadmin edits it in place; everyone else
+ * reads it.
  */
 
 import { currentViewer } from "@/lib/auth/server";
 import { listCurrencies, unknownCurrencies } from "@/domain/dashboard/masters";
+import { CurrencyRow, NewCurrency } from "./forms";
 import { Empty, Heading, Panel, count } from "../../ui";
 
 export const metadata = { title: "Currencies · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function CurrenciesPage() {
-  await currentViewer();
+  const viewer = (await currentViewer())!;
 
   const [rows, stranded] = await Promise.all([listCurrencies(), unknownCurrencies()]);
 
@@ -35,6 +39,14 @@ export default async function CurrenciesPage() {
         </div>
       ) : null}
 
+      {viewer.isSuperadmin ? (
+        <Panel title="Add a currency" flush={false}>
+          <NewCurrency />
+        </Panel>
+      ) : (
+        <p className="note">Currencies are shared by every brand, so only a superadmin can change them.</p>
+      )}
+
       <Panel title={`${count(rows.length)} currenc${rows.length === 1 ? "y" : "ies"}`}>
         <table>
           <thead>
@@ -44,32 +56,33 @@ export default async function CurrenciesPage() {
               <th>Symbol</th>
               <th>Offered</th>
               <th className="num">Locations priced in it</th>
+              {viewer.isSuperadmin ? <th /> : null}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <strong>
-                    <code>{row.code}</code>
-                  </strong>
-                </td>
-                <td>{row.title}</td>
-                <td>{row.symbol}</td>
-                <td>
-                  <span className={`badge ${row.enabled ? "ok" : ""}`}>
-                    {row.enabled ? "yes" : "retired"}
-                  </span>
-                </td>
-                <td className="num">
-                  {row.locations === 0 ? (
-                    <span className="muted">unused</span>
-                  ) : (
-                    count(row.locations)
-                  )}
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) =>
+              viewer.isSuperadmin ? (
+                <CurrencyRow key={row.id} row={row} />
+              ) : (
+                <tr key={row.id}>
+                  <td>
+                    <strong>
+                      <code>{row.code}</code>
+                    </strong>
+                  </td>
+                  <td>{row.title}</td>
+                  <td>{row.symbol}</td>
+                  <td>
+                    <span className={`badge ${row.enabled ? "ok" : ""}`}>
+                      {row.enabled ? "yes" : "retired"}
+                    </span>
+                  </td>
+                  <td className="num">
+                    {row.locations === 0 ? <span className="muted">unused</span> : count(row.locations)}
+                  </td>
+                </tr>
+              ),
+            )}
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={5}>

@@ -12,7 +12,8 @@ import Link from "next/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
-import { listLocations } from "@/domain/dashboard/locations";
+import { enabledCurrencies, listLocations } from "@/domain/dashboard/locations";
+import { LocationForm } from "./form";
 import {
   Change,
   Chips,
@@ -71,6 +72,10 @@ export default async function LocationsPage({
         title="Locations"
         sub="Every market this estate assesses. A held location keeps its history but is not published."
       />
+
+      <Panel title="Add a location" flush={false}>
+        <LocationForm slug={slug} currencies={await enabledCurrencies()} />
+      </Panel>
 
       <Panel flush={false}>
         <Filters action={`/dashboard/sites/${slug}/locations`}>

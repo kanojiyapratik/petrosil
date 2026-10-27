@@ -11,7 +11,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
-import { locationDetail } from "@/domain/dashboard/locations";
+import { enabledCurrencies, locationDetail, locationForEdit } from "@/domain/dashboard/locations";
+import { LocationForm } from "../form";
 import { toggleLocation } from "@/app/(admin)/dashboard/actions";
 import { Change, Chart, Empty, Heading, Panel, count, money } from "@/app/(admin)/ui";
 
@@ -28,6 +29,7 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
   }
 
   const { location, history } = found;
+  const [editable, currencies] = await Promise.all([locationForEdit(viewer.siteIds, location.id), enabledCurrencies()]);
   const oldest = history[history.length - 1];
   const newest = history[0];
 
@@ -49,6 +51,12 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
           </button>
         </form>
       </Heading>
+
+      {editable ? (
+        <Panel title="Name, currency and unit" flush={false}>
+          <LocationForm slug={slug} currencies={currencies} location={editable} />
+        </Panel>
+      ) : null}
 
       <div className="tiles">
         <div className="tile">
