@@ -52,6 +52,9 @@ export default async function AdsPage({
         <Link className="button ghost small" href={`/dashboard/sites/${slug}/ad-locations`}>
           Slots
         </Link>
+        <Link className="button small" href={`/dashboard/sites/${slug}/ads/new`}>
+          New ad
+        </Link>
       </Heading>
 
       <div className="tiles">
@@ -85,7 +88,9 @@ export default async function AdsPage({
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/sites/${slug}/ads/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                   <div className="small muted">
                     {row.ad_type}
                     {row.url ? ` → ${row.url}` : ""}

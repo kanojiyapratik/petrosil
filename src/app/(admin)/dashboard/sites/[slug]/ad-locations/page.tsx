@@ -10,14 +10,13 @@
 import Link from "next/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
 import { listPlacements } from "@/domain/dashboard/promotion";
+import { NewSlot, SlotRow } from "./forms";
 import {
   Empty,
   Heading,
   Panel,
   count,
-  one,
   type Search,
 } from "@/app/(admin)/ui";
 
@@ -26,20 +25,15 @@ export const dynamic = "force-dynamic";
 
 export default async function AdLocationsPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
   const viewer = (await currentViewer())!;
   const { slug } = await params;
-  const search = await searchParams;
   const site = slug;
 
-  const [brands, rows] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listPlacements(viewer.siteIds, { site }),
-  ]);
+  const rows = await listPlacements(viewer.siteIds, { site });
 
   const empty = rows.filter((row) => row.enabled && row.live === 0).length;
 
@@ -61,38 +55,27 @@ export default async function AdLocationsPage({
         </div>
       ) : null}
 
-      <Panel title={`${count(rows.length)} slot${rows.length === 1 ? "" : "s"}`}>
-        <table>
+      <Panel title="New slot" flush={false}>
+        <NewSlot slug={slug} />
+      </Panel>
+
+      <Panel
+        title={`${count(rows.length)} slot${rows.length === 1 ? "" : "s"}`}
+        hint="Rename a slot or untick Offered and press Save on its row. A slot with ads in it cannot be deleted."
+      >
+        <table className="tight">
           <thead>
             <tr>
               <th>Slot</th>
-              <th>Brand</th>
               <th>Offered</th>
               <th className="num">Ads assigned</th>
               <th className="num">Running today</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <strong>{row.title}</strong>
-                </td>
-                <td>{row.site_name}</td>
-                <td>
-                  <span className={`badge ${row.enabled ? "ok" : ""}`}>
-                    {row.enabled ? "yes" : "retired"}
-                  </span>
-                </td>
-                <td className="num">{count(row.ads)}</td>
-                <td className="num">
-                  {row.live === 0 ? (
-                    <span className="badge warn">empty</span>
-                  ) : (
-                    count(row.live)
-                  )}
-                </td>
-              </tr>
+              <SlotRow key={row.id} slug={slug} row={row} />
             ))}
             {rows.length === 0 ? (
               <tr>
