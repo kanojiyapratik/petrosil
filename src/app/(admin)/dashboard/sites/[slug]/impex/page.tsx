@@ -6,6 +6,8 @@
  * different things.
  */
 
+import Link from "next/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listImpex } from "@/domain/dashboard/publishing";
@@ -49,7 +51,11 @@ export default async function ImpexPage({
       <Heading
         title="Impex data"
         sub="Import and export sheets, published per period."
-      />
+      >
+        <Link className="button small" href={`/dashboard/sites/${slug}/impex/new`}>
+          New sheet
+        </Link>
+      </Heading>
 
       <Panel flush={false}>
         <Filters action={`/dashboard/sites/${slug}/impex`}>
@@ -75,7 +81,9 @@ export default async function ImpexPage({
             {paged.rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/sites/${slug}/impex/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                   <div className="small muted">
                     {row.file ? <code>{row.file}</code> : "no file attached"}
                   </div>
