@@ -85,6 +85,8 @@ export function navFor(brands: NavBrand[]): NavSection[] {
       { label: "System emails", href: "/dashboard/global/emails" },
       { label: "Common pages", href: "/dashboard/global/pages" },
       { label: "Field visibility", href: "/dashboard/global/visibility" },
+      { label: "Ad slots", href: "/dashboard/global/ad-slots" },
+      { label: "Categories", href: "/dashboard/global/categories" },
       { label: "Currencies", href: "/dashboard/currencies" },
     ],
   });

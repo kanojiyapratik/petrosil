@@ -67,11 +67,13 @@ describe("the three groups", () => {
       "/dashboard/global/emails",
       "/dashboard/global/pages",
       "/dashboard/global/visibility",
+      "/dashboard/global/ad-slots",
+      "/dashboard/global/categories",
       "/dashboard/currencies",
     ]);
   });
 
-  it("stays at nineteen entries for the nine real brands", () => {
+  it("stays at twenty-one entries for the nine real brands", () => {
     // The number is the point: the rail must fit on one screen without
     // scrolling, which is what forty entries did not.
     const nine = Array.from({ length: 9 }, (_, at) => ({
@@ -80,7 +82,7 @@ describe("the three groups", () => {
       freshness: "fresh" as const,
     }));
 
-    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(19);
+    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(21);
   });
 
   it("never nests: no entry carries children of its own", () => {

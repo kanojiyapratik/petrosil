@@ -7,7 +7,16 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { applyEmail, applyField, applyPage, type FieldForm } from "@/domain/global/estate";
+import {
+  applyCategory,
+  applyEmail,
+  applyField,
+  applyPage,
+  applySlot,
+  removeCategory,
+  removeSlot,
+  type FieldForm,
+} from "@/domain/global/estate";
 import { callerIp } from "../actions";
 
 export type GlobalResult = { error?: string; field?: string; saved?: string } | null;
@@ -116,6 +125,64 @@ export async function applyFieldAction(_state: unknown, form: FormData): Promise
         `Applied to ${result.updated} brand${result.updated === 1 ? "" : "s"}.` +
         (result.missing.length ? ` Not on ${result.missing.join(", ")}, which have no such field.` : ""),
     };
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+const removed = (result: { removed: number; kept: string[] }, what: string) =>
+  `Removed from ${result.removed} brand${result.removed === 1 ? "" : "s"}.` +
+  (result.kept.length ? ` Kept on ${result.kept.join(", ")}: ${what}.` : "");
+
+/** Apply or remove an ad slot name, by which button was pressed. */
+export async function slotAction(_state: unknown, form: FormData): Promise<GlobalResult> {
+  const viewer = await staff();
+
+  try {
+    if (text(form, "intent") === "remove") {
+      const result = await removeSlot(viewer, { title: text(form, "title"), sites: brands(form) }, { ip: await callerIp() });
+
+      revalidatePath("/dashboard/global/ad-slots");
+
+      return { saved: removed(result, "ads still run in it there") };
+    }
+
+    const result = await applySlot(
+      viewer,
+      { title: text(form, "title"), new_title: text(form, "new_title"), enabled: form.get("enabled") === "on", sites: brands(form) },
+      { ip: await callerIp() },
+    );
+
+    revalidatePath("/dashboard/global/ad-slots");
+
+    return { saved: applied(result) };
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+/** Apply or remove a category name, by which button was pressed. */
+export async function categoryAction(_state: unknown, form: FormData): Promise<GlobalResult> {
+  const viewer = await staff();
+
+  try {
+    if (text(form, "intent") === "remove") {
+      const result = await removeCategory(viewer, { name: text(form, "title"), sites: brands(form) }, { ip: await callerIp() });
+
+      revalidatePath("/dashboard/global/categories");
+
+      return { saved: removed(result, "articles are still filed under it there") };
+    }
+
+    const result = await applyCategory(
+      viewer,
+      { name: text(form, "title"), new_name: text(form, "new_title"), sites: brands(form) },
+      { ip: await callerIp() },
+    );
+
+    revalidatePath("/dashboard/global/categories");
+
+    return { saved: applied(result) };
   } catch (error) {
     return failed(error);
   }

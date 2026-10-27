@@ -14,13 +14,25 @@
  * still edit one brand at a time.
  */
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { auditLog, formFields, mailTemplates, pages, sites } from "@/db/schema";
+import {
+  adPlacements,
+  ads,
+  articleCategories,
+  articles,
+  auditLog,
+  formFields,
+  mailTemplates,
+  pages,
+  sites,
+} from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import { requirePermission } from "@/domain/staff/permissions";
+import { deletePlacement, savePlacement } from "@/domain/ads/editor";
+import { deleteCategory, saveCategory } from "@/domain/content/categories";
 
 type Brand = { id: number; slug: string; name: string };
 
@@ -452,4 +464,253 @@ export async function applyField(
   }
 
   return { updated: rows.length, missing: brands.filter((brand) => !holding.has(brand.id)).map((brand) => brand.slug) };
+}
+
+/* ------------------------------------------------- ad slots and categories */
+
+/**
+ * Slots and categories are names, not text: what is worth seeing is which
+ * brands have each one. Names are compared trimmed and ignoring case, as the
+ * per-brand rules compare them. Changes go through those same per-brand
+ * functions, so their checks and audit entries hold here too; everything
+ * that could refuse is checked for every ticked brand before the first one
+ * is changed.
+ */
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+type Named<T> = { brand: Brand; row: T };
+
+function byName<T>(copies: Named<T>[], nameOf: (row: T) => string, of: number) {
+  const groups = new Map<string, Named<T>[]>();
+
+  for (const copy of copies) {
+    const key = nameOf(copy.row).trim().toLowerCase();
+
+    groups.set(key, [...(groups.get(key) ?? []), copy]);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({ name: nameOf(group[0]!.row), copies: group, of }))
+    .sort((a, b) => b.copies.length - a.copies.length || a.name.localeCompare(b.name));
+}
+
+/** Every ad slot name in view, and the brands that have it. */
+export async function globalSlots(siteIds: number[], database: Database = db()) {
+  const brands = await brandsIn(siteIds, database);
+  const byId = new Map(brands.map((brand) => [brand.id, brand]));
+  const rows = brands.length
+    ? await database.select().from(adPlacements).where(inArray(adPlacements.siteId, [...byId.keys()]))
+    : [];
+  const placed = rows.length
+    ? await database
+        .select({ placementId: ads.placementId, n: count() })
+        .from(ads)
+        .where(and(inArray(ads.placementId, rows.map((row) => row.id)), isNull(ads.deletedAt)))
+        .groupBy(ads.placementId)
+    : [];
+  const adsIn = new Map(placed.map((row) => [row.placementId, Number(row.n)]));
+
+  return byName(
+    rows.map((row) => ({ brand: byId.get(row.siteId)!, row })),
+    (row) => row.title,
+    brands.length,
+  ).map((group) => ({
+    title: group.name,
+    of: group.of,
+    brands: group.copies
+      .map(({ brand, row }) => ({ slug: brand.slug, name: brand.name, enabled: row.enabled, ads: adsIn.get(row.id) ?? 0 }))
+      .sort((a, b) => a.slug.localeCompare(b.slug)),
+  }));
+}
+
+/** Add a slot to the ticked brands that lack it; rename it and set whether it is offered where they have it. */
+export async function applySlot(
+  guard: Guarded,
+  input: { title: string; new_title?: string; enabled: boolean; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ created: number; updated: number }> {
+  const brands = await ticked(guard, input.sites, database);
+  const to = String(input.new_title ?? "").trim() || String(input.title ?? "").trim();
+
+  if (to === "") {
+    throw new AccountError("Give the slot a name.", 422, "new_title");
+  }
+
+  const rows = await database
+    .select()
+    .from(adPlacements)
+    .where(inArray(adPlacements.siteId, brands.map((brand) => brand.id)));
+  const plan = brands.map((brand) => ({
+    brand,
+    existing: rows.find((row) => row.siteId === brand.id && sameName(row.title, input.title)),
+  }));
+
+  for (const { brand, existing } of plan) {
+    await requirePermission(guard, brand.id, existing ? "adlocation-edit" : "adlocation-create", database);
+
+    if (rows.some((row) => row.siteId === brand.id && row.id !== existing?.id && sameName(row.title, to))) {
+      throw new AccountError(`${brand.name} already has a slot called "${to}".`, 409, "new_title");
+    }
+  }
+
+  for (const { brand, existing } of plan) {
+    await savePlacement(
+      guard,
+      existing ? { id: existing.id, title: to, enabled: input.enabled } : { site: brand.slug, title: to, enabled: input.enabled },
+      context,
+      database,
+    );
+  }
+
+  const created = plan.filter((step) => !step.existing).length;
+
+  return { created, updated: plan.length - created };
+}
+
+/** Remove a slot from the ticked brands; a brand with ads in it keeps it and is named back. */
+export async function removeSlot(
+  guard: Guarded,
+  input: { title: string; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ removed: number; kept: string[] }> {
+  const brands = await ticked(guard, input.sites, database);
+  const rows = await database
+    .select()
+    .from(adPlacements)
+    .where(inArray(adPlacements.siteId, brands.map((brand) => brand.id)));
+  const kept: string[] = [];
+  let removed = 0;
+
+  for (const brand of brands) {
+    const existing = rows.find((row) => row.siteId === brand.id && sameName(row.title, input.title));
+
+    if (!existing) {
+      continue;
+    }
+
+    try {
+      removed += (await deletePlacement(guard, existing.id, context, database)) ? 1 : 0;
+    } catch (error) {
+      if (error instanceof AccountError && error.status === 409) {
+        kept.push(brand.slug);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  return { removed, kept };
+}
+
+/** Every category name in view, and the brands that have it. */
+export async function globalCategories(siteIds: number[], database: Database = db()) {
+  const brands = await brandsIn(siteIds, database);
+  const byId = new Map(brands.map((brand) => [brand.id, brand]));
+  const rows = brands.length
+    ? await database.select().from(articleCategories).where(inArray(articleCategories.siteId, [...byId.keys()]))
+    : [];
+  const filed = rows.length
+    ? await database
+        .select({ categoryId: articles.categoryId, n: count() })
+        .from(articles)
+        .where(inArray(articles.categoryId, rows.map((row) => row.id)))
+        .groupBy(articles.categoryId)
+    : [];
+  const articlesIn = new Map(filed.map((row) => [row.categoryId, Number(row.n)]));
+
+  return byName(
+    rows.map((row) => ({ brand: byId.get(row.siteId)!, row })),
+    (row) => row.name,
+    brands.length,
+  ).map((group) => ({
+    name: group.name,
+    of: group.of,
+    brands: group.copies
+      .map(({ brand, row }) => ({ slug: brand.slug, name: brand.name, articles: articlesIn.get(row.id) ?? 0 }))
+      .sort((a, b) => a.slug.localeCompare(b.slug)),
+  }));
+}
+
+/** Add a category to the ticked brands that lack it; rename it where they have it. The slug never moves. */
+export async function applyCategory(
+  guard: Guarded,
+  input: { name: string; new_name?: string; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ created: number; updated: number }> {
+  const brands = await ticked(guard, input.sites, database);
+  const to = String(input.new_name ?? "").trim() || String(input.name ?? "").trim();
+
+  if (to === "") {
+    throw new AccountError("Give the category a name.", 422, "new_name");
+  }
+
+  const rows = await database
+    .select()
+    .from(articleCategories)
+    .where(inArray(articleCategories.siteId, brands.map((brand) => brand.id)));
+  const plan = brands.map((brand) => ({
+    brand,
+    existing: rows.find((row) => row.siteId === brand.id && sameName(row.name, input.name)),
+  }));
+
+  for (const { brand, existing } of plan) {
+    await requirePermission(guard, brand.id, existing ? "category-edit" : "category-create", database);
+
+    if (rows.some((row) => row.siteId === brand.id && row.id !== existing?.id && sameName(row.name, to))) {
+      throw new AccountError(`${brand.name} already has a category called "${to}".`, 409, "new_name");
+    }
+  }
+
+  for (const { brand, existing } of plan) {
+    await saveCategory(
+      guard,
+      existing ? { id: existing.id, name: to, sort_order: existing.sortOrder } : { site: brand.slug, name: to },
+      context,
+      database,
+    );
+  }
+
+  const created = plan.filter((step) => !step.existing).length;
+
+  return { created, updated: plan.length - created };
+}
+
+/** Remove a category from the ticked brands; a brand with articles filed under it keeps it and is named back. */
+export async function removeCategory(
+  guard: Guarded,
+  input: { name: string; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ removed: number; kept: string[] }> {
+  const brands = await ticked(guard, input.sites, database);
+  const rows = await database
+    .select()
+    .from(articleCategories)
+    .where(inArray(articleCategories.siteId, brands.map((brand) => brand.id)));
+  const kept: string[] = [];
+  let removed = 0;
+
+  for (const brand of brands) {
+    const existing = rows.find((row) => row.siteId === brand.id && sameName(row.name, input.name));
+
+    if (!existing) {
+      continue;
+    }
+
+    try {
+      removed += (await deleteCategory(guard, existing.id, context, database)) ? 1 : 0;
+    } catch (error) {
+      if (error instanceof AccountError && error.status === 409) {
+        kept.push(brand.slug);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  return { removed, kept };
 }
