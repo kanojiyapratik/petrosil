@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { sendReport, sendSample } from "@/domain/reports/sending";
 import { fileStore } from "@/lib/files/store";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type SendResult = { error?: string } | null;
@@ -25,7 +26,7 @@ export async function sendReportAction(_state: unknown, form: FormData): Promise
   const viewer = await staff();
   const site = String(form.get("site") ?? "");
 
-  const result = await sendReport(
+  const result = await orRefused(sendReport(
     viewer,
     {
       site,
@@ -37,7 +38,7 @@ export async function sendReportAction(_state: unknown, form: FormData): Promise
     },
     fileStore(),
     { ip: await callerIp() },
-  );
+  ));
 
   if (!result.ok) {
     return { error: result.message };
@@ -50,7 +51,7 @@ export async function sendSampleAction(_state: unknown, form: FormData): Promise
   const viewer = await staff();
   const site = String(form.get("site") ?? "");
 
-  const result = await sendSample(
+  const result = await orRefused(sendSample(
     viewer,
     {
       site,
@@ -59,7 +60,7 @@ export async function sendSampleAction(_state: unknown, form: FormData): Promise
     },
     fileStore(),
     { ip: await callerIp() },
-  );
+  ));
 
   if (!result.ok) {
     return { error: result.message };

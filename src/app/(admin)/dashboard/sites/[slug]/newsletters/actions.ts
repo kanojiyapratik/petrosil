@@ -16,6 +16,7 @@ import {
   saveNewsletter,
   sendTestNewsletter,
 } from "@/domain/content/newsletters";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type IssueResult = { error?: string; saved?: string } | null;
@@ -33,11 +34,11 @@ async function staff(): Promise<Viewer> {
 export async function composeAction(_state: unknown, form: FormData): Promise<IssueResult> {
   const viewer = await staff();
   const site = String(form.get("site") ?? "");
-  const made = await composeNewsletter(
+  const made = await orRefused(composeNewsletter(
     viewer,
     { site, templateId: Number(form.get("template")), title: String(form.get("title") ?? "") },
     { ip: await callerIp() },
-  );
+  ));
 
   if (!made.ok) {
     return { error: made.message };
@@ -50,20 +51,23 @@ export async function composeAction(_state: unknown, form: FormData): Promise<Is
 export async function copyAction(form: FormData) {
   const viewer = await staff();
   const site = String(form.get("site") ?? "");
-  const made = await copyNewsletter(viewer, Number(form.get("id")), { ip: await callerIp() });
+  const id = Number(form.get("id"));
+  const made = await orRefused(copyNewsletter(viewer, id, { ip: await callerIp() }));
 
-  if (made.ok) {
-    redirect(`/dashboard/sites/${site}/newsletters/${made.id}`);
-  }
+  redirect(
+    made.ok
+      ? `/dashboard/sites/${site}/newsletters/${made.id}`
+      : `/dashboard/sites/${site}/newsletters/${id}?refused=${encodeURIComponent(made.message)}`,
+  );
 }
 
 export async function saveAction(_state: unknown, form: FormData): Promise<IssueResult> {
   const viewer = await staff();
-  const result = await saveNewsletter(
+  const result = await orRefused(saveNewsletter(
     viewer,
     { id: Number(form.get("id")), title: String(form.get("title") ?? ""), body: String(form.get("body") ?? "") },
     { ip: await callerIp() },
-  );
+  ));
 
   revalidatePath("/dashboard/sites/[slug]/newsletters", "layout");
 
@@ -72,7 +76,7 @@ export async function saveAction(_state: unknown, form: FormData): Promise<Issue
 
 export async function testSendAction(_state: unknown, form: FormData): Promise<IssueResult> {
   const viewer = await staff();
-  const result = await sendTestNewsletter(viewer, Number(form.get("id")));
+  const result = await orRefused(sendTestNewsletter(viewer, Number(form.get("id"))));
 
   return result.ok
     ? { saved: `Queued to ${result.to}. It leaves with the next mail run, once a mail key is set.` }

@@ -26,6 +26,12 @@ const nextConfig: NextConfig = {
    * that directory, so it is unconditional and both hosts want it.
    */
   output: "standalone",
+  /**
+   * The disk file store reads paths it builds at run time, and the tracer
+   * follows them into `storage/`: the 37,770 local files' sidecars were being
+   * copied into the server bundle. Uploaded files are data, not code.
+   */
+  outputFileTracingExcludes: { "*": ["storage/**"] },
   // The compat API answers machine callers; no image or font pipeline needed yet.
   poweredByHeader: false,
   allowedDevOrigins:

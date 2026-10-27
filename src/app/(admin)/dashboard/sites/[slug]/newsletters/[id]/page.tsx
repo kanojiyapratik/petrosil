@@ -14,13 +14,20 @@ import { getNewsletter } from "@/domain/content/newsletters";
 import { copyAction } from "../actions";
 import { EditIssueForm, TestSendForm } from "../forms";
 import { STATUS } from "../status";
-import { Heading, Panel, count, when } from "@/app/(admin)/ui";
+import { Heading, Panel, count, one, when, type Search } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewsletterPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function NewsletterPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; id: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
   const { slug, id } = await params;
+  const refused = one(await searchParams, "refused");
   const issue = await getNewsletter(viewer, Number(id));
 
   if (!issue || issue.site !== slug) {
@@ -49,6 +56,11 @@ export default async function NewsletterPage({ params }: { params: Promise<{ slu
       </Heading>
 
       <Panel title="Do something with it" flush={false}>
+        {refused ? (
+          <p className="flash bad" role="alert">
+            {refused}
+          </p>
+        ) : null}
         <div className="bar">
           <TestSendForm id={issue.id} />
           <form action={copyAction} className="inline">

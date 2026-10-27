@@ -59,7 +59,11 @@ export default async function ReportsPage({
       <Heading
         title="Reports"
         sub="The documents a brand sells or gives away. A premium report shows its description to everyone and its file to subscribers."
-      />
+      >
+        <Link className="button small" href={`/dashboard/sites/${slug}/reports/new`}>
+          New report
+        </Link>
+      </Heading>
 
       <Panel flush={false}>
         <Filters action={`/dashboard/sites/${slug}/reports`}>
@@ -102,7 +106,9 @@ export default async function ReportsPage({
             {paged.rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <strong>{row.title}</strong>
+                  <Link href={`/dashboard/sites/${slug}/reports/${row.id}`}>
+                    <strong>{row.title}</strong>
+                  </Link>
                   <div className="small muted">
                     {row.file ? <code>{row.file}</code> : "no file attached"}
                   </div>

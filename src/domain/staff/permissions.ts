@@ -70,3 +70,15 @@ export function refusal(error: unknown): string {
 
   throw error;
 }
+
+/**
+ * For server actions whose work answers `{ ok: false, message }`: a refusal
+ * becomes one of those, so the form shows it instead of an error page.
+ */
+export async function orRefused<T>(work: Promise<T>): Promise<T | { ok: false; message: string }> {
+  try {
+    return await work;
+  } catch (error) {
+    return { ok: false, message: refusal(error) };
+  }
+}

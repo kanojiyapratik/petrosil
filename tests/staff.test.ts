@@ -22,7 +22,7 @@ import {
   revokeStaff,
 } from "@/domain/staff/manage";
 import { deleteRole, saveRole } from "@/domain/staff/roles";
-import { can, requirePermission } from "@/domain/staff/permissions";
+import { can, orRefused, requirePermission } from "@/domain/staff/permissions";
 import { saveAnnouncement } from "@/domain/content/pages";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
 
@@ -233,6 +233,19 @@ describe("what a person may do", () => {
     expect(await can(me, baseoil.siteId, "announcement-create")).toBe(true);
     expect(await can(me, baseoil.siteId, "setting-edit")).toBe(false);
     await expect(requirePermission(me, baseoil.siteId, "setting-edit")).rejects.toBeInstanceOf(AccessError);
+  });
+
+  it("comes back to a form as a message, not an error page", async () => {
+    const writer = await role("Writer", ["announcement-create"]);
+    const made = await grantStaff(await viewer(boss), { email: "w@petrosil.example", name: "W", grants: [{ site: "baseoil", roleId: writer }] });
+    const me = await viewer((made as { userId: number }).userId);
+
+    expect(await orRefused(requirePermission(me, baseoil.siteId, "report-send"))).toEqual({
+      ok: false,
+      message: "Your role does not allow this: send a report or a sample.",
+    });
+    // Anything that is not a refusal still fails loudly.
+    await expect(orRefused(Promise.reject(new Error("database down")))).rejects.toThrow("database down");
   });
 
   it("is checked where the work is done, not only on the screen", async () => {

@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 
 import { currentViewer } from "@/lib/auth/server";
 import { saveMailTemplate } from "@/domain/content/mail-templates";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type TemplateResult = { error?: string; saved?: string; warning?: string } | null;
@@ -21,7 +22,7 @@ export async function saveTemplate(_state: unknown, form: FormData): Promise<Tem
     throw new Error("not staff");
   }
 
-  const result = await saveMailTemplate(
+  const result = await orRefused(saveMailTemplate(
     viewer,
     {
       id: Number(form.get("id")),
@@ -31,7 +32,7 @@ export async function saveTemplate(_state: unknown, form: FormData): Promise<Tem
       enabled: form.get("enabled") === "on",
     },
     { ip: await callerIp() },
-  );
+  ));
 
   revalidatePath("/dashboard/sites/[slug]/settings/mail-templates", "page");
 

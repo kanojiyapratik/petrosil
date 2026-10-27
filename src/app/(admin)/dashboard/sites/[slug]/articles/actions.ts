@@ -17,7 +17,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { currentViewer, type Viewer } from "@/lib/auth/server";
+import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
+import { orRefused } from "@/domain/staff/permissions";
 import { createArticle, updateArticle, withdrawArticle } from "@/domain/content/articles";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
@@ -83,6 +85,10 @@ export async function createArticleAction(
       return { error: error.message, field: error.field ?? undefined };
     }
 
+    if (error instanceof AccessError) {
+      return { error: error.message };
+    }
+
     console.error("could not create an article", { error });
 
     return { error: "Something went wrong. Nothing was saved." };
@@ -138,6 +144,10 @@ export async function saveArticleAction(
       return { error: error.message, field: error.field ?? undefined };
     }
 
+    if (error instanceof AccessError) {
+      return { error: error.message };
+    }
+
     console.error("could not save an article", { id, error });
 
     return { error: "Something went wrong. Nothing was saved." };
@@ -162,7 +172,11 @@ export async function withdrawArticleAction(form: FormData) {
   const slug = slugFrom(form);
   const id = Number(form.get("id"));
 
-  await withdrawArticle(viewer, id, { ip: await callerIp() });
+  const done = await orRefused(withdrawArticle(viewer, id, { ip: await callerIp() }));
+
+  if (typeof done === "object") {
+    redirect(`/dashboard/sites/${slug}/articles/${id}?refused=${encodeURIComponent(done.message)}`);
+  }
 
   revalidatePath(`/dashboard/sites/${slug}/articles`);
   redirect(`/dashboard/sites/${slug}/articles`);

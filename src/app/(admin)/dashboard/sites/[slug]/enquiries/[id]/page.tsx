@@ -12,13 +12,20 @@ import { currentViewer } from "@/lib/auth/server";
 import { getEnquiry } from "@/domain/enquiries/inbox";
 import { setStatusAction } from "../actions";
 import { KIND, STATUS } from "../labels";
-import { Heading, Panel, when } from "@/app/(admin)/ui";
+import { Heading, Panel, one, when, type Search } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function EnquiryPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function EnquiryPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; id: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
   const { slug, id } = await params;
+  const refused = one(await searchParams, "refused");
   const enquiry = await getEnquiry(viewer, Number(id));
 
   if (!enquiry) {
@@ -95,8 +102,15 @@ export default async function EnquiryPage({ params }: { params: Promise<{ slug: 
           </p>
         ) : null}
 
+        {refused ? (
+          <p className="flash bad" role="alert">
+            {refused}
+          </p>
+        ) : null}
+
         <form action={setStatusAction}>
           <input type="hidden" name="id" value={enquiry.id} />
+          <input type="hidden" name="site" value={slug} />
           <div className="field">
             <label htmlFor="note">Note (optional)</label>
             <textarea id="note" name="note" rows={3} defaultValue={enquiry.note ?? ""} style={{ width: "100%" }} />

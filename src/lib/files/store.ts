@@ -97,8 +97,8 @@ export function diskStore(rootDir: string): FileStore {
       const path = pathOf(key);
 
       try {
-        const body = await readFile(path);
-        const contentType = await readFile(typeOf(path), "utf8").catch(() => "application/octet-stream");
+        const body = await readFile(/* turbopackIgnore: true */ path);
+        const contentType = await readFile(/* turbopackIgnore: true */ typeOf(path), "utf8").catch(() => "application/octet-stream");
 
         return { body: new Uint8Array(body), contentType, bytes: body.byteLength };
       } catch (error) {

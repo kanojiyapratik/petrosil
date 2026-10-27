@@ -13,6 +13,7 @@ import Link from "next/link";
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listClients, segmentCounts, type Segment } from "@/domain/dashboard/clients";
+import { EXPORT_SEGMENTS } from "@/domain/clients/export";
 import {
   BrandField,
   Chips,
@@ -183,6 +184,36 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           perPage={clients.per_page}
           total={clients.total}
         />
+      </Panel>
+
+      <Panel title="Download a list" hint="One brand at a time, as a spreadsheet. Each download is recorded in the audit log." flush={false}>
+        <form action="/api/dashboard/exports/people" method="get" className="bar">
+          <div className="field">
+            <label htmlFor="export-site">Brand</label>
+            <select id="export-site" name="site" defaultValue={site ?? brands[0]?.slug ?? ""} required>
+              {brands.map((brand) => (
+                <option key={brand.slug} value={brand.slug}>
+                  {brand.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="export-segment">List</label>
+            <select id="export-segment" name="segment" defaultValue={segment ?? "all"}>
+              {EXPORT_SEGMENTS.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit">Download CSV</button>
+        </form>
+        <p className="small muted" style={{ margin: ".4rem 0 0" }}>
+          Readers only: staff and closed accounts are left out. Standing is worked out from today&apos;s date on that
+          brand, so a lapsed subscription is in Expired premium even if nobody has touched it.
+        </p>
       </Panel>
     </>
   );

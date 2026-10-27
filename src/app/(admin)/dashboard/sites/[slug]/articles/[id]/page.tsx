@@ -6,13 +6,20 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listCategories } from "@/domain/dashboard/catalogue";
 import { articleForEdit } from "@/domain/content/articles";
 import { ArticleForm, WithdrawArticle } from "../form";
-import { Heading, when } from "@/app/(admin)/ui";
+import { Heading, one, when, type Search } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function ArticlePage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function ArticlePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; id: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
   const { slug, id } = await params;
+  const refused = one(await searchParams, "refused");
 
   const article = await articleForEdit(viewer.siteIds, Number(id));
 
@@ -40,6 +47,12 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
         </span>
         {article.premium_only ? <span className="badge brand">subscribers only</span> : null}
       </Heading>
+
+      {refused ? (
+        <p className="flash bad" role="alert">
+          {refused}
+        </p>
+      ) : null}
 
       <ArticleForm slug={slug} brands={brands} categories={categories} article={article} />
 
