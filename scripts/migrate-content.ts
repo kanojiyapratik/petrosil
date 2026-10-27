@@ -879,7 +879,8 @@ async function main(): Promise<void> {
           reportType: clipped(row.report_type, 64) ?? "report",
           file: clipped(row.attach_file, 512),
           thumbnail: clipped(row.thumb_image, 512),
-          status: read.premium ? "premium" : read.status,
+          // Listed meant paid: the old report page sat behind auth + premium (see migration 0015).
+          status: read.premium || read.status === "published" ? "premium" : read.status,
           authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
           clicks: Number(row.clicks ?? 0),
           metaTitle: clipped(row.meta_title, 255),
@@ -959,7 +960,8 @@ async function main(): Promise<void> {
           title,
           description: text(row.description),
           file: clipped(row.attach_file, 512),
-          status: read.premium ? "premium" : read.status,
+          // Listed meant paid, as for reports.
+          status: read.premium || read.status === "published" ? "premium" : read.status,
           authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
           clicks: Number(row.clicks ?? 0),
           createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
