@@ -18,6 +18,7 @@ import { PAYMENT_METHODS } from "@/domain/billing/manual";
 import { today } from "@/domain/price/dates";
 import { MembershipForm } from "./membership-form";
 import { PaymentForm } from "./payment-form";
+import { MemberForm } from "./member-form";
 import { Empty, Heading, Panel, when } from "../../../ui";
 
 export const dynamic = "force-dynamic";
@@ -121,33 +122,55 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           </Panel>
         </div>
 
-        <Panel title="Details" flush={false}>
-          <dl className="kv">
-            <dt>Company</dt>
-            <dd>{client.company ?? "—"}</dd>
-            <dt>Job title</dt>
-            <dd>{client.designation ?? "—"}</dd>
-            <dt>Country</dt>
-            <dd>{client.country ?? "—"}</dd>
-            <dt>City</dt>
-            <dd>{client.city ?? "—"}</dd>
-            <dt>Address</dt>
-            <dd>
-              {client.address ?? "—"}
-              {client.postcode ? <span className="muted"> · {client.postcode}</span> : null}
-            </dd>
-            <dt>Phone</dt>
-            <dd>{client.phone ?? "—"}</dd>
-            <dt>Website</dt>
-            <dd>{client.website ?? "—"}</dd>
-            <dt>Registered</dt>
-            <dd>{client.member_since}</dd>
-            <dt>Last seen</dt>
-            <dd>{client.last_login_at ? when(client.last_login_at) : "never"}</dd>
-            <dt>Brands</dt>
-            <dd>{client.brands.length}</dd>
-          </dl>
-        </Panel>
+        <div className="stack">
+          <Panel title="Details" flush={false}>
+            <dl className="kv">
+              <dt>Company</dt>
+              <dd>{client.company ?? "—"}</dd>
+              <dt>Job title</dt>
+              <dd>{client.designation ?? "—"}</dd>
+              <dt>Country</dt>
+              <dd>{client.country ?? "—"}</dd>
+              <dt>City</dt>
+              <dd>{client.city ?? "—"}</dd>
+              <dt>Address</dt>
+              <dd>
+                {client.address ?? "—"}
+                {client.postcode ? <span className="muted"> · {client.postcode}</span> : null}
+              </dd>
+              <dt>Phone</dt>
+              <dd>{client.phone ?? "—"}</dd>
+              <dt>Website</dt>
+              <dd>{client.website ?? "—"}</dd>
+              <dt>Registered</dt>
+              <dd>{client.member_since}</dd>
+              <dt>Last seen</dt>
+              <dd>{client.last_login_at ? when(client.last_login_at) : "never"}</dd>
+              <dt>Brands</dt>
+              <dd>{client.brands.length}</dd>
+            </dl>
+          </Panel>
+
+          {/* A colleague's record is a superadmin's to change. */}
+          {client.segment !== "staff" || viewer.isSuperadmin ? (
+            <Panel title="Edit details" flush={false}>
+              <MemberForm
+                userId={client.id}
+                details={{
+                  name: client.name,
+                  company: client.company,
+                  designation: client.designation ?? null,
+                  phone: client.phone ?? null,
+                  country: client.country,
+                  city: client.city ?? null,
+                  address: client.address ?? null,
+                  postcode: client.postcode ?? null,
+                  website: client.website ?? null,
+                }}
+              />
+            </Panel>
+          ) : null}
+        </div>
       </div>
     </>
   );
