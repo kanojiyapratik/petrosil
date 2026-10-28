@@ -15,6 +15,12 @@ export type OutgoingMail = {
   text: string;
   /** Shown as the sender's name: the brand, so a reader knows who wrote. */
   fromName?: string;
+  /**
+   * The brand's own address, once a test mail from it has gone through.
+   * Without it the transport's address is used: a sender the provider has
+   * not verified is refused, and that refusal is permanent.
+   */
+  fromEmail?: string;
   /** Where a reply goes: the member who wrote, on a forwarded enquiry. */
   replyTo?: string;
   /** Files sent with the mail: a report's PDF, sample reports. */
@@ -64,7 +70,7 @@ export function brevoTransport(options: {
             accept: "application/json",
           },
           body: JSON.stringify({
-            sender: { email: options.fromEmail, name: mail.fromName ?? options.fromName ?? "Petrosil" },
+            sender: { email: mail.fromEmail ?? options.fromEmail, name: mail.fromName ?? options.fromName ?? "Petrosil" },
             to: [{ email: mail.to }],
             subject: mail.subject,
             htmlContent: mail.html,

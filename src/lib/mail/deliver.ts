@@ -21,6 +21,7 @@ import { mailOutbox, mailTemplates, sites } from "@/db/schema";
 import { renderMail, SYSTEM_PREFIX, TemplateUnavailable, UnknownTemplate, type StoredTemplate } from "./render";
 import { SendError, type Transport } from "./transport";
 import { fileStore, type FileStore } from "@/lib/files/store";
+import { senderFor, type BrandSender } from "@/domain/mail/brand-mail";
 
 /**
  * The brand's enabled template for a `system:` mail, read at send time so an
@@ -172,8 +173,18 @@ export async function deliverPending(
     )
     .orderBy(mailOutbox.id);
 
+  // One lookup per brand per run, not per mail: a report send is hundreds of rows for one brand.
+  const senders = new Map<number, BrandSender>();
+
   for (const { mail, siteName, domain } of rows) {
     try {
+      let sender: BrandSender | undefined;
+
+      if (mail.siteId !== null) {
+        sender = senders.get(mail.siteId) ?? (await senderFor(mail.siteId, database));
+        senders.set(mail.siteId, sender);
+      }
+
       const rendered = renderMail(mail, {
         linkBase: linkBaseFor(domain, options.env),
         stored: await storedTemplate(database, mail),
@@ -185,7 +196,10 @@ export async function deliverPending(
         html: rendered.html,
         text: rendered.text,
         fromName: siteName ?? undefined,
-        replyTo: typeof mail.payload.reply_to === "string" ? mail.payload.reply_to : undefined,
+        // The brand's own address only once a test from it went through; see brand-mail.
+        fromEmail: sender?.confirmed ? sender.fromAddress! : undefined,
+        // A forwarded enquiry replies to the member who wrote; anything else to the brand.
+        replyTo: typeof mail.payload.reply_to === "string" ? mail.payload.reply_to : (sender?.replyTo ?? undefined),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
 

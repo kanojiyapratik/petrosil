@@ -192,8 +192,6 @@ describe("a brand's own tabs", () => {
       .flatMap((tab) => tab.items)
       .filter((item) => !item.built);
 
-    expect(unbuilt.map((item) => item.label)).toContain("Mail credentials");
-
     for (const item of unbuilt) {
       expect(item.note).toBeTruthy();
     }
@@ -296,6 +294,7 @@ describe("the cards tell the truth", () => {
         "price-entry",
         "price-date",
         "rules",
+        "settings/mail",
         "qty",
         "impex",
         "articles",

@@ -57,6 +57,13 @@ export const SETTINGS: SettingDef[] = [
   },
   { key: "mail_from_address", label: "From address", group: "Mail", kind: "email" },
   { key: "mail_reply_to", label: "Reply-to address", group: "Mail", kind: "email" },
+  {
+    key: "mail_from_confirmed",
+    label: "From address confirmed",
+    group: "Mail",
+    kind: "email",
+    help: "The From address a test mail went through from. Set by the Mail screen, not typed.",
+  },
   { key: "smtp_host", label: "SMTP host", group: "Mail", kind: "text" },
   { key: "smtp_port", label: "SMTP port", group: "Mail", kind: "number" },
   { key: "smtp_username", label: "SMTP username", group: "Mail", kind: "text" },
@@ -215,7 +222,9 @@ export async function saveSetting(
   value: string,
   database: Database = db(),
 ): Promise<{ ok: boolean }> {
-  if (!SETTINGS.some((def) => def.key === key)) {
+  // The Mail group belongs to the Mail screen: a sender is confirmed by a
+  // test mail there, and that must not be skipped by posting the key here.
+  if (!SETTINGS.some((def) => def.key === key && def.group !== "Mail")) {
     return { ok: false };
   }
 

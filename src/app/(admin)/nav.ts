@@ -214,9 +214,9 @@ const SPECS: Spec[] = [
     slug: "settings",
     items: [
       ["General", "settings", "title, description, keywords", true],
-      // The old `settings` table carries the SMTP and provider credentials
-      // this screen would edit. They are not ours to move.
-      ["Mail credentials", "settings/mail", "stays on the old host", false],
+      // The provider key stays in the environment; this is the brand's
+      // sender, tested before use, and the old SMTP login nothing reads.
+      ["Mail", "settings/mail", "sender, reply-to, and the old SMTP login", true],
     ],
   },
 ];

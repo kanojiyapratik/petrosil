@@ -69,7 +69,13 @@ export default async function SettingsPage({
         ))}
       </div>
 
-      <SettingsForm rows={rows} site={site} canEdit={canEdit} />
+      {/* A brand's sender and the old SMTP login have their own screen, where the sender is tested before it is used. */}
+      <p className="small muted" style={{ marginTop: 0 }}>
+        The sender address, reply-to and the old site&rsquo;s SMTP login are on{" "}
+        <Link href={`/dashboard/sites/${slug}/settings/mail`}>Mail</Link>.
+      </p>
+
+      <SettingsForm rows={rows.filter((row) => row.group !== "Mail")} site={site} canEdit={canEdit} />
 
       {stranded.length > 0 ? (
         <Panel
