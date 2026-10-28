@@ -13,6 +13,7 @@ import { notFound } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { batchDetail } from "@/domain/dashboard/batches";
 import { Change, Empty, Heading, Panel, count, money, when } from "@/app/(admin)/ui";
+import { RollBack } from "./rollback";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,9 @@ export default async function BatchPage({ params }: { params: Promise<{ slug: st
         <span className={`badge ${batch.status === "committed" ? "ok" : batch.status === "draft" ? "warn" : "bad"}`}>
           {batch.status.replace("_", " ")}
         </span>
+        {batch.status === "committed" ? (
+          <RollBack slug={slug} batch={batch.id} rows={batch.rows.filter((row) => row.is_included && (row.status === "new" || row.status === "changed")).length} />
+        ) : null}
       </Heading>
 
       <div className="tiles">

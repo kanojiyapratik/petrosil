@@ -280,8 +280,8 @@ export const prices = pgTable(
 
 /* --------------------------------------------------------------- batches */
 
-/** Where a batch's rows came from. Values match the Laravel sites exactly. */
-export const BATCH_SOURCES = ["upload", "bulk_edit", "api", "crawl", "editorial"] as const;
+/** Where a batch's rows came from. The first five match the Laravel sites; "manual" is the price-entry grid, which wrote straight into the table there. */
+export const BATCH_SOURCES = ["upload", "bulk_edit", "api", "crawl", "editorial", "manual"] as const;
 export const BATCH_STATUSES = ["draft", "committed", "rolled_back", "discarded"] as const;
 
 /**
