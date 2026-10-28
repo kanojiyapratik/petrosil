@@ -206,7 +206,7 @@ const SPECS: Spec[] = [
       ["Price update", "batches", "what the module staged", true],
       ["Watched pages", "crawl", "where prices are read from", true],
       ["Published AI note", "ai-note", "the note above the prices", true],
-      ["Per-market rules", "rules", "set in the console, invisible here", false],
+      ["Per-market rules", "rules", "prices worked out from others, read from the console", true],
     ],
   },
   {
