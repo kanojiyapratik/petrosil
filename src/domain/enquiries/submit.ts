@@ -23,6 +23,7 @@ import { currencyFor } from "@/domain/billing/pricing";
 import type { Identity } from "@/lib/auth/session";
 import { AccountError } from "@/domain/accounts/register";
 import { brandSetting } from "@/domain/dashboard/settings";
+import { listedOn } from "@/domain/public/directory";
 import { SYSTEM_PREFIX } from "@/lib/mail/render";
 
 export const HOURLY_LIMIT = 10;
@@ -63,15 +64,16 @@ async function targetFor(
   country: string | null,
 ): Promise<Target> {
   if (kind === "company") {
-    // A company is a member of this brand: the directory is its readers.
+    // A company is one the brand's directory lists: a confirmed, active
+    // reader of this brand with a company name — never the team.
     const [company] = await database
-      .select({ id: users.id, name: users.name, company: users.company, email: users.email, status: users.status })
+      .select({ id: users.id, name: users.name, company: users.company, email: users.email })
       .from(users)
-      .innerJoin(memberships, and(eq(memberships.userId, users.id), eq(memberships.siteId, siteId)))
-      .where(eq(users.id, id))
+      .innerJoin(memberships, eq(memberships.userId, users.id))
+      .where(and(listedOn(siteId), eq(users.id, id)))
       .limit(1);
 
-    if (!company || company.status !== "active") {
+    if (!company) {
       throw new AccountError("We could not find that company.", 404);
     }
 
