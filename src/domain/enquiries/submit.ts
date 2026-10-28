@@ -13,6 +13,10 @@
  *   number posted by the browser.
  * - Ten in an hour from one member is the limit. The old forms had none, and
  *   each one sent mail to a third party in the brand's name.
+ * - Who may write to a company or an offer follows the brand's field rules —
+ *   "user_contact" in the directory, "contact" on offers — here, not only in
+ *   the page. The old sites hid the form from a free reader and took the post
+ *   from anyone.
  */
 
 import { and, count, eq, gte } from "drizzle-orm";
@@ -23,7 +27,10 @@ import { currencyFor } from "@/domain/billing/pricing";
 import type { Identity } from "@/lib/auth/session";
 import { AccountError } from "@/domain/accounts/register";
 import { brandSetting } from "@/domain/dashboard/settings";
-import { listedOn } from "@/domain/public/directory";
+import { listedOn, visibleDirectoryFields } from "@/domain/public/directory";
+import { visibleOfferFields } from "@/domain/public/offers";
+import { entitlementFor, type Entitlement } from "@/domain/public/paywall";
+import { today } from "@/domain/price/dates";
 import { SYSTEM_PREFIX } from "@/lib/mail/render";
 
 export const HOURLY_LIMIT = 10;
@@ -52,6 +59,28 @@ function detailsTable(rows: [string, unknown][]): string {
     .join("");
 }
 
+/**
+ * Refuse a message this reader's field rules do not allow. A paying reader
+ * refused is refused for good — the brand has messages switched off — so the
+ * wording only offers subscribing to someone it would help.
+ */
+function mayContact(allowed: boolean, entitlement: Entitlement, what: string): void {
+  if (allowed) {
+    return;
+  }
+
+  if (entitlement.entitled) {
+    throw new AccountError(`This ${what} does not take messages through the site.`, 403);
+  }
+
+  throw new AccountError(
+    entitlement.reason === "expired"
+      ? `Your subscription has ended. Renew to write to this ${what}.`
+      : `Writing to this ${what} is for subscribers. Subscribe to send a message.`,
+    403,
+  );
+}
+
 type Target = { about: string; forwardTo: string | null; toUserId?: number; offerId?: number; planId?: number; detail?: Record<string, unknown> };
 
 async function targetFor(
@@ -62,6 +91,7 @@ async function targetFor(
   body: Record<string, unknown>,
   /** The member asking, whose country decides which price they are quoted. */
   country: string | null,
+  entitlement: Entitlement,
 ): Promise<Target> {
   if (kind === "company") {
     // A company is one the brand's directory lists: a confirmed, active
@@ -77,6 +107,8 @@ async function targetFor(
       throw new AccountError("We could not find that company.", 404);
     }
 
+    mayContact((await visibleDirectoryFields(siteId, entitlement.entitled, database)).has("user_contact"), entitlement, "company");
+
     return { about: company.company || company.name, forwardTo: company.email, toUserId: company.id };
   }
 
@@ -88,9 +120,12 @@ async function targetFor(
       .where(and(eq(offers.id, id), eq(offers.siteId, siteId)))
       .limit(1);
 
-    if (!offer || offer.offer.deletedAt !== null) {
+    // Only an offer readers can see: a suspended or draft one is not there.
+    if (!offer || offer.offer.deletedAt !== null || offer.offer.status !== "published") {
       throw new AccountError("We could not find that offer.", 404);
     }
+
+    mayContact((await visibleOfferFields(siteId, entitlement.entitled, database)).has("contact"), entitlement, "offer");
 
     return {
       about: offer.offer.subject,
@@ -167,7 +202,8 @@ export async function submitEnquiry(
     throw new AccountError("That is a lot of messages in an hour. Please try again later.", 429);
   }
 
-  const target = await targetFor(database, brand.id, kind, Number(body.to), body, identity.user.country);
+  const entitlement = entitlementFor({ userId: identity.user.id, memberships: identity.memberships }, brand.id, today());
+  const target = await targetFor(database, brand.id, kind, Number(body.to), body, identity.user.country, entitlement);
   const subject = typeof body.subject === "string" && body.subject.trim() ? body.subject.trim().slice(0, 255) : null;
 
   const [sender] = await database.select().from(users).where(eq(users.id, identity.user.id)).limit(1);

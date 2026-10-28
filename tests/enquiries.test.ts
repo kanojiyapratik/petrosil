@@ -10,7 +10,7 @@
  * at the brand's admin address — as before.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { POST as enquireRoute } from "@/app/api/public/[site]/enquiries/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
@@ -18,6 +18,7 @@ import { db } from "@/db";
 import {
   auditLog,
   enquiries,
+  formFields,
   mailOutbox,
   mailTemplates,
   memberships,
@@ -53,7 +54,35 @@ beforeEach(async () => {
     subject: "Admin Email",
     body: "<h3>{heading}</h3><table>{content}</table>",
   });
+
+  // baseoil lets any member write; who may write is pinned in its own block below.
+  await db()
+    .insert(formFields)
+    .values([
+      { siteId: baseoil.siteId, form: "directory", key: "user_contact", label: "User contact", showFree: true, showPremium: true },
+      { siteId: baseoil.siteId, form: "offer", key: "contact", label: "Contact", showFree: true, showPremium: true },
+    ]);
 });
+
+async function contactRule(form: "directory" | "offer", values: { showFree?: boolean; showPremium?: boolean; enabled?: boolean }) {
+  await db()
+    .update(formFields)
+    .set(values)
+    .where(and(eq(formFields.siteId, baseoil.siteId), eq(formFields.form, form)));
+}
+
+async function makeTier(userId: number, tier: string, expiresAt: string | null = null) {
+  await db().update(memberships).set({ tier, expiresAt }).where(eq(memberships.userId, userId));
+}
+
+async function sellOffer(values: Partial<typeof offers.$inferInsert> = {}) {
+  const [offer] = await db()
+    .insert(offers)
+    .values({ siteId: baseoil.siteId, subject: "Selling Group II", offerType: "sell", status: "published", contactEmail: "desk@seller.example", ...values })
+    .returning();
+
+  return offer!;
+}
 
 let people = 0;
 
@@ -206,6 +235,70 @@ describe("asking about a plan", () => {
     expect(row).toMatchObject({ kind: "plan", planId: plan!.id, about: "Annual" });
     expect(row!.detail).toEqual({ years: 2, members: 3, price: "USD 1000.00" });
     expect((await outbox()).map((mail) => mail.to)).toEqual(["info@baseoilreport.com"]);
+  });
+});
+
+describe("who may write", () => {
+  it("refuses a free member where the brand keeps writing to a company for subscribers, and lets a subscriber", async () => {
+    await contactRule("directory", { showFree: false });
+
+    const company = await person({ company: "Gulf Lubes" });
+    const member = await person();
+    const token = await signIn(member.email);
+
+    const refused = await enquire(token, { kind: "company", to: company.id, message: "Hi" });
+
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).message).toContain("Subscribe");
+    expect(await db().select().from(enquiries)).toHaveLength(0);
+    expect(await outbox()).toHaveLength(0);
+
+    await makeTier(member.id, "premium");
+    expect((await enquire(token, { kind: "company", to: company.id, message: "Hi" })).status).toBe(201);
+  });
+
+  it("asks a lapsed subscriber to renew", async () => {
+    await contactRule("offer", { showFree: false });
+
+    const offer = await sellOffer();
+    const member = await person();
+
+    await makeTier(member.id, "premium", "2020-01-31");
+
+    const refused = await enquire(await signIn(member.email), { kind: "offer", to: offer.id, message: "Price?" });
+
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).message).toContain("Renew");
+  });
+
+  it("refuses everyone where the brand has messages switched off", async () => {
+    await contactRule("offer", { enabled: false });
+
+    const offer = await sellOffer();
+    const member = await person();
+
+    await makeTier(member.id, "premium");
+
+    const refused = await enquire(await signIn(member.email), { kind: "offer", to: offer.id, message: "Price?" });
+
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).message).toContain("does not take messages");
+  });
+
+  it("finds no offer readers cannot see", async () => {
+    const offer = await sellOffer({ status: "suspended" });
+    const member = await person();
+
+    expect((await enquire(await signIn(member.email), { kind: "offer", to: offer.id, message: "Price?" })).status).toBe(404);
+  });
+
+  it("finds no company the directory does not list", async () => {
+    const staff = await person({ company: "Staff Co" });
+    const member = await person();
+
+    await db().update(memberships).set({ role: "staff" }).where(eq(memberships.userId, staff.id));
+
+    expect((await enquire(await signIn(member.email), { kind: "company", to: staff.id, message: "Hi" })).status).toBe(404);
   });
 });
 
