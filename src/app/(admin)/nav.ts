@@ -134,10 +134,11 @@ type Spec = { label: string; slug: string; items: [string, string, string, boole
  * Worth being exact about Prices. Price figures reach this platform by the
  * module committing a batch, and the only action on the markets screens is
  * show or hide. The old admin edited prices by hand in four places — a
- * per-market grid, a bulk update, a bulk delete and a by-date view — and none
- * of those has an equivalent here yet. An earlier version of this file
- * claimed the grid was built; it was not, and two of its cards pointed at the
- * same screen under different names.
+ * per-market grid, a bulk update, a bulk delete and a by-date view. The grid
+ * (price-entry) writes through a batch like the module does. The other three
+ * are one screen (price-date): a published past price is never edited in
+ * place, so a wrong one is withdrawn — audited, and it can be put back — and
+ * re-entered on the grid.
  *
  * The Emailer tab is its own because the old admin sends four different kinds
  * of mail from four separate modules, and an earlier version collapsed all of
@@ -159,8 +160,8 @@ const SPECS: Spec[] = [
     slug: "prices",
     items: [
       ["Markets", "locations", "show, hide, and each market's history", true],
-      ["Enter prices by hand", "price-entry", "the old per-market grid", false],
-      ["Correct a whole date", "price-date", "the old bulk update and delete", false],
+      ["Enter prices by hand", "price-entry", "the old per-market grid", true],
+      ["Correct a whole date", "price-date", "withdraw wrong figures and re-enter them", true],
       ["Import and export quantities", "qty", "by market and year", true],
       ["Trade data", "impex", "impex sheets as published", true],
     ],

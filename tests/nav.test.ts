@@ -192,7 +192,7 @@ describe("a brand's own tabs", () => {
       .flatMap((tab) => tab.items)
       .filter((item) => !item.built);
 
-    expect(unbuilt.map((item) => item.label)).toContain("Enter prices by hand");
+    expect(unbuilt.map((item) => item.label)).toContain("Per-market rules");
 
     for (const item of unbuilt) {
       expect(item.note).toBeTruthy();
@@ -276,15 +276,14 @@ describe("the cards tell the truth", () => {
     }
   });
 
-  it("does not claim price entry exists, because it does not", () => {
-    // The only action on the markets screens is show/hide. Prices reach this
-    // platform through the module's batch commit; the old admin's per-market
-    // grid, its bulk update, its bulk delete and its by-date screens have no
-    // equivalent here at all.
+  it("claims the price grid and the by-date corrections", () => {
+    // Both write under the module's rule: the grid through a batch, the
+    // date screen by withdrawing a figure rather than editing it in place.
     const prices = siteTabs("baseoil").find((tab) => tab.label === "Prices")!;
-    const entry = prices.items.find((item) => item.label === "Enter prices by hand")!;
+    const item = (label: string) => prices.items.find((i) => i.label === label)!;
 
-    expect(entry.built).toBe(false);
+    expect(item("Enter prices by hand").built).toBe(true);
+    expect(item("Correct a whole date").built).toBe(true);
   });
 
   it("marks a card built only when the screen behind it exists", () => {
@@ -294,6 +293,8 @@ describe("the cards tell the truth", () => {
     const real = new Set(
       [
         "locations",
+        "price-entry",
+        "price-date",
         "qty",
         "impex",
         "articles",
