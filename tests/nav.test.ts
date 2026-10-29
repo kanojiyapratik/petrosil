@@ -64,6 +64,7 @@ describe("the three groups", () => {
   it("puts what every brand shares under Global settings", () => {
     // Edited once and applied to the brands ticked; currencies are one list for all.
     expect(hrefs(navFor(BRANDS), "Global settings")).toEqual([
+      "/dashboard/global/settings",
       "/dashboard/global/emails",
       "/dashboard/global/pages",
       "/dashboard/global/visibility",
@@ -73,7 +74,7 @@ describe("the three groups", () => {
     ]);
   });
 
-  it("stays at twenty-one entries for the nine real brands", () => {
+  it("stays at twenty-two entries for the nine real brands", () => {
     // The number is the point: the rail must fit on one screen without
     // scrolling, which is what forty entries did not.
     const nine = Array.from({ length: 9 }, (_, at) => ({
@@ -82,7 +83,7 @@ describe("the three groups", () => {
       freshness: "fresh" as const,
     }));
 
-    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(21);
+    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(22);
   });
 
   it("never nests: no entry carries children of its own", () => {
@@ -280,7 +281,7 @@ describe("the cards tell the truth", () => {
     const prices = siteTabs("baseoil").find((tab) => tab.label === "Prices")!;
     const item = (label: string) => prices.items.find((i) => i.label === label)!;
 
-    expect(item("Enter prices by hand").built).toBe(true);
+    expect(item("Enter prices").built).toBe(true);
     expect(item("Correct a whole date").built).toBe(true);
   });
 

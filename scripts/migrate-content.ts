@@ -8,6 +8,7 @@
  * what the brand already has, into a brand whose other content is already here.
  * `--only offer-owners` fills in who posted each offer and changes nothing else.
  * `--only offer-countries` names the offers whose country came across as a number.
+ * `--only impex-dates` dates the impex sheets that came across undated, from their titles.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -72,6 +73,7 @@ import {
   couponAction,
   enquiryKindFor,
   excerptFrom,
+  monthFromTitle,
   readCurrency,
   readPaymentStatus,
   readStatus,
@@ -94,7 +96,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries|impex-dates]");
   }
 
   return {
@@ -274,6 +276,29 @@ async function carryMailTemplates(
  * the new rows kept no old id; a pair that is not unique is left unmatched
  * rather than guessed.
  */
+/**
+ * Impex sheets carried before the title was read: the old row's date was
+ * zero, so they have none. Fills only empty dates, so it is safe to run again.
+ */
+async function dateImpexFromTitles(database: ReturnType<typeof db>, siteId: number): Promise<void> {
+  const undated = await database
+    .select({ id: impexSheets.id, title: impexSheets.title })
+    .from(impexSheets)
+    .where(and(eq(impexSheets.siteId, siteId), isNull(impexSheets.authoredOn)));
+  let dated = 0;
+
+  for (const sheet of undated) {
+    const month = monthFromTitle(sheet.title);
+
+    if (month) {
+      await database.update(impexSheets).set({ authoredOn: month }).where(eq(impexSheets.id, sheet.id));
+      dated++;
+    }
+  }
+
+  console.log(`impex dates  ${dated} of ${undated.length} undated sheets dated from their titles`);
+}
+
 /**
  * Offers whose country came across as the old sites' country number ("112")
  * rather than its name: some old forms stored `countries.id` in the text
@@ -615,11 +640,14 @@ async function main(): Promise<void> {
         await carryEnquiries(source, database, brand.id, tables);
       } else if (opts.only === "offer-countries") {
         await carryOfferCountries(source, database, brand.id, tables);
+      } else if (opts.only === "impex-dates") {
+        // A fill-in from what is already here; the source is not read.
+        await dateImpexFromTitles(database, brand.id);
       } else if (opts.only === "offer-owners") {
         // A fill-in, not a replace: safe to run again.
         await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails", "enquiries", "offer-owners" and "offer-countries"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries", "offer-owners", "offer-countries" and "impex-dates"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;
@@ -1009,7 +1037,8 @@ async function main(): Promise<void> {
           file: clipped(row.attach_file, 512),
           // Listed meant paid, as for reports.
           status: read.premium || read.status === "published" ? "premium" : read.status,
-          authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
+          // Half of baseoil’s carry a zero date; their title still names the month.
+          authoredOn: readDay(row.authored_on) ?? readDay(row.created_at) ?? monthFromTitle(title),
           clicks: Number(row.clicks ?? 0),
           createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
           updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),

@@ -117,28 +117,50 @@ export async function listClients(
   const search = (query.search ?? "").trim();
 
   const matching = search
-    ? or(
-        ilike(users.name, `%${search}%`),
-        ilike(users.email, `%${search}%`),
-        ilike(users.company, `%${search}%`),
-      )
+    ? or(ilike(users.name, `%${search}%`), ilike(users.email, `%${search}%`), ilike(users.company, `%${search}%`))
     : undefined;
+
+  // Standing and "due" are judged over the person's memberships in scope,
+  // so they are filters on the group, applied before the page is cut. They
+  // used to be applied to the 25 people already on the page: page one of an
+  // alphabetical list rarely held a paying reader, so "Premium" showed
+  // nobody while the count still read every person.
+  const live = sql`(${memberships.expiresAt} is null or ${memberships.expiresAt} >= ${today})`;
+  const standing = sql<string>`case
+    when bool_or(${memberships.role} in ('superadmin', 'staff')) then 'staff'
+    when bool_or(${memberships.tier} = 'premium' and ${live}) then 'premium'
+    when bool_or(${memberships.tier} = 'trial' and ${live}) then 'trial'
+    when bool_or(${memberships.tier} = 'premium') then 'expired'
+    when bool_or(${memberships.tier} = 'trial') then 'trial_expired'
+    else 'free' end`;
+  const cutoff = query.due !== undefined ? isoDay(new Date(now.getTime() + query.due * 86_400_000)) : null;
+  const having = and(
+    query.segment ? sql`${standing} = ${query.segment}` : undefined,
+    // Inside the window and not already past it; no end date is never due.
+    cutoff
+      ? sql`bool_or(${memberships.expiresAt} is not null and ${memberships.expiresAt} >= ${today} and ${memberships.expiresAt} <= ${cutoff})`
+      : undefined,
+  );
 
   // The id list first: a person is one row however many brands they hold, so
   // paginating the join would give short pages and duplicate people.
-  const base = database
-    .selectDistinct({ id: users.id, name: users.name, createdAt: users.createdAt })
-    .from(users)
-    .innerJoin(memberships, eq(memberships.userId, users.id))
-    .where(and(scoped, matching, isNull(users.email) ? undefined : undefined));
+  // A function, not one builder: drizzle builders change in place, and the
+  // page limit added for the list must not reach the count.
+  const people = () =>
+    database
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .innerJoin(memberships, eq(memberships.userId, users.id))
+      .where(and(scoped, matching))
+      .groupBy(users.id, users.name)
+      .having(having);
 
-  const found = await base.orderBy(asc(users.name)).limit(perPage).offset((page - 1) * perPage);
+  const found = await people()
+    .orderBy(asc(users.name))
+    .limit(perPage)
+    .offset((page - 1) * perPage);
 
-  const [totals] = await database
-    .select({ n: sql<number>`cast(count(distinct ${users.id}) as int)` })
-    .from(users)
-    .innerJoin(memberships, eq(memberships.userId, users.id))
-    .where(and(scoped, matching));
+  const [totals] = await database.select({ n: sql<number>`cast(count(*) as int)` }).from(people().as("people"));
 
   if (found.length === 0) {
     return { rows: [], total: totals?.n ?? 0, page, per_page: perPage };
@@ -146,7 +168,7 @@ export async function listClients(
 
   const ids = found.map((row) => row.id);
 
-  const [people, brandRows] = await Promise.all([
+  const [details, brandRows] = await Promise.all([
     database.select().from(users).where(inArray(users.id, ids)),
     database
       .select({
@@ -164,7 +186,7 @@ export async function listClients(
       .orderBy(sites.slug),
   ]);
 
-  const byPerson = new Map(people.map((person) => [person.id, person]));
+  const byPerson = new Map(details.map((person) => [person.id, person]));
 
   const rows: ClientRow[] = [];
 
@@ -182,26 +204,6 @@ export async function listClients(
     );
 
     const segment = segmentOf(brands, today);
-
-    if (query.segment && segment !== query.segment) {
-      continue;
-    }
-
-    if (query.due !== undefined) {
-      const cutoff = isoDay(new Date(now.getTime() + query.due * 86_400_000));
-
-      // Inside the window and not already past it. A standing with no end
-      // date is not due, however long it has run.
-      // `brands` is this person's memberships. `brandRows` is everyone's,
-      // and reading it here let one person being due admit the whole list.
-      const due = brands.some(
-        (row) => row.expiresAt !== null && row.expiresAt >= today && row.expiresAt <= cutoff,
-      );
-
-      if (!due) {
-        continue;
-      }
-    }
 
     rows.push({
       id: person.id,
@@ -247,8 +249,7 @@ export async function clientDetail(
     .where(eq(memberships.userId, userId))
     .orderBy(sites.slug);
 
-  const visible =
-    siteIds.length === 0 ? brandRows : brandRows.filter((row) => siteIds.includes(row.siteId));
+  const visible = siteIds.length === 0 ? brandRows : brandRows.filter((row) => siteIds.includes(row.siteId));
 
   // Not "no such person": a client of another brand is simply not this
   // viewer's to see, and the answer must not reveal that they exist.
@@ -409,10 +410,7 @@ export async function updateMembership(
   if (change.status !== undefined) {
     // The account is one person across every brand, so this is estate-wide
     // by nature — recorded against the brand whose screen made the change.
-    await database
-      .update(users)
-      .set({ status: change.status, updatedAt: new Date() })
-      .where(eq(users.id, userId));
+    await database.update(users).set({ status: change.status, updatedAt: new Date() }).where(eq(users.id, userId));
   }
 
   await database.insert(auditLog).values({
@@ -434,11 +432,7 @@ export async function updateMembership(
 }
 
 /** Narrow the viewer's brands by the one they asked for; null means "nothing to show". */
-async function resolveScope(
-  siteIds: number[],
-  slug: string | undefined,
-  database: Database,
-): Promise<number[] | null> {
+async function resolveScope(siteIds: number[], slug: string | undefined, database: Database): Promise<number[] | null> {
   if (!slug) {
     return siteIds;
   }

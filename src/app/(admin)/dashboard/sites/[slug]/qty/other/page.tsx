@@ -161,7 +161,6 @@ export default async function QtyPage({
           <thead>
             <tr>
               <th>Place</th>
-              <th>Brand</th>
               <th>Shown</th>
               <th className="num">Rows mentioning it</th>
             </tr>
@@ -172,7 +171,6 @@ export default async function QtyPage({
                 <td>
                   <strong>{place.title}</strong>
                 </td>
-                <td>{place.site}</td>
                 <td>
                   <span className={`badge ${place.visible ? "ok" : ""}`}>
                     {place.visible ? "live" : "hidden"}
@@ -185,7 +183,7 @@ export default async function QtyPage({
             ))}
             {places.length === 0 ? (
               <tr>
-                <td colSpan={4}>
+                <td colSpan={3}>
                   <Empty>No qty places set up.</Empty>
                 </td>
               </tr>

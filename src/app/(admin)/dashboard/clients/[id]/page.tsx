@@ -46,7 +46,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   return (
     <>
       <Link className="crumb" href="/dashboard/clients">
-        ← Directory
+        ← Customers
       </Link>
 
       <Heading title={client.name} sub={client.email}>

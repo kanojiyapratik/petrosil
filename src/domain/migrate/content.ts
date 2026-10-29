@@ -420,3 +420,36 @@ export function enquiryKindFor(morphType: string): "company" | "offer" | null {
 
   return type === "App\\User" ? "company" : type === "App\\Offer" ? "offer" : null;
 }
+
+const MONTH_NUMBER: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * The month an impex sheet covers, read from its title, as YYYY-MM-01.
+ *
+ * Half of baseoil's sheets (584 of 1,167) were stored with a zero date, so
+ * they came across undated and sank out of order. Their titles still say
+ * which month they are: "India RPO Import July 2022", "Thailand Base Oil
+ * Export January to April 2026". A range is dated by its last month, which
+ * is when the sheet could first be published. Null when the title names no
+ * month and year together.
+ */
+export function monthFromTitle(title: string): string | null {
+  let month: number | null = null;
+  let found: string | null = null;
+
+  for (const token of title.match(/[A-Za-z]+|\d{4}/g) ?? []) {
+    if (/^\d{4}$/.test(token)) {
+      const year = Number(token);
+
+      if (month !== null && year >= 1990 && year <= 2099) {
+        found = `${year}-${String(month).padStart(2, "0")}-01`;
+      }
+    } else {
+      month = MONTH_NUMBER[token.slice(0, 3).toLowerCase()] ?? month;
+    }
+  }
+
+  return found;
+}

@@ -421,6 +421,22 @@ describe("who is due to renew", () => {
 
     expect(all.rows).toHaveLength(2);
   });
+
+  it("filters before the page is cut, so a paying member late in the alphabet is on page one", async () => {
+    // Four free readers sort before the one paying member. Filtering the page
+    // after cutting it once showed nobody, under a count of everyone.
+    for (const name of ["aaron", "abel", "adam", "alan"]) {
+      await person(`${name}@x.example`, [{ brand: baseoil, role: "subscriber" }], { name });
+    }
+
+    const yan = await person("yan@x.example", [{ brand: baseoil, role: "subscriber", tier: "premium" }], { name: "yan" });
+    await person("zoe@x.example", [{ brand: baseoil, role: "subscriber", tier: "premium" }], { name: "zoe" });
+    const paying = await listClients([], { segment: "premium", perPage: 1 }, db(), NOW);
+
+    expect(paying.rows.map((row) => row.id)).toEqual([yan]);
+    // The count is of every match, not of the page.
+    expect(paying.total).toBe(2);
+  });
 });
 
 describe("the customer record the profiles migration filled", () => {

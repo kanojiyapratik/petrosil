@@ -39,7 +39,7 @@ export default async function PriceDatePage({ params }: { params: Promise<{ slug
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/price-date`}>
-        ← Price dates
+        ← Correct a whole date
       </Link>
 
       <Heading

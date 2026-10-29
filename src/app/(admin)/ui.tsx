@@ -25,6 +25,26 @@ export function Tile({ n, k }: { n: number; k: string }) {
   );
 }
 
+/**
+ * Stored HTML as one short line of text, for a list. Plan and page bodies
+ * came across from the old editors as markup, and printed raw they showed
+ * their `<p>` tags.
+ */
+export function plain(html: string | null, max = 120): string {
+  const text = (html ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
 export function money(value: number | null, currency?: string | null): string {
   if (value === null) {
     return "—";
@@ -88,10 +108,13 @@ export function ListBar({
   q,
   placeholder = "Search",
   keep = {},
+  name = "q",
   children,
 }: {
   action: string;
   q?: string;
+  /** The query parameter the search writes: "q" unless the screen has its own. */
+  name?: string;
   placeholder?: string;
   keep?: Record<string, string | undefined>;
   children?: React.ReactNode;
@@ -106,7 +129,7 @@ export function ListBar({
         {kept.map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
-        <input type="search" name="q" defaultValue={q ?? ""} placeholder={placeholder} aria-label={placeholder} />
+        <input type="search" name={name} defaultValue={q ?? ""} placeholder={placeholder} aria-label={placeholder} />
         <button type="submit" className="small">
           Search
         </button>
@@ -190,6 +213,40 @@ export function BrandField({ brands, value }: { brands: Brand[]; value?: string 
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/**
+ * The brand filter on an estate-wide list, as chips like every other filter.
+ * It sits on its own line above the list's bar: nine brands and a status set
+ * on one line would wrap into each other. Hidden for a viewer with one brand.
+ */
+export function BrandChips({
+  base,
+  brands,
+  value,
+  here,
+}: {
+  base: string;
+  brands: Brand[];
+  value?: string;
+  /** The other filters to keep when the brand changes. */
+  here: Record<string, string | undefined>;
+}) {
+  if (brands.length < 2) {
+    return null;
+  }
+
+  return (
+    <div className="brandbar">
+      <Chips
+        base={base}
+        param="site"
+        here={here}
+        value={value}
+        options={[{ value: "", label: "All brands" }, ...brands.map((brand) => ({ value: brand.slug, label: brand.name }))]}
+      />
     </div>
   );
 }

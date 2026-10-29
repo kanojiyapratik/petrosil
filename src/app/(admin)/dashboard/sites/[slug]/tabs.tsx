@@ -15,6 +15,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { siteTabs } from "../../../nav";
+import { SubTabs } from "../../../subtabs";
 
 export function SiteTabs({ slug, name }: { slug: string; name: string }) {
   const path = usePathname();
@@ -45,6 +46,8 @@ export function SiteTabs({ slug, name }: { slug: string; name: string }) {
           </Link>
         ))}
       </nav>
+
+      <SubTabs items={open!.items.filter((item) => item.built)} label={`${open!.label} screens`} />
     </>
   );
 }

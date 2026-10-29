@@ -21,7 +21,7 @@ export default async function NewImpexPage({ params }: { params: Promise<{ slug:
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/impex`}>
-        ← Trade data
+        ← Impex sheets
       </Link>
 
       <Heading title="New impex sheet" sub={`${brand.name} · saved as a draft unless you choose otherwise.`} />

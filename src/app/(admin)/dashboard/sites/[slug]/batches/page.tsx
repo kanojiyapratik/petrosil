@@ -15,7 +15,6 @@ import { listBatches } from "@/domain/dashboard/batches";
 import { BATCH_SOURCES, BATCH_STATUSES, type BatchSource, type BatchStatus } from "@/db/schema";
 import {
   Empty,
-  Filters,
   Heading,
   Pager,
   Panel,
@@ -24,6 +23,7 @@ import {
   pageParam,
   when,
   type Search,
+  Chips,
 } from "@/app/(admin)/ui";
 
 export const metadata = { title: "Price update · Petrosil" };
@@ -71,39 +71,36 @@ export default async function BatchesPage({
         sub="Each batch is one round of prices — staged, checked, then committed in a single step."
       />
 
-      <Panel flush={false}>
-        <Filters action={`/dashboard/sites/${slug}/batches`}>
-          <div className="field">
-            <label htmlFor="status">Status</label>
-            <select id="status" name="status" defaultValue={status ?? ""}>
-              <option value="">Any status</option>
-              {BATCH_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {value.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="source">Came from</label>
-            <select id="source" name="source" defaultValue={source ?? ""}>
-              <option value="">Any source</option>
-              {BATCH_SOURCES.map((value) => (
-                <option key={value} value={value}>
-                  {value.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-        </Filters>
-      </Panel>
+      <div className="listbar">
+        <div className="listbar-chips">
+          <Chips
+            base={`/dashboard/sites/${slug}/batches`}
+            param="status"
+            here={{ source }}
+            value={status}
+            options={[
+              { value: "", label: "Any status" },
+              ...BATCH_STATUSES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1).replace("_", " ") })),
+            ]}
+          />
+          <Chips
+            base={`/dashboard/sites/${slug}/batches`}
+            param="source"
+            here={{ status }}
+            value={source}
+            options={[
+              { value: "", label: "Any source" },
+              ...BATCH_SOURCES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1).replace("_", " ") })),
+            ]}
+          />
+        </div>
+      </div>
 
       <Panel title={`${count(batches.total)} batch${batches.total === 1 ? "" : "es"}`}>
         <table>
           <thead>
             <tr>
               <th>Batch</th>
-              <th>Brand</th>
               <th>Status</th>
               <th className="num">Rows</th>
               <th className="num">Needs attention</th>
@@ -120,7 +117,6 @@ export default async function BatchesPage({
                   </Link>
                   <div className="small muted">{row.source.replace("_", " ")}</div>
                 </td>
-                <td>{row.site_name}</td>
                 <td>
                   <span className={`badge ${TONE[row.status] ?? ""}`}>
                     {row.status.replace("_", " ")}
@@ -152,7 +148,7 @@ export default async function BatchesPage({
             ))}
             {batches.rows.length === 0 ? (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={6}>
                   <Empty>No batches match those filters.</Empty>
                 </td>
               </tr>

@@ -21,7 +21,7 @@ export default async function NewTemplatePage({ params }: { params: Promise<{ sl
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/templates`}>
-        ← Templates
+        ← Newsletter templates
       </Link>
 
       <Heading title="New newsletter template" sub={`${brand.name} · offered when composing an issue once saved.`} />

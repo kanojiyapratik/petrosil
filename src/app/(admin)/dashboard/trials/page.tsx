@@ -10,8 +10,9 @@ import { currentViewer } from "@/lib/auth/server";
 import { listTrials } from "@/domain/billing/trials";
 import { decide } from "../actions";
 import { Chips, Empty, Heading, Panel, count, one, when, type Search } from "../../ui";
+import { PeopleNav } from "@/app/(admin)/people-nav";
 
-export const metadata = { title: "Free trials · Petrosil" };
+export const metadata = { title: "Trial requests · Petrosil" };
 export const dynamic = "force-dynamic";
 
 const STATUSES = ["pending", "approved", "declined"] as const;
@@ -34,8 +35,10 @@ export default async function TrialsPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
+      <PeopleNav />
+
       <Heading
-        title="Free trials"
+        title="Trial requests"
         sub="Requests from the brand sites. An approved trial expires by itself; nobody has to remember it."
       />
 

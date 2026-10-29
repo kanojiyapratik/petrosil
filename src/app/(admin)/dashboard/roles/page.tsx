@@ -12,6 +12,7 @@ import { currentViewer } from "@/lib/auth/server";
 import { PERMISSIONS, PERMISSION_KEYS, labelFor, listRoles } from "@/domain/dashboard/permissions";
 import { RoleForm } from "./role-form";
 import { Empty, Heading, Panel, count } from "../../ui";
+import { PeopleNav } from "@/app/(admin)/people-nav";
 
 export const metadata = { title: "Roles · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -24,6 +25,8 @@ export default async function RolesPage() {
 
   return (
     <>
+      <PeopleNav />
+
       <Heading
         title="Roles"
         sub="Staff with no role have full access to their brands. A role narrows that to exactly what it ticks, and it is checked whenever they save something."

@@ -16,9 +16,7 @@ import { listTransactions } from "@/domain/dashboard/catalogue";
 import { PAYMENT_METHODS } from "@/domain/billing/manual";
 import { ORDER_STATUSES } from "@/db/schema";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Pager,
   Panel,
@@ -28,9 +26,11 @@ import {
   pageParam,
   when,
   type Search,
+  BrandChips,
+  Chips,
 } from "../../ui";
 
-export const metadata = { title: "Transactions · Petrosil" };
+export const metadata = { title: "Payments · Petrosil" };
 export const dynamic = "force-dynamic";
 
 const METHOD: Record<string, string> = Object.fromEntries(PAYMENT_METHODS.map((row) => [row.key, row.label.toLowerCase()]));
@@ -73,26 +73,23 @@ export default async function TransactionsPage({
   return (
     <>
       <Heading
-        title="Transactions"
+        title="Payments"
         sub="Every order, with what it listed at, what was taken off, and what was charged."
       />
 
-      <Panel flush={false}>
-        <Filters action="/dashboard/transactions" site={site}>
-          <BrandField brands={brands} value={site} />
-          <div className="field">
-            <label htmlFor="status">Status</label>
-            <select id="status" name="status" defaultValue={status ?? ""}>
-              <option value="">Any status</option>
-              {ORDER_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </div>
-        </Filters>
-      </Panel>
+      <BrandChips base="/dashboard/transactions" brands={brands} value={site} here={{ status }} />
+      <div className="listbar">
+        <Chips
+          base="/dashboard/transactions"
+          param="status"
+          here={{ site }}
+          value={status}
+          options={[
+            { value: "", label: "Any status" },
+            ...ORDER_STATUSES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) })),
+          ]}
+        />
+      </div>
 
       <Panel
         title={`${count(paged.total)} order${paged.total === 1 ? "" : "s"}`}

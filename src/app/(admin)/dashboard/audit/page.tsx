@@ -11,9 +11,9 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { auditTrail } from "@/domain/dashboard/activity";
 import {
-  BrandField,
+  BrandChips,
+  ListBar,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
@@ -22,7 +22,7 @@ import {
   type Search,
 } from "../../ui";
 
-export const metadata = { title: "Audit trail · Petrosil" };
+export const metadata = { title: "Activity · Petrosil" };
 export const dynamic = "force-dynamic";
 
 /** A detail blob as one readable line, longest values last. */
@@ -57,25 +57,12 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Heading
-        title="Audit trail"
+        title="Activity"
         sub="Who changed what, and from where. Nothing here can be edited, including by a superadmin."
       />
 
-      <Panel flush={false}>
-        <Filters action="/dashboard/audit" site={site}>
-          <BrandField brands={brands} value={site} />
-          <div className="field grow">
-            <label htmlFor="action">Action</label>
-            <input
-              id="action"
-              name="action"
-              type="search"
-              defaultValue={action ?? ""}
-              placeholder="price.commit"
-            />
-          </div>
-        </Filters>
-      </Panel>
+      <BrandChips base="/dashboard/audit" brands={brands} value={site} here={{ action }} />
+      <ListBar action="/dashboard/audit" q={action} name="action" placeholder="Search: action, e.g. price.commit" keep={{ site }} />
 
       <Panel title={`${count(rows.length)} entr${rows.length === 1 ? "y" : "ies"}`} hint="Newest first, 200 shown.">
         <table className="tight">

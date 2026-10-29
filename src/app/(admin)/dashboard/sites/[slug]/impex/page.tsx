@@ -23,7 +23,7 @@ import {
   type Search,
 } from "@/app/(admin)/ui";
 
-export const metadata = { title: "Impex data · Petrosil" };
+export const metadata = { title: "Impex sheets · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function ImpexPage({
@@ -49,7 +49,7 @@ export default async function ImpexPage({
   return (
     <>
       <Heading
-        title="Impex data"
+        title="Impex sheets"
         sub="Import and export sheets, published per period."
       >
         <Link className="button small" href={`/dashboard/sites/${slug}/impex/new`}>
@@ -64,7 +64,6 @@ export default async function ImpexPage({
           <thead>
             <tr>
               <th>Title</th>
-              <th>Brand</th>
               <th>Dated</th>
               <th>Who can read it</th>
               <th className="num">Opened</th>
@@ -81,7 +80,6 @@ export default async function ImpexPage({
                     {row.file ? <code>{row.file}</code> : "no file attached"}
                   </div>
                 </td>
-                <td>{row.site}</td>
                 <td>{row.authored_on ?? <span className="muted">undated</span>}</td>
                 <td>
                   <span className={`badge ${row.status === "published" ? "ok" : "brand"}`}>
@@ -93,7 +91,7 @@ export default async function ImpexPage({
             ))}
             {paged.rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={4}>
                   <Empty>No impex sheets.</Empty>
                 </td>
               </tr>

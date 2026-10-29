@@ -21,7 +21,7 @@ import {
   type Search,
 } from "@/app/(admin)/ui";
 
-export const metadata = { title: "Ads · Petrosil" };
+export const metadata = { title: "Adverts · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function AdsPage({
@@ -46,7 +46,7 @@ export default async function AdsPage({
   return (
     <>
       <Heading
-        title="Ads"
+        title="Adverts"
         sub="Running is judged against today, not against the publish flag."
       >
         <Link className="button ghost small" href="/dashboard/global/ad-slots">

@@ -26,7 +26,7 @@ import {
 } from "@/app/(admin)/ui";
 import { Popup } from "@/app/(admin)/popup";
 
-export const metadata = { title: "Watched URLs · Petrosil" };
+export const metadata = { title: "Watched pages · Petrosil" };
 export const dynamic = "force-dynamic";
 
 const TONE: Record<string, string> = {
@@ -86,7 +86,7 @@ export default async function CrawlPage({
   return (
     <>
       <Heading
-        title="Watched URLs"
+        title="Watched pages"
         sub="Pages the crawler reads for prices. Removing one disables it; its findings stay."
       >
         {editing ? (
@@ -133,7 +133,6 @@ export default async function CrawlPage({
           <thead>
             <tr>
               <th>Page</th>
-              <th>Brand</th>
               <th>Last read said</th>
               <th className="num">Rows</th>
               <th className="num">Findings</th>
@@ -146,9 +145,6 @@ export default async function CrawlPage({
                 <td>
                   <strong>{row.label ?? hostOf(row.url)}</strong>
                   <div className="small muted">{row.url}</div>
-                </td>
-                <td>
-                  {row.site}
                   {!row.enabled ? <div className="small muted">stopped</div> : null}
                 </td>
                 <td>
@@ -169,7 +165,7 @@ export default async function CrawlPage({
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   <Empty>
                     No URLs on the watch list. The price module&rsquo;s console sets these per brand.
                   </Empty>

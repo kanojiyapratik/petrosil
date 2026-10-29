@@ -85,7 +85,6 @@ export default async function ReportsPage({
           <thead>
             <tr>
               <th>Title</th>
-              <th>Brand</th>
               <th>Kind</th>
               <th>Dated</th>
               <th>Who can read it</th>
@@ -108,7 +107,6 @@ export default async function ReportsPage({
                     </Link>
                   ) : null}
                 </td>
-                <td>{row.site}</td>
                 <td>
                   <span className="tag">{row.report_type}</span>
                 </td>
@@ -123,7 +121,7 @@ export default async function ReportsPage({
             ))}
             {paged.rows.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   <Empty>No reports match those filters.</Empty>
                 </td>
               </tr>

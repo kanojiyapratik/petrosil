@@ -13,15 +13,15 @@ import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listPlans } from "@/domain/dashboard/catalogue";
 import {
-  BrandField,
   Empty,
-  Filters,
   Heading,
   Panel,
   count,
   money,
   one,
+  plain,
   type Search,
+  BrandChips,
 } from "../../ui";
 
 export const metadata = { title: "Plans · Petrosil" };
@@ -48,11 +48,7 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
         </Link>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action="/dashboard/plans" site={site}>
-          <BrandField brands={brands} value={site} />
-        </Filters>
-      </Panel>
+      <BrandChips base="/dashboard/plans" brands={brands} value={site} here={{}} />
 
       <Panel title={`${count(rows.length)} plan${rows.length === 1 ? "" : "s"}`}>
         <table>
@@ -74,7 +70,7 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
                   </Link>
                   <div className="small muted">
                     <code>{row.code}</code>
-                    {row.description ? ` · ${row.description}` : ""}
+                    {plain(row.description) ? ` · ${plain(row.description)}` : ""}
                   </div>
                 </td>
                 <td>

@@ -49,7 +49,7 @@ export default async function AnnouncementsPage({
         title="Announcements"
         sub="The strip across the top of a brand site, with the window it shows in."
       >
-        <Popup label="New notice" title="New notice">
+        <Popup label="New announcement" title="New notice">
           <NoticeForm brands={brands} onlySite={site} />
         </Popup>
       </Heading>
@@ -61,23 +61,17 @@ export default async function AnnouncementsPage({
         </div>
         <div className="tile">
           <div className="n">{count(rows.length - live)}</div>
-          <div className="k">dormant</div>
+          <div className="k">not showing</div>
         </div>
       </div>
 
       <Panel title={`${count(rows.length)} announcement${rows.length === 1 ? "" : "s"}`}>
         <table>
-          <thead>
-            <tr>
-              <th>Each notice, as it is and as you would change it</th>
-            </tr>
-          </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>
                   <div className="heading" style={{ marginBottom: 6 }}>
-                    <span className="small muted">{row.site_name}</span>
                     <span className="spacer" />
                     {row.live ? (
                       <span className="badge ok">live</span>

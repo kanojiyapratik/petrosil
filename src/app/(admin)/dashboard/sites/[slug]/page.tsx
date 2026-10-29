@@ -127,8 +127,7 @@ export default async function SitePage({ params }: { params: Promise<{ slug: str
                 <tr>
                   <td colSpan={2}>
                     <Empty>
-                      The price module has never staged an update for this brand. Seven of the
-                      nine brands are in that position.
+                      No price update has been staged for this brand yet.
                     </Empty>
                   </td>
                 </tr>

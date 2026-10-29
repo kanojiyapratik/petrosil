@@ -24,7 +24,7 @@ export default async function NewAdPage({ params }: { params: Promise<{ slug: st
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/ads`}>
-        ← Ads
+        ← Adverts
       </Link>
 
       <Heading title="New ad" sub={`${brand.name} · runs in its slot between its dates once saved and switched on.`} />

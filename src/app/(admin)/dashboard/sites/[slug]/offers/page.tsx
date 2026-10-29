@@ -100,10 +100,9 @@ export default async function OffersPage({
           <thead>
             <tr>
               <th>Offer</th>
-              <th>Brand</th>
               <th>Who</th>
               <th>Where</th>
-              <th>Who can read it</th>
+              <th>Status</th>
               <th>Posted</th>
             </tr>
           </thead>
@@ -121,7 +120,6 @@ export default async function OffersPage({
                     <div className="small muted">{row.offer_value}</div>
                   ) : null}
                 </td>
-                <td>{row.site}</td>
                 <td>
                   {row.company_name ?? <span className="muted">no company</span>}
                   <div className="small muted">
@@ -142,7 +140,7 @@ export default async function OffersPage({
             ))}
             {paged.rows.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   <Empty>No offers match those filters.</Empty>
                 </td>
               </tr>

@@ -10,8 +10,9 @@
 import { currentViewer } from "@/lib/auth/server";
 import { loginLog } from "@/domain/dashboard/activity";
 import { Chips, Empty, Heading, Panel, count, one, when, type Search } from "../../ui";
+import { PeopleNav } from "@/app/(admin)/people-nav";
 
-export const metadata = { title: "Login log · Petrosil" };
+export const metadata = { title: "Sign-ins · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function LoginsPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -26,8 +27,10 @@ export default async function LoginsPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
+      <PeopleNav />
+
       <Heading
-        title="Login log"
+        title="Sign-ins"
         sub="Every attempt, successful or not, with the reason it was refused."
       />
 

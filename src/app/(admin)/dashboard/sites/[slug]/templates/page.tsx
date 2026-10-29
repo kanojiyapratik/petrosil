@@ -21,7 +21,7 @@ import {
   type Search,
 } from "@/app/(admin)/ui";
 
-export const metadata = { title: "Templates · Petrosil" };
+export const metadata = { title: "Newsletter templates · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function TemplatesPage({
@@ -43,7 +43,7 @@ export default async function TemplatesPage({
 
   return (
     <>
-      <Heading title="Templates" sub="The wrapper a newsletter is sent in.">
+      <Heading title="Newsletter templates" sub="The wrapper a newsletter is sent in.">
         <Link className="button small" href={`/dashboard/sites/${slug}/templates/new`}>
           New template
         </Link>
@@ -54,7 +54,6 @@ export default async function TemplatesPage({
           <thead>
             <tr>
               <th>Template</th>
-              <th>Brand</th>
               <th>In use</th>
               <th className="num">Issues sent with it</th>
               <th>Last edited</th>
@@ -68,7 +67,6 @@ export default async function TemplatesPage({
                     <strong>{row.title}</strong>
                   </Link>
                 </td>
-                <td>{row.site_name}</td>
                 <td>
                   <span className={`badge ${row.enabled ? "ok" : ""}`}>
                     {row.enabled ? "yes" : "retired"}
@@ -82,7 +80,7 @@ export default async function TemplatesPage({
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={4}>
                   <Empty>No templates. A newsletter will go out unwrapped.</Empty>
                 </td>
               </tr>

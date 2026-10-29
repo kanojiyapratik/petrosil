@@ -30,7 +30,7 @@ export default async function AdPage({
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/ads`}>
-        ← Ads
+        ← Adverts
       </Link>
 
       <Heading title={ad.title} sub={`${ad.site_name} · ${ad.starts_at ?? "from now"} to ${ad.ends_at ?? "no end date"}`} />

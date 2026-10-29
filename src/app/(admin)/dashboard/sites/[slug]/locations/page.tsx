@@ -29,7 +29,7 @@ import {
   type Search,
 } from "@/app/(admin)/ui";
 
-export const metadata = { title: "Locations · Petrosil" };
+export const metadata = { title: "Markets · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function LocationsPage({
@@ -68,15 +68,15 @@ export default async function LocationsPage({
   return (
     <>
       <Heading
-        title="Locations"
-        sub="Every market this brand assesses. A held location keeps its history but is not published."
+        title="Markets"
+        sub="Every market this brand assesses. A held market keeps its history but is not published."
       >
-        <Popup label="New location" title="New location">
+        <Popup label="New market" title="New market">
           <LocationForm slug={slug} currencies={await enabledCurrencies()} />
         </Popup>
       </Heading>
 
-      <ListBar action={`/dashboard/sites/${slug}/locations`} q={q} placeholder="Search locations" keep={{ shown }}>
+      <ListBar action={`/dashboard/sites/${slug}/locations`} q={q} placeholder="Search markets" keep={{ shown }}>
         <Chips
           base={`/dashboard/sites/${slug}/locations`}
           param="shown"
@@ -91,7 +91,7 @@ export default async function LocationsPage({
       </ListBar>
 
       <Panel
-        title={`${count(rows.length)} location${rows.length === 1 ? "" : "s"}`}
+        title={`${count(rows.length)} market${rows.length === 1 ? "" : "s"}`}
         hint="Latest figure and how it moved against the one before it."
       >
         <table className="tight">
@@ -121,7 +121,7 @@ export default async function LocationsPage({
                 <td className="num">{count(row.price_rows)}</td>
                 <td>
                   <span className={`badge ${row.visible ? "ok" : ""}`}>
-                    {row.visible ? "live" : "held"}
+                    {row.visible ? "published" : "held"}
                   </span>
                 </td>
               </tr>

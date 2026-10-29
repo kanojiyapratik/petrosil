@@ -52,7 +52,8 @@ export async function listReports(
     .from(reports)
     .innerJoin(sites, eq(sites.id, reports.siteId))
     .where(where)
-    .orderBy(desc(reports.authoredOn), desc(reports.id))
+    // Undated rows last: Postgres sorts nulls first in a descending order.
+    .orderBy(sql`${reports.authoredOn} desc nulls last`, desc(reports.id))
     .limit(perPage)
     .offset(offset);
 
@@ -195,7 +196,7 @@ export async function listImpex(
     .from(impexSheets)
     .innerJoin(sites, eq(sites.id, impexSheets.siteId))
     .where(where)
-    .orderBy(desc(impexSheets.authoredOn), desc(impexSheets.id))
+    .orderBy(sql`${impexSheets.authoredOn} desc nulls last`, desc(impexSheets.id))
     .limit(perPage)
     .offset(offset);
 

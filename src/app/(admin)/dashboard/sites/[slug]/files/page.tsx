@@ -106,23 +106,6 @@ export default async function FilesPage({
         </p>
       ) : null}
 
-      {missing.length > 0 ? (
-        <Panel title={`${count(missing.length)} file${missing.length === 1 ? "" : "s"} named by content but not here`} flush={false}>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            Reports, articles, offers or ads point at these names and there is no such file. Either the old site
-            never had it, or it has not been carried yet.
-          </p>
-          <p className="small">
-            {missing.slice(0, 12).map((path) => (
-              <code key={path} style={{ marginRight: 8 }}>
-                {path}
-              </code>
-            ))}
-            {missing.length > 12 ? <span className="muted">and {count(missing.length - 12)} more</span> : null}
-          </p>
-        </Panel>
-      ) : null}
-
       <ListBar action={base} q={q} placeholder="Search: file name" keep={{ folder }}>
         <Chips
           base={base}
@@ -182,6 +165,23 @@ export default async function FilesPage({
         </table>
         <Pager base={base} here={{ folder, q }} page={paged.page} perPage={paged.per_page} total={paged.total} />
       </Panel>
+
+      {missing.length > 0 ? (
+        <Panel title={`${count(missing.length)} file${missing.length === 1 ? "" : "s"} named by content but not here`} flush={false}>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            Reports, articles, offers or ads point at these names and there is no such file. Either the old site
+            never had it, or it has not been carried yet.
+          </p>
+          <p className="small">
+            {missing.slice(0, 12).map((path) => (
+              <code key={path} style={{ marginRight: 8 }}>
+                {path}
+              </code>
+            ))}
+            {missing.length > 12 ? <span className="muted">and {count(missing.length - 12)} more</span> : null}
+          </p>
+        </Panel>
+      ) : null}
     </>
   );
 }

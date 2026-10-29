@@ -95,6 +95,7 @@ export async function saveSettings(_state: unknown, form: FormData) {
     });
 
   revalidatePath("/dashboard/sites/[slug]", "layout");
+  revalidatePath("/dashboard/global/settings");
 
   if (refused > 0) {
     return { error: `${refused} key${refused === 1 ? "" : "s"} were not recognised and ignored.` };

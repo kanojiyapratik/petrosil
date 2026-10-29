@@ -82,6 +82,7 @@ export function navFor(brands: NavBrand[]): NavSection[] {
   sections.push({
     group: "Global settings",
     items: [
+      { label: "Site defaults", href: "/dashboard/global/settings" },
       { label: "System emails", href: "/dashboard/global/emails" },
       { label: "Common pages", href: "/dashboard/global/pages" },
       { label: "Field visibility", href: "/dashboard/global/visibility" },
@@ -160,10 +161,9 @@ const SPECS: Spec[] = [
     slug: "prices",
     items: [
       ["Markets", "locations", "show, hide, and each market's history", true],
-      ["Enter prices by hand", "price-entry", "the old per-market grid", true],
+      ["Enter prices", "price-entry", "the old per-market grid", true],
       ["Correct a whole date", "price-date", "withdraw wrong figures and re-enter them", true],
       ["Import and export quantities", "qty", "by market and year", true],
-      ["Trade data", "impex", "impex sheets as published", true],
     ],
   },
   {
@@ -172,10 +172,11 @@ const SPECS: Spec[] = [
     items: [
       ["Articles", "articles", "write and publish", true],
       ["Reports", "reports", "paid research", true],
-      ["Member offers", "offers", "what members post", true],
+      ["Sample reports", "sample-reports", "free reports for prospects", true],
+      ["Impex sheets", "impex", "import and export PDFs as published", true],
+      ["Offers", "offers", "what members post", true],
       ["Announcements", "announcements", "site notices", true],
       ["Files", "files", "images and attachments", true],
-      ["Sample reports", "sample-reports", "free reports for prospects", true],
     ],
   },
   {
@@ -271,7 +272,7 @@ export const PEOPLE_TABS = [
   { label: "Customers", slug: "customers", href: "/dashboard/clients" },
   { label: "Trial requests", slug: "trials", href: "/dashboard/trials" },
   { label: "Petrosil team", slug: "team", href: "/dashboard/staff" },
-  { label: "What they can do", slug: "roles", href: "/dashboard/roles" },
+  { label: "Roles", slug: "roles", href: "/dashboard/roles" },
   { label: "Sign-ins", slug: "logins", href: "/dashboard/logins" },
 ] as const;
 

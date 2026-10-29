@@ -15,10 +15,12 @@ import { listStaff } from "@/domain/dashboard/catalogue";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listRoles } from "@/domain/dashboard/permissions";
 import { GrantForm } from "./grant-form";
+import { Popup } from "@/app/(admin)/popup";
 import { revokeAction, superadminAction } from "./actions";
 import { Empty, Heading, Panel, count, when } from "../../ui";
+import { PeopleNav } from "@/app/(admin)/people-nav";
 
-export const metadata = { title: "Staff · Petrosil" };
+export const metadata = { title: "Petrosil team · Petrosil" };
 export const dynamic = "force-dynamic";
 
 export default async function StaffPage() {
@@ -33,10 +35,21 @@ export default async function StaffPage() {
 
   return (
     <>
+      <PeopleNav />
+
       <Heading
-        title="Staff"
+        title="Petrosil team"
         sub="A superadmin sees the whole estate. Staff see only the brands they were granted."
-      />
+      >
+        {viewer.isSuperadmin ? (
+          <Popup label="Give someone access" title="Give someone access">
+            <GrantForm
+              brands={brands.map((brand) => ({ slug: brand.slug, name: brand.name }))}
+              roles={roles.map((role) => ({ id: role.id, name: role.name }))}
+            />
+          </Popup>
+        ) : null}
+      </Heading>
 
       <div className="tiles">
         <div className="tile">
@@ -49,16 +62,7 @@ export default async function StaffPage() {
         </div>
       </div>
 
-      {viewer.isSuperadmin ? (
-        <Panel title="Give someone access" flush={false}>
-          <GrantForm
-            brands={brands.map((brand) => ({ slug: brand.slug, name: brand.name }))}
-            roles={roles.map((role) => ({ id: role.id, name: role.name }))}
-          />
-        </Panel>
-      ) : (
-        <p className="note">Only a superadmin can give or take away access.</p>
-      )}
+      {viewer.isSuperadmin ? null : <p className="note">Only a superadmin can give or take away access.</p>}
 
       <Panel title="The team">
         <table>
@@ -102,13 +106,9 @@ export default async function StaffPage() {
                   )}
                 </td>
                 <td>
-                  <span className={`badge ${row.status === "active" ? "ok" : "bad"}`}>
-                    {row.status}
-                  </span>
+                  <span className={`badge ${row.status === "active" ? "ok" : "bad"}`}>{row.status}</span>
                 </td>
-                <td>
-                  {row.last_login_at ? when(row.last_login_at) : <span className="muted">never</span>}
-                </td>
+                <td>{row.last_login_at ? when(row.last_login_at) : <span className="muted">never</span>}</td>
                 {viewer.isSuperadmin ? (
                   <td style={{ whiteSpace: "nowrap" }}>
                     {row.superadmin ? null : (
@@ -119,13 +119,16 @@ export default async function StaffPage() {
                         </button>
                       </form>
                     )}
-                    <form action={revokeAction} className="inline">
-                      <input type="hidden" name="user" value={row.id} />
-                      <input type="hidden" name="site" value="all" />
-                      <button type="submit" className="ghost small">
-                        Remove all access
-                      </button>
-                    </form>
+                    {/* The last superadmin cannot be removed; the button would only be refused. */}
+                    {row.superadmin && superadmins === 1 ? null : (
+                      <form action={revokeAction} className="inline">
+                        <input type="hidden" name="user" value={row.id} />
+                        <input type="hidden" name="site" value="all" />
+                        <button type="submit" className="ghost small">
+                          Remove all access
+                        </button>
+                      </form>
+                    )}
                   </td>
                 ) : null}
               </tr>
@@ -142,8 +145,8 @@ export default async function StaffPage() {
       </Panel>
 
       <div className="note" style={{ marginTop: 16 }}>
-        The nine old admins between them listed 34 accounts with a role. None of them was carried
-        over — access is granted here, deliberately, one person at a time.
+        The nine old admins between them listed 34 accounts with a role. None of them was carried over — access is
+        granted here, deliberately, one person at a time.
       </div>
     </>
   );

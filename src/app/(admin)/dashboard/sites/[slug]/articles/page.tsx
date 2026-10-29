@@ -77,7 +77,7 @@ export default async function ArticlesPage({
         value={status}
         options={[
           { value: "", label: "All", n: tally.all },
-          ...STATUSES.map((value) => ({ value, label: value, n: tally[value] })),
+          ...STATUSES.map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1), n: tally[value] })),
         ]}
       />
       </ListBar>

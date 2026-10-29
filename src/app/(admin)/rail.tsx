@@ -18,7 +18,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import { navFor, type Freshness, type NavBrand } from "./nav";
+import { PEOPLE_TABS, navFor, type Freshness, type NavBrand } from "./nav";
 
 const DOT: Record<Freshness, string> = {
   fresh: "ok",
@@ -44,6 +44,12 @@ const SAYS: Record<Freshness, string> = {
 function currentHref(path: string, site: string | null, brands: NavBrand[]): string | null {
   if (site && brands.some((brand) => brand.slug === site)) {
     return `/dashboard/sites/${site}`;
+  }
+
+  // People's five screens sit at their own estate paths, not under
+  // /dashboard/people, and without this they lit up Dashboard instead.
+  if (PEOPLE_TABS.some((tab) => path === tab.href || path.startsWith(`${tab.href}/`))) {
+    return "/dashboard/people";
   }
 
   const all = navFor(brands).flatMap((group) => group.items);

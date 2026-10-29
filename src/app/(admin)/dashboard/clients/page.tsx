@@ -15,10 +15,8 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listClients, segmentCounts, type Segment } from "@/domain/dashboard/clients";
 import { EXPORT_SEGMENTS } from "@/domain/clients/export";
 import {
-  BrandField,
   Chips,
   Empty,
-  Filters,
   Heading,
   Pager,
   Panel,
@@ -27,8 +25,11 @@ import {
   pageParam,
   when,
   type Search,
+  BrandChips,
+  ListBar,
 } from "../../ui";
 import { Popup } from "@/app/(admin)/popup";
+import { PeopleNav } from "@/app/(admin)/people-nav";
 
 export const metadata = { title: "Directory · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -44,6 +45,9 @@ const SEGMENT_LABEL: Record<string, string> = {
   free: "free",
   staff: "staff",
 };
+
+/** A chip reads as a label, so it starts with a capital; the badges in the table stay lower case. */
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 const TONE: Record<string, string> = {
   premium: "ok",
@@ -75,12 +79,14 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
+      <PeopleNav />
+
       <Heading
-        title="Directory"
+        title="Customers"
         sub={
           due
             ? `Paying members whose subscription runs out within ${due} days.`
-            : "Everyone registered across the estate. One person, one row, however many brands they read."
+            : "The old admin's Directory: everyone registered across the estate. One person, one row, however many brands they read."
         }
       >
         <Popup label="Download a list" title="Download a list">
@@ -114,24 +120,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </Popup>
       </Heading>
 
-      <Panel flush={false}>
-        <Filters action="/dashboard/clients" site={site}>
-          <BrandField brands={brands} value={site} />
-          <div className="field grow">
-            <label htmlFor="q">Search</label>
-            <input
-              id="q"
-              name="q"
-              type="search"
-              defaultValue={q ?? ""}
-              placeholder="Name, email or company"
-            />
-          </div>
-          {segment ? <input type="hidden" name="segment" value={segment} /> : null}
-        </Filters>
-      </Panel>
+      <BrandChips base="/dashboard/clients" brands={brands} value={site} here={{ q, segment }} />
 
-      <div style={{ margin: "14px 0" }}>
+      <ListBar action="/dashboard/clients" q={q} placeholder="Search: name, email or company" keep={{ site, segment }}>
         <Chips
           base="/dashboard/clients"
           param="segment"
@@ -141,12 +132,12 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
             { value: "", label: "Everyone" },
             ...SEGMENTS.map((value) => ({
               value,
-              label: SEGMENT_LABEL[value] ?? value,
+              label: sentence(SEGMENT_LABEL[value] ?? value),
               n: counts[value],
             })),
           ]}
         />
-      </div>
+      </ListBar>
 
       <Panel title={`${count(clients.total)} ${clients.total === 1 ? "person" : "people"}`}>
         <table>

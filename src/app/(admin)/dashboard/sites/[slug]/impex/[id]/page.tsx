@@ -27,7 +27,7 @@ export default async function ImpexPage({
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/impex`}>
-        ← Trade data
+        ← Impex sheets
       </Link>
 
       <Heading title={sheet.title} sub={`${sheet.site_name} · last edited ${when(sheet.updated_at)}`} />

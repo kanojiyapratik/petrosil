@@ -266,7 +266,7 @@ h2 {
 
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
   gap: 0.8rem;
 }
 
@@ -646,6 +646,7 @@ dialog.popup {
   padding: 0;
   width: min(680px, 94vw);
   max-height: 90vh;
+  overflow: auto;
 }
 
 dialog.popup::backdrop {
@@ -1181,4 +1182,37 @@ button.quick-one:hover {
   font-size: 1.5rem;
   letter-spacing: -0.02em;
   margin: 0 0 0.1rem;
+}
+
+/* The screens inside a section, under its tabs. Quieter than the tabs: they
+ * are where you are within the section, not a second choice of section. */
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: -0.6rem 0 1.4rem;
+}
+
+.subtabs a {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.subtabs a:hover {
+  color: var(--ink);
+  background: var(--line);
+}
+
+.subtabs a.on {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--line);
+}
+
+/* An estate list's brand chips, on their own line above its filter bar. */
+.brandbar {
+  margin-bottom: 10px;
 }

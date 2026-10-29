@@ -27,7 +27,7 @@ export default async function TemplatePage({
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/templates`}>
-        ← Templates
+        ← Newsletter templates
       </Link>
 
       <Heading

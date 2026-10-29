@@ -53,11 +53,18 @@ export default async function QuantitiesPage({
         <Link className="button ghost small" href={`/dashboard/sites/${slug}/qty/other`}>
           Older qty trend figures
         </Link>
-        <Popup label="Add country" title="Add a country" ghost>
+        <Popup label={`Countries (${count(places.length)})`} title="Countries" ghost>
           <NewPlace slug={slug} />
-          <p className="small muted" style={{ margin: "10px 0 0" }}>
-            One list for both imports and exports.
+          <p className="small muted" style={{ margin: "10px 0 14px" }}>
+            One list for both imports and exports. Rename or hide a country in its row.
           </p>
+          <table className="tight">
+            <tbody>
+              {places.map((place) => (
+                <PlaceRow key={place.id} slug={slug} row={place} />
+              ))}
+            </tbody>
+          </table>
         </Popup>
         <Popup label={`Enter ${kind}s for a month`} title={`Enter ${kind}s for a month`}>
           <OpenMonth slug={slug} kind={kind} places={places} month={today().slice(0, 7)} />
@@ -80,52 +87,40 @@ export default async function QuantitiesPage({
         />
       </div>
 
-      <div className="cols">
-        <Panel
-          title={`${count(reporting.length)} countr${reporting.length === 1 ? "y reports" : "ies report"} ${kind}s`}
-          hint="Open one to see its months."
-        >
-          <table className="tight">
-            <thead>
-              <tr>
-                <th>Reporting country</th>
-                <th className="num">Months</th>
-                <th>Latest</th>
+      <Panel
+        title={`${count(reporting.length)} countr${reporting.length === 1 ? "y reports" : "ies report"} ${kind}s`}
+        hint="Open one to see its months."
+      >
+        <table className="tight">
+          <thead>
+            <tr>
+              <th>Reporting country</th>
+              <th className="num">Months</th>
+              <th>Latest</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reporting.map((place) => (
+              <tr key={place.id}>
+                <td>
+                  <Link href={`/dashboard/sites/${slug}/qty/${kind}/${place.id}`}>
+                    <strong>{place.title}</strong>
+                  </Link>
+                </td>
+                <td className="num">{count(place.months)}</td>
+                <td>{place.latest ?? <span className="muted">—</span>}</td>
               </tr>
-            </thead>
-            <tbody>
-              {reporting.map((place) => (
-                <tr key={place.id}>
-                  <td>
-                    <Link href={`/dashboard/sites/${slug}/qty/${kind}/${place.id}`}>
-                      <strong>{place.title}</strong>
-                    </Link>
-                  </td>
-                  <td className="num">{count(place.months)}</td>
-                  <td>{place.latest ?? <span className="muted">—</span>}</td>
-                </tr>
-              ))}
-              {reporting.length === 0 ? (
-                <tr>
-                  <td colSpan={3}>
-                    <Empty>No {kind} figures yet. Enter a month to start.</Empty>
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </Panel>
-
-        <Panel title={`${count(places.length)} countr${places.length === 1 ? "y" : "ies"}`} hint="Rename or hide one in its row.">
-          <table className="tight">
-            <tbody>
-              {places.map((place) => (
-                <PlaceRow key={place.id} slug={slug} row={place} />
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      </div>
+            ))}
+            {reporting.length === 0 ? (
+              <tr>
+                <td colSpan={3}>
+                  <Empty>No {kind} figures yet. Enter a month to start.</Empty>
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </Panel>
     </>
   );
 }

@@ -36,7 +36,7 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
   return (
     <>
       <Link className="crumb" href={`/dashboard/sites/${slug}/locations`}>
-        ← Locations
+        ← Markets
       </Link>
 
       <Heading title={location.title} sub={`${location.site_name} · ${location.currency ?? "no currency set"}`}>
