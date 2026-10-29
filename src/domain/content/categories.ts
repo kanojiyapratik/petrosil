@@ -159,3 +159,30 @@ export async function deleteCategory(
 
   return true;
 }
+
+/**
+ * The brand's categories that hold at least one live article, for the
+ * filter on its Articles page — an empty category is a chip that finds nothing.
+ */
+export async function liveCategories(
+  siteId: number,
+  database: Database = db(),
+): Promise<{ slug: string; name: string; articles: number }[]> {
+  const rows = await database
+    .select({ slug: articleCategories.slug, name: articleCategories.name, articles: count(articles.id) })
+    .from(articleCategories)
+    .innerJoin(
+      articles,
+      and(
+        eq(articles.categoryId, articleCategories.id),
+        eq(articles.status, "published"),
+        sql`${articles.deletedAt} is null`,
+        sql`${articles.publishedAt} <= now()`,
+      ),
+    )
+    .where(eq(articleCategories.siteId, siteId))
+    .groupBy(articleCategories.id)
+    .orderBy(articleCategories.sortOrder, articleCategories.name);
+
+  return rows.map((row) => ({ ...row, articles: Number(row.articles) }));
+}
