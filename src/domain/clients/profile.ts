@@ -16,7 +16,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, type Database } from "@/db";
 import { auditLog, memberships, users } from "@/db/schema";
 import { AccessError, type Guarded } from "@/lib/auth/guard";
-import { AccountError } from "@/domain/accounts/register";
+import { AccountError, readCountry } from "@/domain/accounts/register";
 import { readName, readText } from "@/domain/accounts/policy";
 import { can } from "@/domain/staff/permissions";
 
@@ -104,7 +104,7 @@ export async function editMember(
 
   for (const [field, max] of Object.entries(EDITABLE) as [Editable, number][]) {
     if (body[field] !== undefined) {
-      changes[field] = readText(body[field], max);
+      changes[field] = field === "country" ? readCountry(body[field]) : readText(body[field], max);
     }
   }
 

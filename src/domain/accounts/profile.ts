@@ -14,7 +14,7 @@ import { db, type Database } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/passwords";
 import { revokeSessions, type Identity } from "@/lib/auth/session";
-import { AccountError } from "./register";
+import { AccountError, readCountry } from "./register";
 import { checkPassword, readName, readText } from "./policy";
 
 export type PublicProfile = {
@@ -76,7 +76,7 @@ export async function updateProfile(
 
   for (const [field, max] of Object.entries(EDITABLE)) {
     if (body[field] !== undefined) {
-      changes[field as keyof typeof EDITABLE] = readText(body[field], max);
+      changes[field as keyof typeof EDITABLE] = field === "country" ? readCountry(body[field]) : readText(body[field], max);
     }
   }
 

@@ -8,6 +8,7 @@
 
 import { useActionState } from "react";
 
+import { COUNTRIES } from "@/domain/geo/countries";
 import { editMemberAction, type MemberResult } from "./actions";
 
 type Details = {
@@ -52,6 +53,11 @@ export function MemberForm({ userId, details }: { userId: number; details: Detai
       ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+        <datalist id="member-countries">
+          {COUNTRIES.map((country) => (
+            <option key={country.code} value={country.name} />
+          ))}
+        </datalist>
         {FIELDS.map((field) => (
           <div className="field" key={field.name} style={field.wide ? { gridColumn: "1 / -1" } : undefined}>
             <label htmlFor={`member-${field.name}`}>{field.label}</label>
@@ -63,6 +69,7 @@ export function MemberForm({ userId, details }: { userId: number; details: Detai
               required={field.name === "name"}
               defaultValue={details[field.name] ?? ""}
               aria-invalid={state?.field === field.name || undefined}
+              list={field.name === "country" ? "member-countries" : undefined}
             />
           </div>
         ))}

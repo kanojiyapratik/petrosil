@@ -9,6 +9,15 @@
  * people.
  */
 
+import { findCountry } from "@/domain/geo/countries";
+
+/**
+ * A carried country under its name on the list ("South Korea " with the old
+ * row's trailing space, or "Korea South", become "South Korea"); kept as it
+ * was when it is not on the list, so nothing a member typed is lost.
+ */
+const listed = (country: string | null): string | null => (country ? (findCountry(country)?.name ?? country) : null);
+
 export type LegacyUser = {
   id: number;
   email: string;
@@ -178,7 +187,7 @@ export function readUser(
     // dumps have newsletter spam pasted into `mobile`. Truncating would
     // leave a plausible-looking wrong number, so it is dropped instead.
     phone: within(row.mobile, 64),
-    country: fit(row.country, 96),
+    country: listed(fit(row.country, 96)),
     // Not on the account at all: the old `users` table has no column for
     // any of these. `withProfile` is what fills them.
     city: null,
@@ -254,7 +263,7 @@ export function withProfile(
     company: person.company ?? fit(profile.company_name, 191),
     // A number longer than the column is not one, here as on the user row.
     phone: person.phone ?? within(profile.phone ?? profile.mobile, 64),
-    country: person.country ?? place(profile.country_id, places.countries),
+    country: person.country ?? listed(place(profile.country_id, places.countries)),
     city: person.city ?? place(profile.city_id, places.cities),
     designation: person.designation ?? fit(profile.designation, 191),
     website: person.website ?? fit(profile.website, 191),

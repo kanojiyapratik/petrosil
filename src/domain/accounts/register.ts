@@ -17,6 +17,7 @@ import { hashPassword } from "@/lib/auth/passwords";
 import { queueMail } from "@/lib/mail/outbox";
 import { issueToken } from "./tokens";
 import { checkPassword, readEmail, readName, readText } from "./policy";
+import { findCountry } from "@/domain/geo/countries";
 
 export class AccountError extends Error {
   constructor(
@@ -26,6 +27,25 @@ export class AccountError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * A country off the list, stored by its name; blank is none. Free text is
+ * refused: which plans a reader is offered, and in which currency, is decided
+ * by this name.
+ */
+export function readCountry(value: unknown): string | null {
+  if (readText(value, 96) === null) {
+    return null;
+  }
+
+  const country = findCountry(value);
+
+  if (!country) {
+    throw new AccountError("Choose a country from the list.", 422, "country");
+  }
+
+  return country.name;
 }
 
 export type RegisterInput = {
@@ -115,7 +135,7 @@ export async function register(
       company: readText(input.company, 191),
       designation: readText(input.designation, 191),
       phone: readText(input.phone, 64),
-      country: readText(input.country, 96),
+      country: readCountry(input.country),
       city: readText(input.city, 96),
       passwordHash: await hashPassword(String(input.password)),
     })
