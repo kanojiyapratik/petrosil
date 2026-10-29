@@ -79,7 +79,7 @@ export default async function AdsPage({
               <th>Ad</th>
               <th>Slot</th>
               <th>Runs</th>
-              <th>Also shown</th>
+              <th>Shown on</th>
               <th>State</th>
               <th className="num">Clicks</th>
             </tr>
@@ -106,12 +106,12 @@ export default async function AdsPage({
                 <td>
                   {row.on_dashboard ? (
                     <span className="tag" style={{ marginRight: 4 }}>
-                      dashboard
+                      website
                     </span>
                   ) : null}
                   {row.on_newsletter ? <span className="tag">newsletter</span> : null}
                   {!row.on_dashboard && !row.on_newsletter ? (
-                    <span className="muted">site only</span>
+                    <span className="muted">not shown anywhere</span>
                   ) : null}
                 </td>
                 <td>

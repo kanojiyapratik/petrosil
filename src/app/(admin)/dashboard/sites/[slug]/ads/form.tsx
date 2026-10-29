@@ -154,7 +154,7 @@ export function AdForm({
                 </label>
                 <label className="check">
                   <input type="checkbox" name="on_dashboard" defaultChecked={ad?.on_dashboard ?? false} />
-                  Also on the readers&apos; dashboard
+                  On the website
                 </label>
                 <label className="check">
                   <input type="checkbox" name="on_newsletter" defaultChecked={ad?.on_newsletter ?? false} />
