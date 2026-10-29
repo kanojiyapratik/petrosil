@@ -1418,7 +1418,10 @@ async function main(): Promise<void> {
             code: clash ? `${local.slice(0, 63 - brand.slug.length)}-${brand.slug}` : local,
             name: title,
             description: text(row.description),
-            visible: readStatus(text(row.publish_options)).status === "published",
+            // The free trial (old id 3 on every site) was never for sale: the
+            // plans page skipped it by id, and trials are asked for, not bought.
+            // Carried visible, baseoil's showed up priced at INR 1.00.
+            visible: readStatus(text(row.publish_options)).status === "published" && !/free trial/i.test(title),
             sortOrder: Number(row.sequence ?? 0),
           })
           .returning();

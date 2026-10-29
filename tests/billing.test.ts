@@ -315,6 +315,16 @@ describe("rupees for the Indian subcontinent, dollars for everyone else", () => 
     );
   });
 
+  it("falls back to the browser's time zone, old spellings included", async () => {
+    for (const tz of ["Asia/Kathmandu", "Asia/Katmandu", "Asia/Calcutta", "Asia/Dhaka", "Indian/Maldives"]) {
+      expect((await shown(get(`/api/public/baseoil/plans?tz=${encodeURIComponent(tz)}`))).visitor.currency).toBe("INR");
+    }
+
+    for (const tz of ["Asia/Dubai", "Europe/London", "Asia/Singapore", "nonsense"]) {
+      expect((await shown(get(`/api/public/baseoil/plans?tz=${encodeURIComponent(tz)}`))).visitor.currency).toBe("USD");
+    }
+  });
+
   it("goes by a signed-in reader's profile country, wherever they are browsing from", async () => {
     await person("kathmandu@example.com");
     await db().update(users).set({ country: "Nepal" }).where(eq(users.email, "kathmandu@example.com"));

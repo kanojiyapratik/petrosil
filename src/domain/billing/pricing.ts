@@ -128,7 +128,7 @@ export function preferredCurrency(country: string | null | undefined): "INR" | "
  * Whether a plan is for this reader. Every brand sells an "India Subcontinent"
  * plan in rupees and "Global" plans in dollars, each in one currency, so the
  * currency is the region: a plan is offered where it is priced in the
- * reader's currency. A plan with no price at all (a free trial) is for anyone.
+ * reader's currency. A plan with no price at all is for anyone.
  */
 export function offeredTo(country: string | null | undefined, offered: string[]): boolean {
   return offered.length === 0 || offered.includes(preferredCurrency(country));

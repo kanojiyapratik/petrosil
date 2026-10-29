@@ -149,7 +149,8 @@ const GEO_HEADERS = ["cf-ipcountry", "x-vercel-ip-country", "x-country-code"];
 /**
  * Where the reader is, for choosing a currency: a signed-in reader's profile
  * country; otherwise the CDN's geo header when there is one; otherwise what
- * the page passes as `?country=`. Null when nothing says — which prices in
+ * the page passes as `?country=`, or the browser time zone it passes as
+ * `?tz=`. Null when nothing says — which prices in
  * dollars. It only decides what is shown: the checkout charges by the
  * buyer's profile country either way.
  */
@@ -173,5 +174,30 @@ export async function visitorCountry(request: Request, url: URL, viewer: Viewer)
 
   const asked = url.searchParams.get("country")?.trim();
 
-  return asked ? asked.slice(0, 64) : null;
+  if (asked) {
+    return asked.slice(0, 64);
+  }
+
+  return SUBCONTINENT_ZONES[url.searchParams.get("tz")?.trim() ?? ""] ?? null;
 }
+
+/**
+ * The browser's time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`),
+ * which a page can always send when no CDN tells us the country. Only the
+ * subcontinent's zones are named — including the old spellings browsers still
+ * report — since anywhere else prices in dollars anyway.
+ */
+const SUBCONTINENT_ZONES: Record<string, string> = {
+  "Asia/Kolkata": "IN",
+  "Asia/Calcutta": "IN",
+  "Asia/Kathmandu": "NP",
+  "Asia/Katmandu": "NP",
+  "Asia/Dhaka": "BD",
+  "Asia/Dacca": "BD",
+  "Asia/Karachi": "PK",
+  "Asia/Colombo": "LK",
+  "Asia/Thimphu": "BT",
+  "Asia/Thimbu": "BT",
+  "Indian/Maldives": "MV",
+  "Asia/Kabul": "AF",
+};
