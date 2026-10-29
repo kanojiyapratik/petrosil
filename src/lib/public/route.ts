@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { sites } from "@/db/schema";
+import { sites, users } from "@/db/schema";
 import { identify } from "@/lib/auth/session";
 import { tokenFrom } from "@/lib/auth/guard";
 import { entitlementFor, type Entitlement, type Viewer } from "@/domain/public/paywall";
@@ -141,4 +141,37 @@ export function intParam(url: URL, name: string, fallback: number, max: number):
   }
 
   return Math.min(max, Math.max(1, Math.trunc(value)));
+}
+
+/** Headers a CDN in front of the app may set with the visitor's two-letter country. */
+const GEO_HEADERS = ["cf-ipcountry", "x-vercel-ip-country", "x-country-code"];
+
+/**
+ * Where the reader is, for choosing a currency: a signed-in reader's profile
+ * country; otherwise the CDN's geo header when there is one; otherwise what
+ * the page passes as `?country=`. Null when nothing says — which prices in
+ * dollars. It only decides what is shown: the checkout charges by the
+ * buyer's profile country either way.
+ */
+export async function visitorCountry(request: Request, url: URL, viewer: Viewer): Promise<string | null> {
+  if (viewer.userId !== null) {
+    const [person] = await db().select({ country: users.country }).from(users).where(eq(users.id, viewer.userId)).limit(1);
+
+    if (person?.country?.trim()) {
+      return person.country.trim();
+    }
+  }
+
+  for (const name of GEO_HEADERS) {
+    const code = request.headers.get(name)?.trim();
+
+    // Cloudflare sends XX for unknown and T1 for Tor.
+    if (code && /^[a-z]{2}$/i.test(code) && !/^(xx|t1)$/i.test(code)) {
+      return code.toUpperCase();
+    }
+  }
+
+  const asked = url.searchParams.get("country")?.trim();
+
+  return asked ? asked.slice(0, 64) : null;
 }

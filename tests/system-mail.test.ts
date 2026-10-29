@@ -274,6 +274,30 @@ describe("expiry reminders", () => {
 
     expect((mail!.payload as any).vars.price).toBe("USD 600.00");
   });
+
+  it("quotes a reader in Nepal the subcontinent plan, not the global one", async () => {
+    const values = [
+      { code: "global", name: "Global", sortOrder: 1, currency: "USD", amount: "600.00" },
+      { code: "india-subcontinent", name: "India Subcontinent", sortOrder: 2, currency: "INR", amount: "50000.00" },
+    ];
+
+    for (const { currency, amount, ...row } of values) {
+      const [plan] = await db().insert(plans).values(row).returning();
+
+      await db().insert(planSites).values({ planId: plan!.id, siteId: baseoil.siteId });
+      await db().insert(planPrices).values({ planId: plan!.id, currency, years: 1, amount });
+    }
+
+    const { person } = await member("premium", addDays(TODAY, 30));
+
+    await db().update(users).set({ country: "Nepal" }).where(eq(users.id, person.id));
+    await member("premium", addDays(TODAY, 30));
+    await remindExpiries(db(), TODAY);
+
+    const prices = (await queued()).map((mail) => (mail.payload as any).vars.price).sort();
+
+    expect(prices).toEqual(["INR 50000.00", "USD 600.00"]);
+  });
 });
 
 describe("remembering what a lapsed member had", () => {

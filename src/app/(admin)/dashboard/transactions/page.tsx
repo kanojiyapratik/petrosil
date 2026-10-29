@@ -59,7 +59,7 @@ export default async function TransactionsPage({
     listTransactions(viewer.siteIds, { site, status, page }),
   ]);
 
-  // Per currency, never summed. The estate sells in rupees to India and in
+  // Per currency, never summed. The estate sells in rupees to the Indian subcontinent and in
   // dollars to everyone else, so one total over both is a number that means
   // nothing -- and this screen printed exactly that.
   const takings = new Map<string, number>();

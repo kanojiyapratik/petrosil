@@ -274,6 +274,133 @@ describe("the plans a brand sells", () => {
   });
 });
 
+/* ------------------------------------------------- which currency a reader sees */
+
+describe("rupees for the Indian subcontinent, dollars for everyone else", () => {
+  beforeEach(async () => {
+    await db().insert(planPrices).values({ planId, currency: "INR", years: 1, amount: "50000.00" });
+  });
+
+  const shown = async (request: Request) =>
+    (await (await plansRoute(request, context({ site: "baseoil" }))).json()) as {
+      visitor: { country: string | null; currency: string };
+      plans: { currency: string }[];
+    };
+
+  const from = (country: string) =>
+    new Request("http://platform.test/api/public/baseoil/plans", { headers: { "cf-ipcountry": country } });
+
+  it("prices every subcontinent country in rupees, by the CDN's country code", async () => {
+    for (const code of ["IN", "NP", "PK", "BD", "LK", "BT", "MV", "AF"]) {
+      const body = await shown(from(code));
+
+      expect(body.visitor).toEqual({ country: code, currency: "INR" });
+      expect(body.plans[0]!.currency).toBe("INR");
+    }
+  });
+
+  it("prices the rest of the world, and an unknown visitor, in dollars", async () => {
+    for (const code of ["US", "AE", "SG", "CN", "XX"]) {
+      expect((await shown(from(code))).plans[0]!.currency).toBe("USD");
+    }
+
+    expect((await shown(get("/api/public/baseoil/plans"))).visitor).toEqual({ country: null, currency: "USD" });
+  });
+
+  it("takes the country the page passes when no CDN says", async () => {
+    expect((await shown(get("/api/public/baseoil/plans?country=Sri%20Lanka"))).visitor.currency).toBe("INR");
+    // A near name is not the country.
+    expect((await shown(get("/api/public/baseoil/plans?country=British%20Indian%20Ocean%20Territory"))).visitor.currency).toBe(
+      "USD",
+    );
+  });
+
+  it("goes by a signed-in reader's profile country, wherever they are browsing from", async () => {
+    await person("kathmandu@example.com");
+    await db().update(users).set({ country: "Nepal" }).where(eq(users.email, "kathmandu@example.com"));
+
+    const cookie = await signedIn("kathmandu@example.com");
+    const request = new Request("http://platform.test/api/public/baseoil/plans", {
+      headers: { cookie, "cf-ipcountry": "US" },
+    });
+
+    expect((await shown(request)).visitor).toEqual({ country: "Nepal", currency: "INR" });
+  });
+
+  it("charges a buyer in Nepal the rupee price at the checkout", async () => {
+    await person("pokhara@example.com");
+    await db().update(users).set({ country: "Nepal" }).where(eq(users.email, "pokhara@example.com"));
+
+    const { status, body } = await orderFor(await signedIn("pokhara@example.com"), {
+      site: "baseoil",
+      plan: "annual",
+      years: 1,
+    });
+
+    expect(status).toBeLessThan(300);
+    expect(JSON.stringify(body)).toContain("INR");
+
+    const [order] = await db().select().from(orders);
+
+    expect(order!.currency).toBe("INR");
+  });
+});
+
+describe("the subcontinent plan and the global plan", () => {
+  // How every carried brand sells: one plan in rupees, another in dollars.
+  beforeEach(async () => {
+    await makePlan(baseoil, "india-subcontinent-plan", { 1: "50000.00" }, "INR");
+  });
+
+  const codes = async (request: Request) =>
+    ((await (await plansRoute(request, context({ site: "baseoil" }))).json()).plans as { code: string }[]).map(
+      (plan) => plan.code,
+    );
+
+  const from = (country: string) =>
+    new Request("http://platform.test/api/public/baseoil/plans", { headers: { "cf-ipcountry": country } });
+
+  it("shows a visitor from Nepal the subcontinent plan only", async () => {
+    expect(await codes(from("NP"))).toEqual(["india-subcontinent-plan"]);
+  });
+
+  it("shows the rest of the world, and a visitor nobody can place, the global plan only", async () => {
+    expect(await codes(from("US"))).toEqual(["annual"]);
+    expect(await codes(get("/api/public/baseoil/plans"))).toEqual(["annual"]);
+  });
+
+  it("still shows a plan with no price, such as a free trial, to everyone", async () => {
+    await db().insert(plans).values({ code: "free-trial", name: "Free trial" }).returning().then(async ([trial]) => {
+      await db().insert(planSites).values({ planId: trial!.id, siteId: baseoil.siteId });
+    });
+
+    expect(await codes(from("US"))).toContain("free-trial");
+    expect(await codes(from("NP"))).toContain("free-trial");
+  });
+
+  it("will not sell the rupee plan outside the subcontinent, nor the dollar plan inside it", async () => {
+    await person("ohio@example.com");
+    await db().update(users).set({ country: "United States" }).where(eq(users.email, "ohio@example.com"));
+    await person("lahore@example.com");
+    await db().update(users).set({ country: "Pakistan" }).where(eq(users.email, "lahore@example.com"));
+
+    const abroad = await orderFor(await signedIn("ohio@example.com"), { site: "baseoil", plan: "india-subcontinent-plan", years: 1 });
+    const home = await orderFor(await signedIn("lahore@example.com"), { site: "baseoil", plan: "annual", years: 1 });
+
+    expect(abroad.status).toBe(422);
+    expect(home.status).toBe(422);
+    expect(await db().select().from(orders)).toHaveLength(0);
+
+    const bought = await orderFor(await signedIn("lahore@example.com"), {
+      site: "baseoil",
+      plan: "india-subcontinent-plan",
+      years: 1,
+    });
+
+    expect(bought.status).toBeLessThan(300);
+  });
+});
+
 /* -------------------------------------------------------- checking a coupon */
 
 describe("checking a coupon before buying", () => {

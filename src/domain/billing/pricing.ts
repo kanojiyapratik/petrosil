@@ -95,12 +95,52 @@ export const undiscounted = (listAmount: string): Priced => ({
 export const minorUnits = (amount: string): number => toMinor(amount);
 
 /**
+ * The Indian subcontinent, which pays the rupee price: by the name a profile
+ * stores and by the two-letter code a geo header sends. The eight countries the
+ * old sites linked to every "India Subcontinent Plan" (Afghanistan included).
+ * Matched whole, so "British Indian Ocean Territory" is not India.
+ */
+const RUPEE_COUNTRIES = new Set([
+  "afghanistan",
+  "india",
+  "pakistan",
+  "bangladesh",
+  "nepal",
+  "bhutan",
+  "sri lanka",
+  "maldives",
+  "af",
+  "in",
+  "pk",
+  "bd",
+  "np",
+  "bt",
+  "lk",
+  "mv",
+]);
+
+/** INR for a country in the Indian subcontinent, USD for everywhere else, and for no country. */
+export function preferredCurrency(country: string | null | undefined): "INR" | "USD" {
+  return RUPEE_COUNTRIES.has((country ?? "").trim().toLowerCase()) ? "INR" : "USD";
+}
+
+/**
+ * Whether a plan is for this reader. Every brand sells an "India Subcontinent"
+ * plan in rupees and "Global" plans in dollars, each in one currency, so the
+ * currency is the region: a plan is offered where it is priced in the
+ * reader's currency. A plan with no price at all (a free trial) is for anyone.
+ */
+export function offeredTo(country: string | null | undefined, offered: string[]): boolean {
+  return offered.length === 0 || offered.includes(preferredCurrency(country));
+}
+
+/**
  * Which of a plan's currencies a buyer pays in.
  *
- * The manager's rule: the country decides. A buyer in India pays the rupee
- * price, everyone else the dollar price. A plan priced in only one currency
- * is sold in that one to everybody, which is how every carried plan works.
- * Null when the plan has no price at all.
+ * The manager's rule: the country decides. A buyer in the Indian subcontinent
+ * pays the rupee price, everyone else the dollar price. A plan priced in only
+ * one currency is sold in that one to everybody, which is how every carried
+ * plan works. Null when the plan has no price at all.
  */
 export function currencyFor(country: string | null | undefined, offered: string[]): string | null {
   const unique = [...new Set(offered)];
@@ -109,7 +149,7 @@ export function currencyFor(country: string | null | undefined, offered: string[
     return unique[0] ?? null;
   }
 
-  const wanted = (country ?? "").trim().toLowerCase() === "india" ? "INR" : "USD";
+  const wanted = preferredCurrency(country);
 
   return unique.includes(wanted) ? wanted : unique.sort()[0]!;
 }

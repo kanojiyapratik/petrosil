@@ -15,6 +15,7 @@ import { clientDetail } from "@/domain/dashboard/clients";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listPlans } from "@/domain/dashboard/catalogue";
 import { PAYMENT_METHODS } from "@/domain/billing/manual";
+import { preferredCurrency } from "@/domain/billing/pricing";
 import { today } from "@/domain/price/dates";
 import { MembershipForm } from "./membership-form";
 import { PaymentForm } from "./payment-form";
@@ -84,7 +85,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
               plans={plans}
               methods={PAYMENT_METHODS}
               defaultSite={client.brands.find((held) => brands.some((brand) => brand.slug === held.slug))?.slug ?? brands[0]?.slug ?? ""}
-              defaultCurrency={(client.country ?? "").trim().toLowerCase() === "india" ? "INR" : "USD"}
+              defaultCurrency={preferredCurrency(client.country)}
               today={today()}
             />
           </Panel>

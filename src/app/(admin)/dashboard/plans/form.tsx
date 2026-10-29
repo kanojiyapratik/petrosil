@@ -18,7 +18,7 @@ import type { PlanForEdit } from "@/domain/billing/plans";
 import { savePlanAction, type BillingResult } from "../billing-actions";
 
 const CURRENCIES = [
-  { code: "INR", label: "INR — rupees", note: "charged to buyers in India" },
+  { code: "INR", label: "INR — rupees", note: "charged to buyers in the Indian subcontinent" },
   { code: "USD", label: "USD — dollars", note: "charged everywhere else" },
 ] as const;
 

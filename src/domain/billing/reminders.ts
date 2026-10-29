@@ -23,7 +23,7 @@ import { and, asc, between, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { mailOutbox, mailTemplates, membershipReminders, memberships, planPrices, planSites, plans, sites, users } from "@/db/schema";
-import { currencyFor } from "./pricing";
+import { currencyFor, preferredCurrency } from "./pricing";
 import { linkBaseFor } from "@/lib/mail/deliver";
 import { fillPlaceholders, SYSTEM_PREFIX } from "@/lib/mail/render";
 import { addDays } from "./sweep";
@@ -80,22 +80,31 @@ export function reminderFor(
 }
 
 /**
- * The brand's renewal price: its first visible plan's one-year term, in the
- * currency the reader would pay (their country decides).
+ * The brand's renewal price: the first visible plan with a one-year term in
+ * the currency the reader would pay (their country decides) — so a reader in
+ * Nepal is quoted the subcontinent plan, not the global one. Any first plan
+ * when the brand sells nothing in that currency.
  */
 async function renewalPrice(
   database: Database,
   siteId: number,
   country: string | null,
 ): Promise<{ price: string; symbol: string }> {
-  const [first] = await database
-    .select({ id: plans.id })
-    .from(plans)
-    .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
-    .innerJoin(planPrices, and(eq(planPrices.planId, plans.id), eq(planPrices.years, 1)))
-    .where(eq(plans.visible, true))
-    .orderBy(asc(plans.sortOrder), asc(plans.id))
-    .limit(1);
+  const firstIn = (currency: string | null) =>
+    database
+      .select({ id: plans.id })
+      .from(plans)
+      .innerJoin(planSites, and(eq(planSites.planId, plans.id), eq(planSites.siteId, siteId)))
+      .innerJoin(
+        planPrices,
+        and(eq(planPrices.planId, plans.id), eq(planPrices.years, 1), currency ? eq(planPrices.currency, currency) : undefined),
+      )
+      .where(eq(plans.visible, true))
+      .orderBy(asc(plans.sortOrder), asc(plans.id))
+      .limit(1);
+
+  const own = await firstIn(preferredCurrency(country));
+  const [first] = own.length > 0 ? own : await firstIn(null);
 
   const terms = first
     ? await database
@@ -166,7 +175,7 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
     }
 
     // Per brand and currency rule: a rupee reader and a dollar reader see different prices.
-    const priceKey = `${membership.siteId}|${(person.country ?? "").trim().toLowerCase() === "india" ? "in" : "other"}`;
+    const priceKey = `${membership.siteId}|${preferredCurrency(person.country)}`;
 
     if (!prices.has(priceKey)) {
       prices.set(priceKey, await renewalPrice(database, membership.siteId, person.country));

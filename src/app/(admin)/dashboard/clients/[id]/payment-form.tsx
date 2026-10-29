@@ -36,7 +36,7 @@ export function PaymentForm({
   plans: Plan[];
   methods: readonly { key: string; label: string }[];
   defaultSite: string;
-  /** INR for a reader in India, otherwise USD: the checkout's rule. */
+  /** INR for a reader in the Indian subcontinent, otherwise USD: the checkout's rule. */
   defaultCurrency: string;
   today: string;
 }) {

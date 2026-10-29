@@ -271,12 +271,13 @@ describe("what the checkout charges", () => {
     expect(unknown.currency).toBe("USD");
   });
 
-  it("charges a one-currency plan in that currency to everybody", async () => {
+  it("sells a rupee-only plan in the subcontinent and nowhere else", async () => {
     const made = await planOk(guard([]), plan());
 
-    const abroad = await quote(baseoil.siteId, made.code, 1, "", { country: "Germany" });
+    const nepal = await quote(baseoil.siteId, made.code, 1, "", { country: "Nepal" });
 
-    expect([abroad.currency, abroad.priced.amount]).toEqual(["INR", "15000.00"]);
+    expect([nepal.currency, nepal.priced.amount]).toEqual(["INR", "15000.00"]);
+    await expect(quote(baseoil.siteId, made.code, 1, "", { country: "Germany" })).rejects.toMatchObject({ field: "plan" });
   });
 
   it("charges the sale price while on sale, with the regular price as the list", async () => {

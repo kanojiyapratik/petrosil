@@ -26,7 +26,7 @@ import {
 import type { Identity } from "@/lib/auth/session";
 import { today } from "@/domain/price/dates";
 import { AccountError } from "@/domain/accounts/register";
-import { applyCoupon, currencyFor, minorUnits, onTopOfSale, termPrice, undiscounted, type Priced } from "./pricing";
+import { applyCoupon, currencyFor, offeredTo, minorUnits, onTopOfSale, termPrice, undiscounted, type Priced } from "./pricing";
 import { extendedUntil } from "./term";
 import { createProviderOrder, razorpayKeys, verifySignature } from "@/lib/payments/razorpay";
 
@@ -117,6 +117,12 @@ export async function quote(
     .select()
     .from(planPrices)
     .where(and(eq(planPrices.planId, plan.id), eq(planPrices.years, term)));
+
+  // A rupee plan is for the subcontinent and a dollar plan for everyone else:
+  // the listing shows each reader their own, and the checkout holds to it.
+  if (prices.length > 0 && !offeredTo(buyer?.country ?? null, prices.map((row) => row.currency))) {
+    throw new AccountError("That plan is not sold in your country.", 422, "plan");
+  }
 
   // The server picks the currency from the buyer's country, never the request.
   const currency = currencyFor(buyer?.country ?? null, prices.map((row) => row.currency));
