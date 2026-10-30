@@ -255,3 +255,29 @@ class TestCrawling:
         assert proposals["7"] == {"match": "Korea TOBS", "caution": "per litre"}
         assert proposals["8"]["match"] is None
         assert usage.recorded[-1]["kind"] == "crawler_match"
+
+
+class TestTheConsolesTable:
+    def test_every_site_with_its_choice(self):
+        class Store(FakeStore):
+            def sites(self):
+                return [self.site]
+
+        providers = Providers()
+        providers.assigned["baseoil"] = (2, "gemini-2.5-flash")
+        api, _ = build(providers=providers, store=Store())
+
+        body = api.get("/api/engine/assignments", headers=HEADERS).json()
+
+        assert body == {"sites": {"baseoil": {"name": "Base Oil Report", "provider_id": 2, "model": "gemini-2.5-flash"}}}
+
+    def test_a_key_is_shown_only_on_request_and_every_look_is_recorded(self):
+        api, store = build()
+
+        listed = api.get("/api/engine/providers", headers=HEADERS)
+        revealed = api.post("/api/engine/providers/1/reveal", headers=HEADERS)
+
+        assert OPENAI.api_key not in listed.text
+        assert revealed.json() == {"api_key": OPENAI.api_key}
+        assert store.recorded[-1][:4] == (ACTOR, "revealed an AI provider key", None, "AI1")
+        assert api.post("/api/engine/providers/99/reveal", headers=HEADERS).status_code == 404

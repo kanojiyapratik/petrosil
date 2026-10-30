@@ -711,6 +711,39 @@ def create_engine_api(
 
         return said(lambda: remove_provider(actor, provider_id, providers=providers, store=store))
 
+    @estate.get("/assignments")
+    def provider_assignments(actor: str = Depends(caller)):
+        """Which provider and model every site has chosen -- the console's
+        "which site uses which" table. A site absent from both runs on the
+        default provider and its model."""
+        needs_providers()
+
+        return {
+            "sites": {
+                site.slug: {
+                    "name": site.name,
+                    "provider_id": providers.assignments().get(site.slug),
+                    "model": providers.site_models().get(site.slug),
+                }
+                for site in store.sites()
+            }
+        }
+
+    @estate.post("/providers/{provider_id}/reveal")
+    def provider_reveal(provider_id: int, actor: str = Depends(caller)):
+        """The stored key in full, on a deliberate request, as the console's
+        eye button gives it. Never part of any other answer, and every look
+        is written to the audit trail -- the app only asks for a superadmin."""
+        needs_providers()
+        existing = providers.get(provider_id)
+
+        if existing is None:
+            return JSONResponse({"error": "No such provider."}, status_code=404)
+
+        store.record(actor, "revealed an AI provider key", None, existing.name)
+
+        return {"api_key": existing.api_key}
+
     @estate.post("/providers/{provider_id}/test")
     def provider_test(provider_id: int, actor: str = Depends(caller)):
         """One tiny call, to tell a wrong key, a wrong model and an empty

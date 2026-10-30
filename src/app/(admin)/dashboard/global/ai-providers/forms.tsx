@@ -10,8 +10,10 @@ import { useActionState, useState, useTransition } from "react";
 
 import {
   addProviderAction,
+  brandModelAction,
   checkKeyAction,
   providerButtonAction,
+  revealKeyAction,
   updateProviderAction,
   type ProviderSaid,
 } from "./actions";
@@ -45,10 +47,8 @@ export function ProviderCard({ provider }: { provider: Provider }) {
         <span className="tag">{provider.label}</span>
         {provider.is_default ? <span className="badge ok">default</span> : null}
         {!provider.enabled ? <span className="badge">turned off</span> : null}
-        <span className="small muted">
-          key {provider.masked_key}
-          {provider.sites.length ? ` · chosen by ${provider.sites.join(", ")}` : ""}
-        </span>
+        <KeyReveal id={provider.id} masked={provider.masked_key} />
+        {provider.sites.length ? <span className="small muted">chosen by {provider.sites.join(", ")}</span> : null}
       </div>
 
       <Flash state={pressed ?? saved} />
@@ -183,5 +183,115 @@ export function AddProvider({ catalogue }: { catalogue: Record<string, { label: 
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The stored key, shown only when asked — as the console's eye button does
+ * it — and hidden again. Each look is written to the audit trail.
+ */
+function KeyReveal({ id, masked }: { id: number; masked: string }) {
+  const [shown, setShown] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [asking, start] = useTransition();
+
+  function toggle() {
+    if (shown) {
+      setShown(null);
+      return;
+    }
+
+    start(async () => {
+      const answer = await revealKeyAction(id);
+
+      if ("key" in answer) {
+        setShown(answer.key);
+        setFailed(null);
+      } else {
+        setFailed(answer.error);
+      }
+    });
+  }
+
+  return (
+    <span className="small muted" style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      key <code style={{ wordBreak: "break-all" }}>{shown ?? masked}</code>
+      <button type="button" className="ghost small" onClick={toggle} disabled={asking} aria-label={shown ? "Hide the key" : "Show the key"}>
+        {asking ? "…" : shown ? "Hide" : "Show"}
+      </button>
+      {failed ? <span className="bad">{failed}</span> : null}
+    </span>
+  );
+}
+
+/** One brand's provider and model, in the table of every brand. */
+export function BrandModelRow({
+  slug,
+  name,
+  providers,
+  providerId,
+  model,
+}: {
+  slug: string;
+  name: string;
+  providers: Provider[];
+  providerId: number | null;
+  model: string | null;
+}) {
+  const [state, action, pending] = useActionState(brandModelAction, null as ProviderSaid);
+  const [chosen, setChosen] = useState(providerId ? String(providerId) : "");
+  const provider = providers.find((row) => String(row.id) === chosen);
+  const [picked, setPicked] = useState(model ?? provider?.model ?? "");
+  const fallback = providers.find((row) => row.is_default);
+
+  return (
+    <tr>
+      <td>{name}</td>
+      <td>
+        <form action={action} className="bar" style={{ flexWrap: "wrap", gap: 8 }}>
+          <input type="hidden" name="site" value={slug} />
+          <select
+            name="provider_id"
+            value={chosen}
+            onChange={(e) => {
+              setChosen(e.target.value);
+              setPicked(providers.find((row) => String(row.id) === e.target.value)?.model ?? "");
+            }}
+            aria-label={`Provider for ${name}`}
+            style={{ width: "auto", minWidth: "14rem" }}
+          >
+            <option value="">The default{fallback ? ` — ${fallback.name}` : ""}</option>
+            {providers.filter((row) => row.enabled).map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
+          </select>
+          <select
+            name="model"
+            value={provider ? picked : ""}
+            onChange={(e) => setPicked(e.target.value)}
+            disabled={!provider}
+            aria-label={`Model for ${name}`}
+            style={{ width: "auto", minWidth: "12rem" }}
+          >
+            {provider ? (
+              provider.models.map((row) => (
+                <option key={row} value={row}>
+                  {row}
+                  {row === provider.model ? " (its own)" : ""}
+                </option>
+              ))
+            ) : (
+              <option value="">{fallback?.model ?? "—"}</option>
+            )}
+          </select>
+          <button type="submit" className="ghost small" disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </button>
+          {state?.error ? <span className="small bad">{state.error}</span> : state?.saved ? <span className="small muted">{state.saved}</span> : null}
+        </form>
+      </td>
+    </tr>
   );
 }

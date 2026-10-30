@@ -115,3 +115,25 @@ export async function aiUsage(guard: Who, days: number, database: Database = db(
     names: Object.fromEntries(brands.filter((brand) => mine.has(brand.slug)).map((brand) => [brand.slug, brand.name])),
   };
 }
+
+/* ------------------------------------------- which brand uses which, keys */
+
+export type Assignments = Record<string, { name: string; provider_id: number | null; model: string | null }>;
+
+/** Every brand's provider and model, for the table under the providers. */
+export async function brandAssignments(guard: Who): Promise<Assignments> {
+  superadmin(guard);
+
+  return (await engine<{ sites: Assignments }>(null, "assignments", { actor: actor(guard) })).sites;
+}
+
+/**
+ * A stored key in full, as the console's eye button shows it: only when a
+ * superadmin asks, never in a page as it is drawn, and every look written to
+ * the engine's audit trail.
+ */
+export async function revealKey(guard: Who, id: number): Promise<string> {
+  superadmin(guard);
+
+  return (await engine<{ api_key: string }>(null, `providers/${id}/reveal`, { method: "POST", actor: actor(guard) })).api_key;
+}

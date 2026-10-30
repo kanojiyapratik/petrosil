@@ -7,10 +7,12 @@ import { revalidatePath } from "next/cache";
 import { currentViewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { EngineError } from "@/lib/engine/client";
+import { chooseModel } from "@/domain/ai/update";
 import {
   addProvider,
   makeDefaultProvider,
   modelsForKey,
+  revealKey,
   removeProvider,
   testProvider,
   updateProvider,
@@ -95,4 +97,29 @@ export async function checkKeyAction(input: { provider: string; apiKey: string }
 
     return { error: "That key could not be checked just now." };
   }
+}
+
+export async function revealKeyAction(id: number): Promise<{ key: string } | { error: string }> {
+  const viewer = await currentViewer();
+
+  if (!viewer) {
+    throw new Error("not staff");
+  }
+
+  try {
+    return { key: await revealKey(viewer, id) };
+  } catch (error) {
+    if (error instanceof EngineError || error instanceof AccessError) {
+      return { error: error.message };
+    }
+
+    return { error: "The key could not be shown just now." };
+  }
+}
+
+/** One brand's provider and model, from the table of every brand. */
+export async function brandModelAction(_state: ProviderSaid, form: FormData): Promise<ProviderSaid> {
+  return run("choose a brand's model", (viewer) =>
+    chooseModel(viewer, text(form, "site"), { providerId: text(form, "provider_id"), model: text(form, "model") }),
+  );
 }
