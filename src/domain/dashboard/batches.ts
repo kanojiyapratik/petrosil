@@ -20,6 +20,7 @@ import {
   type BatchSource,
   type BatchStatus,
 } from "@/db/schema";
+import { pricesBefore } from "@/domain/price/locations";
 
 export type BatchRow = {
   id: number;
@@ -140,6 +141,11 @@ export type BatchDetail = BatchRow & {
     raw_location: string;
     price_date: string;
     old_price: number | null;
+    /**
+     * For a row new on its date (no old_price), the market's newest price
+     * before that date — what the move is from, as a reader sees it.
+     */
+    previous_price: number | null;
     new_price: number;
     currency: string | null;
     status: string;
@@ -179,6 +185,13 @@ export async function batchDetail(
     .where(eq(priceBatchItems.batchId, batchId))
     .orderBy(asc(priceBatchItems.id));
 
+  const earlier = await pricesBefore(
+    items
+      .filter(({ item }) => item.oldPrice === null && item.locationId !== null)
+      .map(({ item }) => ({ locationId: item.locationId!, priceDate: item.priceDate })),
+    database,
+  );
+
   return {
     ...summary,
     rows: items.map(({ item, title }) => ({
@@ -187,6 +200,8 @@ export async function batchDetail(
       raw_location: item.rawLocation,
       price_date: item.priceDate,
       old_price: item.oldPrice === null ? null : Number(item.oldPrice),
+      previous_price:
+        item.oldPrice === null && item.locationId !== null ? earlier.get(`${item.locationId}:${item.priceDate}`) ?? null : null,
       new_price: Number(item.newPrice),
       currency: item.currency,
       status: item.status,

@@ -125,7 +125,7 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
     .select({
       membership: memberships,
       person: { email: users.email, name: users.name, country: users.country },
-      site: { name: sites.name, domain: sites.legacyDomain },
+      site: { name: sites.name, slug: sites.slug, domain: sites.legacyDomain },
     })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
@@ -186,7 +186,7 @@ export async function remindExpiries(database: Database = db(), day: string): Pr
       name: person.name,
       email: person.email,
       site: site.name,
-      link: `${linkBaseFor(site.domain)}/subscription`,
+      link: `${linkBaseFor(site)}/subscription`,
       day: reminder.days,
       expiry_date: readable(membership.expiresAt!),
       price,

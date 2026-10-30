@@ -316,13 +316,22 @@ describe("draining the outbox", () => {
     expect((await row(id)).error).toContain("nonsense");
   });
 
-  it("links to the brand's own domain", async () => {
+  it("links to the brand's pages in this app", async () => {
+    await queueVerify();
+    const transport = recorder();
+
+    await deliverPending(transport, { env: { PUBLIC_APP_URL: "https://app.petrosil.com" } });
+
+    expect(transport.sent[0]!.html).toContain(`https://app.petrosil.com/${baseoil.slug}/verify-email?token=tok123`);
+  });
+
+  it("links to the brand's old domain when MAIL_LINK_BASE says so", async () => {
     // makeBrand leaves the domain empty; the real brands carry one.
     await db().update(sites).set({ legacyDomain: "baseoilreport.com" }).where(eq(sites.id, baseoil.siteId));
     await queueVerify();
     const transport = recorder();
 
-    await deliverPending(transport);
+    await deliverPending(transport, { env: { MAIL_LINK_BASE: "https://{domain}" } });
 
     expect(transport.sent[0]!.html).toContain("https://baseoilreport.com/verify-email?token=tok123");
   });

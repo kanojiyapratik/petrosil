@@ -196,7 +196,7 @@ export async function composeNewsletter(
 
   await requirePermission(guard, found.site.id, "newsletter-create", database);
 
-  const blocks = await blocksFor(database, found.site.id, linkBaseFor(found.site.legacyDomain));
+  const blocks = await blocksFor(database, found.site.id, linkBaseFor({ slug: found.site.slug, domain: found.site.legacyDomain }));
 
   // Every placeholder goes: the four with content are filled, and the rest —
   // the customer lists, the ad slots — are emptied rather than sent as typed.

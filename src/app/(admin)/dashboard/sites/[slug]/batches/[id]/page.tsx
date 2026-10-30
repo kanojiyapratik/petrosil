@@ -141,10 +141,9 @@ export default async function BatchPage({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const pct =
-                row.old_price !== null && row.old_price !== 0
-                  ? Math.round(((row.new_price - row.old_price) / row.old_price) * 10000) / 100
-                  : null;
+              // A price on a date that had none moves from the last one published.
+              const from = row.old_price ?? row.previous_price;
+              const pct = from !== null && from !== 0 ? Math.round(((row.new_price - from) / from) * 10000) / 100 : null;
 
               return (
                 <tr key={row.id}>
@@ -157,7 +156,18 @@ export default async function BatchPage({
                     <div className="small muted">as written: {row.raw_location}</div>
                   </td>
                   <td>{row.price_date}</td>
-                  <td>{money(row.old_price, row.currency)}</td>
+                  <td>
+                    {row.old_price !== null ? (
+                      money(row.old_price, row.currency)
+                    ) : row.previous_price !== null ? (
+                      <>
+                        {money(row.previous_price, row.currency)}
+                        <div className="small muted">last published</div>
+                      </>
+                    ) : (
+                      money(null, row.currency)
+                    )}
+                  </td>
                   <td>
                     <strong>{money(row.new_price, row.currency)}</strong>
                   </td>

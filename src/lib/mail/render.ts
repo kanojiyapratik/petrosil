@@ -168,7 +168,7 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
       `Someone tried to register with this address, but you already have an account${
         mail.payload.siteName ? ` and can now read ${String(mail.payload.siteName)} with it` : ""
       }.`,
-      { href: `${context.linkBase}/login`, label: "Sign in" },
+      { href: `${context.linkBase}/sign-in`, label: "Sign in" },
       "Forgotten your password? Use the reset link on the sign-in page.",
     ]),
 };

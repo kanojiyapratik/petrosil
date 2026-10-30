@@ -65,13 +65,25 @@ export function retryDelayMinutes(attempt: number): number {
 }
 
 /**
- * Where a brand's links point. `MAIL_LINK_BASE` may carry `{domain}`, filled
- * with the brand's own domain; the default sends a reader to that domain.
+ * Where a brand's links point: its pages in this app, `PUBLIC_APP_URL/{slug}`
+ * — the confirm-email, reset-password, subscription, article and report
+ * pages all live there now, not on the brand's old domain.
+ *
+ * `MAIL_LINK_BASE` overrides it, and may carry `{slug}` and `{domain}` (the
+ * brand's old domain): `https://{domain}` sends readers to the old domain,
+ * for when that domain forwards to the brand's path here.
  */
-export function linkBaseFor(domain: string | null, env: Record<string, string | undefined> = process.env): string {
-  const pattern = (env.MAIL_LINK_BASE ?? "").trim() || "https://{domain}";
+export function linkBaseFor(
+  site: { slug: string | null; domain: string | null },
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const app = (env.PUBLIC_APP_URL ?? "http://localhost:3100").trim().replace(/\/+$/, "");
+  const pattern = (env.MAIL_LINK_BASE ?? "").trim() || (site.slug ? `${app}/{slug}` : app);
 
-  return pattern.replace("{domain}", domain || "petrosil.com").replace(/\/+$/, "");
+  return pattern
+    .replace("{slug}", site.slug ?? "")
+    .replace("{domain}", site.domain || "petrosil.com")
+    .replace(/\/+$/, "");
 }
 
 export type DeliveryResult = { sent: number; retrying: number; failed: number };
@@ -162,7 +174,7 @@ export async function deliverPending(
   }
 
   const rows = await database
-    .select({ mail: mailOutbox, siteName: sites.name, domain: sites.legacyDomain })
+    .select({ mail: mailOutbox, siteName: sites.name, slug: sites.slug, domain: sites.legacyDomain })
     .from(mailOutbox)
     .leftJoin(sites, eq(sites.id, mailOutbox.siteId))
     .where(
@@ -176,7 +188,7 @@ export async function deliverPending(
   // One lookup per brand per run, not per mail: a report send is hundreds of rows for one brand.
   const senders = new Map<number, BrandSender>();
 
-  for (const { mail, siteName, domain } of rows) {
+  for (const { mail, siteName, slug, domain } of rows) {
     try {
       let sender: BrandSender | undefined;
 
@@ -186,7 +198,7 @@ export async function deliverPending(
       }
 
       const rendered = renderMail(mail, {
-        linkBase: linkBaseFor(domain, options.env),
+        linkBase: linkBaseFor({ slug, domain }, options.env),
         stored: await storedTemplate(database, mail),
       });
       const attachments = await attachmentsFor(mail, options.store ?? fileStore());
