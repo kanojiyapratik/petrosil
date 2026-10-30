@@ -96,6 +96,26 @@ class TestThePromptDescribesWhatMoved:
 
         assert "Korea N 150 FOB Group II/ II+: priced for the first time" in prompt
 
+    def test_a_new_date_moves_from_the_price_before_it_when_the_site_says_it(self):
+        """The Petrosil app sends `previous_price` beside a row that is new on
+        its date. Without it every weekly update read "priced for the first
+        time" -- on a market priced every week for years."""
+        week = [
+            {"location": "Korea N 150", "old_price": None, "previous_price": 950.0, "new_price": 963.0,
+             "delta_pct": None, "is_included": True},
+            {"location": "Taiwan N 150", "old_price": None, "previous_price": 900.0, "new_price": 900.0,
+             "delta_pct": None, "is_included": True},
+            {"location": "Brand new market", "old_price": None, "previous_price": None, "new_price": 500.0,
+             "delta_pct": None, "is_included": True},
+        ]
+
+        prompt = build_summary_prompt(week, source="editorial")
+
+        assert "Korea N 150: up 1.4%" in prompt
+        assert "Taiwan N 150: unchanged" in prompt
+        assert "Brand new market: priced for the first time" in prompt
+        assert "950" not in prompt and "963" not in prompt
+
     def test_it_says_where_the_update_came_from(self):
         assert "crawl" in build_summary_prompt(ITEMS, source="crawl")
 

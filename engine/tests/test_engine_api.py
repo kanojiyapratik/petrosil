@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.console.engine_api import create_engine_api
-from app.db.store import ReadingSet, ReadRow
+from app.db.store import ReadingSet, ReadRow, StoredDraft
 from test_editorial import (
     AnalyseFakeExtractions,
     AnalyseFakeRounding,
@@ -42,7 +42,11 @@ class Drafts(FakeDrafts):
         if draft_id != self._draft_id or site_slug != self._owner:
             return None
 
-        return type("Draft", (), {"id": draft_id, "rows": [], "price_date": "2026-10-30"})()
+        return StoredDraft(
+            id=draft_id, site_slug=site_slug, reading_set_id=7, created_by=ACTOR, created_at=None,
+            price_date="2026-10-30", provider="openai", model="gpt-4.1", analysis_status="complete",
+            batch_id=None, saved_by=None, saved_at=None, rows=[],
+        )
 
     def recent(self, site_slug, limit=20):
         return [{"id": self._draft_id, "created_by": ACTOR}] if site_slug == self._owner else []
@@ -354,6 +358,20 @@ class TestSaving:
 
         assert response.status_code == 404
 
+    def test_a_kept_draft_comes_back_with_its_checks_so_a_page_can_reload(self):
+        api, _, _ = build()
+
+        body = api.get("/api/engine/sites/baseoil/drafts/12", headers=HEADERS).json()
+
+        assert body["draft"]["id"] == 12
+        assert body["draft"]["model"] == "gpt-4.1"
+        assert (body["findings"], body["blockers"]) == ([], 0)
+
+    def test_another_sites_draft_is_not_shown(self):
+        api, _, _ = build(drafts=Drafts(owner="bitumart"))
+
+        assert api.get("/api/engine/sites/baseoil/drafts/12", headers=HEADERS).status_code == 404
+
     def test_the_draft_list_is_this_sites(self):
         api, _, _ = build()
 
@@ -372,3 +390,17 @@ def test_a_row_dataclass_survives_the_trip_to_json():
     )
 
     assert jsonable([row])[0]["price"] == 1.5
+
+
+class TestTheNoteAfterACommit:
+    def test_the_app_can_ask_for_it_and_a_failure_stays_quiet(self):
+        class Client(AnalyseFakeSiteClient):
+            def batch(self, batch_id):
+                raise RuntimeError("the site is down")
+
+        api, store, _ = build(client=Client([]))
+
+        response = api.post("/api/engine/sites/baseoil/batches/31/note", headers=HEADERS)
+
+        assert response.status_code == 202
+        assert store.recorded[-1][:2] == (ACTOR, "asked for the price note")

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { compat, idFrom } from "@/lib/compat/route";
 import { batchItems, batchOnSite } from "@/domain/price/batches";
+import { pricesBefore } from "@/domain/price/locations";
 import { envelopeJson, itemJson } from "@/lib/compat/shapes";
 import { db } from "@/db";
 import { locations } from "@/db/schema";
@@ -25,10 +26,21 @@ export const GET = compat(async ({ caller, params }) => {
 
   const items = await batchItems(batch.id);
   const titles = await titlesFor(caller.site.id);
+  const earlier = await pricesBefore(
+    items
+      .filter((item) => item.oldPrice === null && item.locationId !== null)
+      .map((item) => ({ locationId: item.locationId!, priceDate: item.priceDate })),
+  );
 
   return NextResponse.json({
     ...envelopeJson(batch, items),
-    items: items.map((item) => itemJson(item, item.locationId ? titles.get(item.locationId) ?? null : null)),
+    items: items.map((item) =>
+      itemJson(
+        item,
+        item.locationId ? titles.get(item.locationId) ?? null : null,
+        item.oldPrice === null && item.locationId !== null ? earlier.get(`${item.locationId}:${item.priceDate}`) ?? null : undefined,
+      ),
+    ),
   });
 });
 

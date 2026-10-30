@@ -184,6 +184,30 @@ describe("GET /price-batches and /price-batches/{id}", () => {
     expect(body.meta).toEqual({ current_page: 1, last_page: 1, per_page: 25, total: 1 });
   });
 
+  it("says what a row new on its date is moving from, for the published note", async () => {
+    await publishPrice(brand, "Singapore SN 150 FOB", 1490, "2099-01-26");
+    await publishPrice(brand, "Singapore SN 150 FOB", 1500, "2099-01-30");
+    await publishPrice(brand, "UAE SN 500", 1340, TOMORROW);
+    const staged = await stage([
+      { location: "Singapore SN 150 FOB", price: 1520 },
+      { location: "UAE SN 500", price: 1380 },
+    ]);
+
+    const response = await showBatchRoute(
+      apiRequest(`/api/compat/${brand.slug}/price-batches/${staged.body.batch.id}`, { token: brand.token }),
+      ctx({ id: String(staged.body.batch.id) }),
+    );
+    const items = (await response.json()).items as { raw_location: string; old_price: number | null; previous_price?: number | null }[];
+    const singapore = items.find((item) => item.raw_location === "Singapore SN 150 FOB")!;
+    const uae = items.find((item) => item.raw_location === "UAE SN 500")!;
+
+    // New on its date, so no old_price; the newest price before it is the move's start.
+    expect(singapore).toMatchObject({ old_price: null, previous_price: 1500 });
+    // Changing a price on its own date already says what it changes from.
+    expect(uae.old_price).toBe(1340);
+    expect(uae).not.toHaveProperty("previous_price");
+  });
+
   it("returns the envelope plus every item, in the item shape", async () => {
     await publishPrice(brand, "UAE SN 500", 1340, TOMORROW);
     const staged = await stage([
@@ -206,7 +230,9 @@ describe("GET /price-batches and /price-batches/{id}", () => {
       "needs_attention",
       "summary",
     ]);
-    expect(Object.keys(body.items[0]).sort()).toEqual([
+    // The module's keys, every one, byte for byte; previous_price is the one
+    // key added beside them (see lib/compat/shapes.ts) and the module ignores it.
+    expect(Object.keys(body.items[0]).filter((key) => key !== "previous_price").sort()).toEqual([
       "currency",
       "delta",
       "delta_pct",
@@ -221,6 +247,8 @@ describe("GET /price-batches and /price-batches/{id}", () => {
       "raw_location",
       "status",
     ]);
+
+    expect(Object.keys(body.items[0]).length).toBeLessThanOrEqual(14);
 
     expect(body.items[0]).toMatchObject({
       raw_location: "Singapore SN 150 FOB",

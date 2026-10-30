@@ -37,6 +37,7 @@ from ..editorial.review import (
 from ..editorial.rounding import apply_rounding
 from ..editorial.rules import apply_rules, benchmark_names
 from ..editorial.secondlook import merge_second_look, missed_locations, second_look_prompt
+from ..editorial.summary import write_summary
 from ..editorial.workings import export_columns, workings_for
 from .site_client import SiteError
 
@@ -1016,3 +1017,34 @@ def workings_sheet(draft) -> str:
         )
 
     return buffer.getvalue()
+
+
+# ------------------------------------------------------- after a commit
+
+
+def write_update_note(client, batch_id: int, *, driver, default_model: str, driver_for=None, site_slug: str | None = None) -> None:
+    """Write the note that goes above the site's price trends table.
+
+    Everything in here is best-effort. It runs after the prices are
+    already live, so a model that will not answer, a site that has not
+    got the endpoint yet, or a batch that cannot be read back must all
+    end in silence rather than in an error on a publish that worked.
+    """
+    if driver is None:
+        return
+
+    try:
+        payload = client.batch(batch_id)
+        items = payload.get("items") or []
+        source = (payload.get("batch") or {}).get("source") or "editorial"
+
+        chosen = driver_for(site_slug) if driver_for is not None else None
+        active = chosen or driver
+        model = None if chosen is not None else default_model
+
+        note = write_summary(active, model, items, source=source)
+
+        if note:
+            client.post_summary(note, source=source, batch_id=batch_id)
+    except Exception:  # noqa: BLE001 - see the docstring
+        return

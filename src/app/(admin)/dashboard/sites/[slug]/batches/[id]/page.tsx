@@ -12,7 +12,8 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { batchDetail } from "@/domain/dashboard/batches";
-import { Change, Empty, Heading, Panel, count, money, when } from "@/app/(admin)/ui";
+import { Change, Empty, Heading, Panel, count, money, one, when, type Search } from "@/app/(admin)/ui";
+import { Publish } from "./publish";
 import { RollBack } from "./rollback";
 
 export const dynamic = "force-dynamic";
@@ -30,9 +31,16 @@ const TONE: Record<string, string> = {
   conflict: "bad",
 };
 
-export default async function BatchPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function BatchPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; id: string }>;
+  searchParams: Promise<Search>;
+}) {
   const viewer = (await currentViewer())!;
   const { slug, id } = await params;
+  const search = await searchParams;
 
   const batch = await batchDetail(viewer.siteIds, Number(id));
 
@@ -67,10 +75,26 @@ export default async function BatchPage({ params }: { params: Promise<{ slug: st
         <span className={`badge ${batch.status === "committed" ? "ok" : batch.status === "draft" ? "warn" : "bad"}`}>
           {batch.status.replace("_", " ")}
         </span>
+        {batch.status === "draft" ? (
+          <Publish slug={slug} batch={batch.id} rows={batch.rows.filter((row) => row.is_included && (row.status === "new" || row.status === "changed")).length} />
+        ) : null}
         {batch.status === "committed" ? (
           <RollBack slug={slug} batch={batch.id} rows={batch.rows.filter((row) => row.is_included && (row.status === "new" || row.status === "changed")).length} />
         ) : null}
       </Heading>
+
+      {one(search, "done") ? (
+        <p className="flash" role="status">
+          {one(search, "done")}
+        </p>
+      ) : null}
+
+      {one(search, "saved") ? (
+        <p className="flash" role="status">
+          Saved {one(search, "saved")} price{one(search, "saved") === "1" ? "" : "s"}
+          {one(search, "draft") ? ` from AI draft #${one(search, "draft")}` : ""}. Check them below, then commit to put them on the website.
+        </p>
+      ) : null}
 
       <div className="tiles">
         <div className="tile">

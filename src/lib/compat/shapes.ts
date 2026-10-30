@@ -27,6 +27,13 @@ export type ItemJson = {
   status: string;
   is_included: boolean;
   error_message: string | null;
+  /**
+   * Added beside the module's keys, not one of them: for a row new on its
+   * date, the location's newest price before it, so the published note can
+   * say "up 1.2%" instead of "priced for the first time" every week. Null
+   * when there is none, or when the row changes a price on its own date.
+   */
+  previous_price?: number | null;
 };
 
 export type BatchJson = {
@@ -52,7 +59,7 @@ export function batchJson(batch: Batch): BatchJson {
   };
 }
 
-export function itemJson(item: BatchItem, locationTitle: string | null): ItemJson {
+export function itemJson(item: BatchItem, locationTitle: string | null, previousPrice?: number | null): ItemJson {
   const oldPrice = item.oldPrice === null ? null : Number(item.oldPrice);
   const newPrice = Number(item.newPrice);
 
@@ -81,6 +88,7 @@ export function itemJson(item: BatchItem, locationTitle: string | null): ItemJso
     status: item.status,
     is_included: item.isIncluded,
     error_message: item.errorMessage,
+    ...(previousPrice === undefined ? {} : { previous_price: previousPrice }),
   };
 }
 

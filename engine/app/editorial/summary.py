@@ -18,6 +18,18 @@ def _movement(item: dict) -> str:
     pct = item.get("delta_pct")
     old = item.get("old_price")
 
+    # A row new on its date usually is not the market's first price. A site
+    # that says what the price was before (`previous_price`, sent beside the
+    # usual keys by the Petrosil app) gets the move from it; one that does
+    # not -- the PHP sites -- reads as it always has.
+    previous = item.get("previous_price")
+
+    if pct is None and old is None and previous:
+        try:
+            pct = (float(item.get("new_price")) - float(previous)) / float(previous) * 100
+        except (TypeError, ValueError, ZeroDivisionError):
+            pct = None
+
     if pct is None:
         return "priced for the first time" if old is None else "updated"
 

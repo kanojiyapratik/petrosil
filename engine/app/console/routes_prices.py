@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import Store, StoredSite
 from .access import make_site_guard
 from .routes import NEEDS_ATTENTION, VALUE_EDITABLE, label_for, tone_for
-from ..editorial.summary import write_summary
+from .flows import write_update_note
 from .site_client import SiteClient, SiteError
 
 
@@ -33,31 +33,12 @@ def create_price_routes(
     router = APIRouter()
 
     def note_the_update(client, batch_id: int, site_slug: str | None = None) -> None:
-        """Write the note that goes above the site's price trends table.
-
-        Everything in here is best-effort. It runs after the prices are
-        already live, so a model that will not answer, a site that has not
-        got the endpoint yet, or a batch that cannot be read back must all
-        end in silence rather than in an error on a publish that worked.
-        """
-        if driver is None:
-            return
-
-        try:
-            payload = client.batch(batch_id)
-            items = payload.get("items") or []
-            source = (payload.get("batch") or {}).get("source") or "editorial"
-
-            chosen = driver_for(site_slug) if driver_for is not None else None
-            active = chosen or driver
-            model = None if chosen is not None else default_model
-
-            note = write_summary(active, model, items, source=source)
-
-            if note:
-                client.post_summary(note, source=source, batch_id=batch_id)
-        except Exception:  # noqa: BLE001 - see the docstring
-            return
+        """The note above the site's price trends table. The work is in
+        flows.py, which the app's AI tools tab calls too after a commit."""
+        write_update_note(
+            client, batch_id,
+            driver=driver, default_model=default_model, driver_for=driver_for, site_slug=site_slug,
+        )
 
     def client_for(site: StoredSite) -> SiteClient:
         if client_factory is not None:

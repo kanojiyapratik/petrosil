@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse, Response
 from scraper.pdf import pdf_needs_password
 
 from ..editorial.extract import document_images, document_to_text
+from ..editorial.preflight import preflight
 from .flows import (
     MAX_DOCUMENT_BYTES,
     MAX_DOCUMENTS,
@@ -38,6 +39,7 @@ from .flows import (
     read_reports,
     save_draft,
     workings_sheet,
+    write_update_note,
 )
 from .site_client import SiteClient
 
@@ -338,13 +340,38 @@ def create_engine_api(
 
     @router.get("/drafts/{draft_id}")
     def draft_view(slug: str, draft_id: int, actor: str = Depends(caller)):
+        """A kept draft, with the preflight checks run again over it.
+
+        The checks are not stored with a draft, and a draft page has to be
+        able to reload. Every row keeps the whole dict the checks were first
+        run on (`detail`), so they are run on that again -- against the
+        brand's rules and rounding as they are now, which is what saving it
+        today would be judged by.
+        """
         site = site_or_404(slug)
         found = drafts.draft(draft_id, site.slug)
 
         if found is None:
             raise HTTPException(status_code=404, detail="That AI draft could not be found.")
 
-        return jsonable(found)
+        sheet = [row.detail for row in found.rows if row.detail]
+        findings = (
+            preflight(
+                sheet,
+                rules=rules.for_site(site.slug) if rules is not None else [],
+                default_step=(site.round_to_nearest, site.round_direction),
+                overrides=rounding.for_site(site.slug) if rounding is not None else None,
+                price_date=found.price_date,
+            )
+            if sheet
+            else []
+        )
+
+        return {
+            "draft": jsonable(found),
+            "findings": jsonable(findings),
+            "blockers": sum(1 for finding in findings if finding.severity == "blocker"),
+        }
 
     @router.post("/drafts/{draft_id}/save")
     async def save(slug: str, draft_id: int, request: Request, actor: str = Depends(caller)):
@@ -387,6 +414,22 @@ def create_engine_api(
             return refusal(refused)
 
         return JSONResponse({"batch_id": batch_id, "saved": saved}, status_code=201)
+
+    # ---------------------------------------------------------- after a commit
+
+    @router.post("/batches/{batch_id}/note")
+    def note(slug: str, batch_id: int, actor: str = Depends(caller)):
+        """The app committed a price update: write the note above the
+        brand's price table, as the console does after its own commits.
+        Best-effort, like there -- the prices are already live."""
+        site = site_or_404(slug)
+        write_update_note(
+            client_for(site), batch_id,
+            driver=driver, default_model=default_model, driver_for=driver_for, site_slug=site.slug,
+        )
+        store.record(actor, "asked for the price note", site.slug, f"batch #{batch_id}")
+
+        return JSONResponse({}, status_code=202)
 
     @router.get("/drafts/{draft_id}/workings.csv")
     def workings(slug: str, draft_id: int, actor: str = Depends(caller)):

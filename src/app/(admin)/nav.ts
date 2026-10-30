@@ -204,6 +204,7 @@ const SPECS: Spec[] = [
     label: "AI tools",
     slug: "ai",
     items: [
+      ["AI price update", "ai-update", "read reports, draft prices, save them", true],
       ["Price update", "batches", "what the module staged", true],
       ["Watched pages", "crawl", "where prices are read from", true],
       ["Published AI note", "ai-note", "the note above the prices", true],

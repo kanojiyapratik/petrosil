@@ -9,7 +9,7 @@
  * UNMATCHED and an editor deals with it.
  */
 
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { locations, prices } from "@/db/schema";
@@ -218,3 +218,38 @@ export const priceEquals = (a: unknown, b: unknown): boolean =>
   Math.abs(Number(a) - Number(b)) < 0.00001;
 
 export { sql };
+
+/**
+ * Each location's newest live price before a date — what a price staged for
+ * a new date is moving from. Keyed `${locationId}:${priceDate}`.
+ *
+ * A row staged for a date with no price yet is `new` (there is nothing on
+ * that date to change), but it is rarely the market's first price: last
+ * week's is the one a reader compares it with, and what the published note
+ * should describe the move from.
+ */
+export async function pricesBefore(
+  wanted: { locationId: number; priceDate: string }[],
+  database: Database = db(),
+): Promise<Map<string, number>> {
+  const found = new Map<string, number>();
+  const byDate = new Map<string, number[]>();
+
+  for (const { locationId, priceDate } of wanted) {
+    byDate.set(priceDate, [...(byDate.get(priceDate) ?? []), locationId]);
+  }
+
+  for (const [priceDate, ids] of byDate) {
+    const rows = await database
+      .selectDistinctOn([prices.locationId], { locationId: prices.locationId, price: prices.price })
+      .from(prices)
+      .where(and(inArray(prices.locationId, ids), lt(prices.priceDate, priceDate), isNull(prices.deletedAt)))
+      .orderBy(prices.locationId, desc(prices.priceDate), desc(prices.id));
+
+    for (const row of rows) {
+      found.set(`${row.locationId}:${priceDate}`, Number(row.price));
+    }
+  }
+
+  return found;
+}

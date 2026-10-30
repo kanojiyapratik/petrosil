@@ -19,7 +19,7 @@
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { locations, priceBatches, priceBatchItems, prices, sites, type ItemStatus } from "@/db/schema";
+import { auditLog, locations, priceBatches, priceBatchItems, prices, sites, type ItemStatus } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import { requirePermission } from "@/domain/staff/permissions";
@@ -292,4 +292,73 @@ export async function rollBackUpdate(
 
     throw error;
   }
+}
+
+/**
+ * Publishing a draft update from the admin — the AI's, a crawl's or an
+ * upload's. Until the AI tools moved into the admin this button lived only
+ * on the price console. `commitBatch` holds the rules: rows still needing
+ * attention block it, and a live price that moved since staging becomes a
+ * conflict rather than being overwritten.
+ */
+export async function commitUpdate(
+  guard: Guarded,
+  input: { site: string; batchId: number },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+) {
+  const brand = await brandForBatch(guard, input.site, "price-batch-commit", database);
+
+  try {
+    return await commitBatch(brand.id, input.batchId, { userId: guard.identity.user.id, ip: context.ip ?? null }, database);
+  } catch (error) {
+    if (error instanceof BatchError) {
+      throw new AccountError(error.message, error.status === 404 ? 404 : 409, "batch");
+    }
+
+    throw error;
+  }
+}
+
+/** Throwing a draft update away. Nothing it held was ever published. */
+export async function discardUpdate(
+  guard: Guarded,
+  input: { site: string; batchId: number },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+) {
+  const brand = await brandForBatch(guard, input.site, "price-batch-create", database);
+
+  try {
+    const batch = await discardBatch(brand.id, input.batchId, database);
+
+    await database.insert(auditLog).values({
+      siteId: brand.id,
+      userId: guard.identity.user.id,
+      action: "price_batch.discard",
+      entity: "price_batch",
+      entityId: input.batchId,
+      ip: context.ip ?? null,
+    });
+
+    return batch;
+  } catch (error) {
+    if (error instanceof BatchError) {
+      throw new AccountError(error.message, error.status === 404 ? 404 : 409, "batch");
+    }
+
+    throw error;
+  }
+}
+
+async function brandForBatch(guard: Guarded, slug: string, permission: string, database: Database) {
+  const [brand] = await database.select().from(sites).where(eq(sites.slug, slug)).limit(1);
+
+  if (!brand || (!guard.isSuperadmin && !guard.siteIds.includes(brand.id))) {
+    throw new AccountError("You do not have access to that brand.", 403, "site");
+  }
+
+  await requirePermission(guard, brand.id, permission, database);
+
+  return brand;
 }
