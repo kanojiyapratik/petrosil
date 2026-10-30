@@ -13,6 +13,8 @@ import { useActionState, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { Popup } from "@/app/(admin)/popup";
+
 import {
   addRowAction,
   correctRowAction,
@@ -240,9 +242,8 @@ export function AddRow({ slug, setId, fileId, filename }: { slug: string; setId:
   const [state, action, pending] = useActionState(addRowAction, null as Said);
 
   return (
-    <details style={{ marginTop: 12 }}>
-      <summary className="small">Add a price the AI missed in {filename}</summary>
-      <form action={action} style={{ marginTop: 10 }}>
+    <Popup label="Add a missed price" title={`Add a price the AI missed in ${filename}`} ghost>
+      <form action={action}>
         <input type="hidden" name="site" value={slug} />
         <input type="hidden" name="set" value={setId} />
         <input type="hidden" name="file_id" value={fileId ?? ""} />
@@ -278,7 +279,7 @@ export function AddRow({ slug, setId, fileId, filename }: { slug: string; setId:
           {pending ? "Adding…" : "Add this price"}
         </button>
       </form>
-    </details>
+    </Popup>
   );
 }
 

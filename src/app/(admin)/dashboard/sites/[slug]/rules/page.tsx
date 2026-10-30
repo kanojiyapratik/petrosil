@@ -11,7 +11,8 @@
 
 import { currentViewer } from "@/lib/auth/server";
 import { adjustment, rulesFor, type Match, type RuleRow } from "@/domain/price/rules";
-import { Empty, Heading, Panel, count, one, type Search } from "@/app/(admin)/ui";
+import { Empty, Heading, Panel, count } from "@/app/(admin)/ui";
+import { Popup } from "@/app/(admin)/popup";
 import { MarketRounding, RemoveMarketRounding, RuleActions, RuleForm, SiteRounding } from "./forms";
 
 export const metadata = { title: "Per-market rules · Petrosil" };
@@ -64,16 +65,9 @@ function MatchNote({ match, name }: { match: Match; name: string }) {
 
 const needsLook = (row: RuleRow) => row.enabled && (broken(row.derivedMatch) || broken(row.referenceMatch));
 
-export default async function RulesPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ slug: string }>;
-  searchParams: Promise<Search>;
-}) {
+export default async function RulesPage({ params }: { params: Promise<{ slug: string }> }) {
   const viewer = (await currentViewer())!;
   const { slug } = await params;
-  const search = await searchParams;
   const view = await rulesFor(viewer, { site: slug });
 
   if (!view.connected) {
@@ -95,15 +89,27 @@ export default async function RulesPage({
   // Rules that cannot run first, then the rest by market.
   const rows = [...view.rules].sort((a, b) => Number(needsLook(b)) - Number(needsLook(a)) || a.derived.localeCompare(b.derived));
   const off = view.rules.filter((rule) => !rule.enabled).length;
-  const editing = view.rules.find((rule) => String(rule.id) === one(search, "edit")) ?? null;
   const editor = view.canEdit ? view.editor : null;
+  // What the rule form needs, for the Add popup and each row's Edit popup.
+  const basis = editor
+    ? { ...editor, existing: Object.fromEntries(view.rules.map((rule) => [rule.derived, rule.formula])) }
+    : null;
 
   return (
     <>
       <Heading
         title="Per-market rules"
         sub="Markets worked out from another price instead of read from a report, and how every price the AI drafts is rounded. Used the next time prices are drafted."
-      />
+      >
+        {basis ? (
+          <Popup label="Add a rule" title="Add a rule">
+            <RuleForm slug={slug} {...basis} start={null} />
+            <p className="small muted" style={{ margin: "10px 0 0" }}>
+              Saving over a market that has a rule replaces it.
+            </p>
+          </Popup>
+        ) : null}
+      </Heading>
 
       <div className="tiles">
         <div className="tile">
@@ -119,23 +125,6 @@ export default async function RulesPage({
           <div className="k">of {count(view.markets)} markets from the reports alone</div>
         </div>
       </div>
-
-      {editor ? (
-        <div id="rule-form">
-          <Panel title={editing ? `Change the rule for ${editing.derived}` : "Add a rule"} hint="Saving over a market that has a rule replaces it." flush={false}>
-            <RuleForm
-              key={editing?.id ?? "new"}
-              slug={slug}
-              markets={editor.markets}
-              benchmarks={editor.benchmarks}
-              prices={editor.prices}
-              currencies={editor.currencies}
-              existing={Object.fromEntries(view.rules.map((rule) => [rule.derived, rule.formula]))}
-              start={editing ? { derived: editing.derived, reference: editing.reference, value: editing.value, kind: editing.kind } : null}
-            />
-          </Panel>
-        </div>
-      ) : null}
 
       <Panel title="Rules" hint={view.broken ? "Rules that cannot run are listed first." : undefined}>
         {rows.length ? (
@@ -171,7 +160,14 @@ export default async function RulesPage({
                   </td>
                   {editor ? (
                     <td>
-                      <RuleActions slug={slug} id={row.id} enabled={row.enabled} name={row.derived} />
+                      <RuleActions
+                        slug={slug}
+                        id={row.id}
+                        enabled={row.enabled}
+                        name={row.derived}
+                        basis={basis!}
+                        rule={{ derived: row.derived, reference: row.reference, value: row.value, kind: row.kind }}
+                      />
                     </td>
                   ) : null}
                 </tr>
@@ -183,7 +179,18 @@ export default async function RulesPage({
         )}
       </Panel>
 
-      <Panel title="Rounding" hint="Applied to every price the AI drafts, after the rules, in each price's own currency." flush={false}>
+      <Panel
+        title="Rounding"
+        hint="Applied to every price the AI drafts, after the rules, in each price's own currency."
+        aside={
+          editor ? (
+            <Popup label="Give a market its own rounding" title="One market's own rounding" ghost>
+              <MarketRounding slug={slug} markets={editor.markets} />
+            </Popup>
+          ) : null
+        }
+        flush={false}
+      >
         {editor ? (
           <SiteRounding slug={slug} step={view.rounding.step} direction={view.rounding.direction} />
         ) : (
@@ -221,14 +228,6 @@ export default async function RulesPage({
           </table>
         ) : null}
 
-        {editor ? (
-          <details>
-            <summary className="small">Give one market its own rounding</summary>
-            <div style={{ marginTop: 12 }}>
-              <MarketRounding slug={slug} markets={editor.markets} />
-            </div>
-          </details>
-        ) : null}
       </Panel>
     </>
   );

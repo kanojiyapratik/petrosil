@@ -89,6 +89,7 @@ export default async function ReadingPage({
           key={`${file.id ?? "legacy"}-${file.filename}`}
           title={file.filename}
           hint={file.rows.length ? `${file.rows.filter((row) => row.kept).length} of ${file.rows.length} ticked` : undefined}
+          aside={<AddRow slug={slug} setId={reading.id} fileId={file.id} filename={file.filename} />}
           flush={false}
         >
           {file.rows.length ? (
@@ -111,7 +112,6 @@ export default async function ReadingPage({
           ) : (
             <Empty>No prices were found in this report.</Empty>
           )}
-          <AddRow slug={slug} setId={reading.id} fileId={file.id} filename={file.filename} />
         </Panel>
       ))}
 

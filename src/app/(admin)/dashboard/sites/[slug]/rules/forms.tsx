@@ -8,7 +8,7 @@
  */
 
 import { useActionState, useMemo, useState } from "react";
-import Link from "next/link";
+import { Popup } from "@/app/(admin)/popup";
 
 import {
   marketRoundingAction,
@@ -172,27 +172,45 @@ export function RuleForm({
         <button type="submit" disabled={pending}>
           {pending ? "Saving…" : start ? "Save the change" : "Save the rule"}
         </button>
-        {start ? (
-          <Link className="button ghost" href={`/dashboard/sites/${slug}/rules`}>
-            Cancel
-          </Link>
-        ) : null}
       </div>
     </form>
   );
 }
 
-/** Turn a rule off or on, or remove it, from its row. */
-export function RuleActions({ slug, id, enabled, name }: { slug: string; id: number; enabled: boolean; name: string }) {
+/** What the rule form needs to know about the brand, passed down to each row's Edit popup. */
+export type RuleFormBasis = {
+  markets: string[];
+  benchmarks: string[];
+  prices: Record<string, number>;
+  currencies: Record<string, string>;
+  existing: Record<string, string>;
+};
+
+export function RuleActions({
+  slug,
+  id,
+  enabled,
+  name,
+  basis,
+  rule,
+}: {
+  slug: string;
+  id: number;
+  enabled: boolean;
+  name: string;
+  basis: RuleFormBasis;
+  rule: { derived: string; reference: string; value: number; kind: string };
+}) {
+  // A rule's row: change it (in a popup, filled in), turn it off or on, remove it.
   const [switched, switchAction, switching] = useActionState(switchRuleAction, null as RuleSaid);
   const [removed, removeAction, removing] = useActionState(removeRuleAction, null as RuleSaid);
   const said = switched?.error ?? removed?.error;
 
   return (
     <div className="actions" style={{ flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-      <Link className="button ghost small" href={`/dashboard/sites/${slug}/rules?edit=${id}#rule-form`}>
-        Edit
-      </Link>
+      <Popup label="Edit" title={`Change the rule for ${name}`} ghost>
+        <RuleForm slug={slug} {...basis} start={rule} />
+      </Popup>
       <form action={switchAction}>
         <input type="hidden" name="site" value={slug} />
         <input type="hidden" name="id" value={id} />
