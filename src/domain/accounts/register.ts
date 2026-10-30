@@ -15,7 +15,8 @@ import { db, type Database } from "@/db";
 import { memberships, sites, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 import { queueMail } from "@/lib/mail/outbox";
-import { issueToken } from "./tokens";
+import { issueToken, peekToken, spendToken } from "./tokens";
+import { revokeSessions } from "@/lib/auth/session";
 import { checkPassword, readEmail, readName, readText } from "./policy";
 import { findCountry } from "@/domain/geo/countries";
 
@@ -240,4 +241,48 @@ export async function requestPasswordReset(
     },
     database,
   );
+}
+
+/**
+ * Spend a reset link and set the new password.
+ *
+ * The link is checked first and spent last: validating the password after
+ * spending would burn the link on a typo and send the person back to the
+ * forgotten-password form. Every other device is signed out after.
+ */
+export async function resetPassword(
+  input: { token?: unknown; password?: unknown },
+  database: Database = db(),
+): Promise<void> {
+  const expired = () => new AccountError("That link is no longer valid. Ask for a new one.", 400);
+  const pending = await peekToken(input.token, "reset_password", database);
+
+  if (!pending) {
+    throw expired();
+  }
+
+  const [person] = await database.select().from(users).where(eq(users.id, pending.userId)).limit(1);
+
+  if (!person) {
+    throw expired();
+  }
+
+  const check = checkPassword(input.password, person.email);
+
+  if (!check.ok) {
+    throw new AccountError(check.message, 422, "password");
+  }
+
+  // Spending is the atomic step: two clicks arriving together, only one
+  // wins, and the loser changes nothing.
+  if (!(await spendToken(input.token, "reset_password", database))) {
+    throw expired();
+  }
+
+  await database
+    .update(users)
+    .set({ passwordHash: await hashPassword(String(input.password)), updatedAt: new Date() })
+    .where(eq(users.id, person.id));
+
+  await revokeSessions(person.id, undefined, database);
 }

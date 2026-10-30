@@ -691,3 +691,218 @@
   text-align: center;
   color: var(--ink-3);
 }
+
+/* ---- reader forms: sign in, register, account, checkout ---- */
+.bs-narrow {
+  max-width: 440px;
+  margin: 12px auto 0;
+}
+
+.bs-narrow.wide {
+  max-width: 680px;
+}
+
+.bs .bs-title {
+  font-size: clamp(22px, 3vw, 28px);
+  margin-bottom: 14px;
+}
+
+.bs-lede {
+  margin: -6px 0 16px;
+}
+
+.bs-after {
+  margin: 14px 0 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+.bs-form {
+  display: grid;
+  gap: 14px;
+}
+
+.bs-form > .btn {
+  justify-self: start;
+}
+
+.bs-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 16px;
+}
+
+.bs-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bs-field[data-wide] {
+  grid-column: 1 / -1;
+}
+
+.bs-field > span {
+  font: 600 13px var(--font-b);
+  color: var(--ink-2);
+}
+
+.bs-field input,
+.bs-field select,
+.bs-field textarea {
+  font: 15px var(--font-b);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  width: 100%;
+  min-width: 0;
+}
+
+.bs-field input:focus,
+.bs-field select:focus,
+.bs-field textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--brand);
+}
+
+.bs-field small {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+/* The field the server complained about. */
+.bs-form[data-bad="email"] [data-name="email"] input,
+.bs-form[data-bad="password"] [data-name="password"] input,
+.bs-form[data-bad="name"] [data-name="name"] input,
+.bs-form[data-bad="country"] [data-name="country"] select,
+.bs-form[data-bad="current"] [data-name="current"] input,
+.bs-form[data-bad="next"] [data-name="next"] input,
+.bs-form[data-bad="phone"] [data-name="phone"] input {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+
+.bs .btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.bs-flash {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  font-size: 14.5px;
+}
+
+.bs-form .bs-flash {
+  margin: 0;
+}
+
+.bs-flash.good {
+  background: var(--good-soft);
+  border-color: color-mix(in srgb, var(--good) 30%, white);
+  color: var(--good);
+}
+
+.bs-flash.bad {
+  background: var(--bad-soft);
+  border-color: color-mix(in srgb, var(--bad) 30%, white);
+  color: var(--bad);
+}
+
+.bs-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bs-status {
+  margin: 0 0 14px;
+}
+
+.bs-trial {
+  margin-top: 18px;
+}
+
+/* ---- plans ---- */
+.bs-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.bs-plan {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.bs-plan h2 {
+  font-size: 19px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bs-plan p {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.bs-term {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.bs-term[data-on] {
+  border-color: var(--brand);
+  background: var(--soft);
+}
+
+.bs-term input {
+  accent-color: var(--brand);
+  margin: 0;
+}
+
+.bs-term s {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.bs-review dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 8px 32px;
+  margin: 0 0 18px;
+}
+
+.bs-review dt {
+  color: var(--ink-2);
+}
+
+.bs-review dd {
+  margin: 0;
+  text-align: right;
+}
+
+.bs-review dd.total {
+  font-weight: 700;
+  font-size: 18px;
+}
