@@ -22,4 +22,6 @@ ENV PYTHONUNBUFFERED=1
 # how the crawler service runs from this same image: Railway offers no
 # per-service start command from the CLI, so the env var is the switch.
 # (Local compose passes an explicit `command:` instead and ignores this.)
-CMD if [ "$MODULE_PROCESS" = "crawler" ]; then exec python -m scraper.main; else exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}; fi
+# MODULE_PROCESS=estate-crawler is the Petrosil app's crawler: every brand in
+# the engine's own table, each with its own provider (scraper/estate.py).
+CMD if [ "$MODULE_PROCESS" = "crawler" ]; then exec python -m scraper.main; elif [ "$MODULE_PROCESS" = "estate-crawler" ]; then exec python -m scraper.estate; else exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}; fi

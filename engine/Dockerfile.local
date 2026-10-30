@@ -10,3 +10,6 @@ COPY app ./app
 COPY scraper ./scraper
 
 ENV PYTHONUNBUFFERED=1
+
+# The same process switch as ./Dockerfile (the base image predates the third one).
+CMD if [ "$MODULE_PROCESS" = "crawler" ]; then exec python -m scraper.main; elif [ "$MODULE_PROCESS" = "estate-crawler" ]; then exec python -m scraper.estate; else exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8094}; fi

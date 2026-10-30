@@ -9,6 +9,8 @@
  * `--only offer-owners` fills in who posted each offer and changes nothing else.
  * `--only offer-countries` names the offers whose country came across as a number.
  * `--only impex-dates` dates the impex sheets that came across undated, from their titles.
+ * `--only crawl-watch` carries the pages the crawler watches, and the crawler's
+ * instructions, so the brand's crawler picks up where the old site's left off.
  *
  * `migrate-site` moves the things the price module needs — locations, prices,
  * people. This moves everything the admin screens show: articles, pages,
@@ -55,12 +57,14 @@ import {
   orders,
   pages,
   planPrices,
+  priceCrawlUrls,
   planSites,
   plans,
   reports,
   rolePermissions,
   roles,
   settings,
+  siteCrawlSettings,
   sites,
   tradeLocations,
   tradeQuantities,
@@ -96,7 +100,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries|impex-dates]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries|impex-dates|crawl-watch]");
   }
 
   return {
@@ -339,6 +343,89 @@ async function carryOfferCountries(
   }
 
   console.log(`offers       ${fixed} country numbers named · ${unknown} not in the source's list`);
+}
+
+/**
+ * The crawler's watch list: every page the old site watched, on or off as it
+ * was, with what its last read said, so the Watched pages screen does not
+ * open on a blank history. A page already here (same address) is updated,
+ * not doubled; the old site's ids are not kept, as findings are not carried
+ * (they are proposals, not prices, and the next pass makes fresh ones).
+ * The instructions to the crawler's AI were a site setting; the interval
+ * was a fixed fifteen minutes, which is the platform's default too.
+ */
+async function carryCrawlWatch(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (!have.has("price_crawl_urls")) {
+    console.log("crawl watch  none here (no price_crawl_urls)");
+    return;
+  }
+
+  const [rows] = await source.query<Row[]>(
+    "select url, label, enabled, etag, last_modified, content_hash, last_status, last_error, last_notes, " +
+      "last_row_count, last_checked_at, last_changed_at, created_at from price_crawl_urls order by id",
+  );
+  const existing = new Map(
+    (await database.select({ id: priceCrawlUrls.id, url: priceCrawlUrls.url }).from(priceCrawlUrls).where(eq(priceCrawlUrls.siteId, siteId))).map(
+      (row) => [row.url, row.id],
+    ),
+  );
+  let added = 0;
+  let updated = 0;
+
+  for (const [position, row] of rows.entries()) {
+    const url = String(row.url ?? "").trim();
+
+    if (!url) {
+      continue;
+    }
+
+    const values = {
+      label: row.label ? String(row.label).slice(0, 191) : null,
+      enabled: Number(row.enabled) === 1,
+      etag: row.etag ?? null,
+      lastModified: row.last_modified ?? null,
+      contentHash: row.content_hash ?? null,
+      lastStatus: row.last_status ?? null,
+      lastError: row.last_error ?? null,
+      lastNotes: row.last_notes ?? null,
+      lastRowCount: row.last_row_count == null ? 0 : Number(row.last_row_count),
+      lastCheckedAt: readDate(row.last_checked_at),
+      lastChangedAt: readDate(row.last_changed_at),
+      sortOrder: position,
+    };
+    const id = existing.get(url);
+
+    if (id) {
+      await database.update(priceCrawlUrls).set(values).where(eq(priceCrawlUrls.id, id));
+      updated += 1;
+    } else {
+      await database.insert(priceCrawlUrls).values({ siteId, url, ...values, createdAt: readDate(row.created_at) ?? new Date() });
+      added += 1;
+    }
+  }
+
+  let instructions: string | null = null;
+
+  if (have.has("settings")) {
+    const [found] = await source.query<Row[]>("select val from settings where name = ? limit 1", ["price_crawl_ai_instructions"]);
+
+    instructions = found[0]?.val ? String(found[0].val).trim() || null : null;
+  }
+
+  await database
+    .insert(siteCrawlSettings)
+    .values({ siteId, instructions })
+    .onConflictDoUpdate({ target: siteCrawlSettings.siteId, set: { instructions, updatedAt: new Date() } });
+
+  console.log(
+    `crawl watch  ${added} added, ${updated} updated (${rows.filter((row) => Number(row.enabled) === 1).length} switched on)` +
+      `, instructions ${instructions ? `${instructions.length} characters` : "none"}`,
+  );
 }
 
 async function carryOfferOwners(
@@ -643,11 +730,14 @@ async function main(): Promise<void> {
       } else if (opts.only === "impex-dates") {
         // A fill-in from what is already here; the source is not read.
         await dateImpexFromTitles(database, brand.id);
+      } else if (opts.only === "crawl-watch") {
+        // An update-in-place by address: safe to run again.
+        await carryCrawlWatch(source, database, brand.id, tables);
       } else if (opts.only === "offer-owners") {
         // A fill-in, not a replace: safe to run again.
         await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails", "enquiries", "offer-owners", "offer-countries" and "impex-dates"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries", "offer-owners", "offer-countries", "impex-dates" and "crawl-watch"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;

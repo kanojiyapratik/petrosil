@@ -39,5 +39,23 @@ services:
       platform-db:
         condition: service_healthy
 
+  # The crawler: every brand's watched pages every fifteen minutes, through
+  # the same pass as the Watched pages screen's "Check now". Same image as the
+  # engine, a different process (scraper/estate.py).
+  engine-crawler:
+    build:
+      context: ./engine
+      dockerfile: ${ENGINE_DOCKERFILE:-Dockerfile.local}
+    container_name: petrosil-engine-crawler
+    env_file: .env.engine
+    environment:
+      MODULE_PROCESS: estate-crawler
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      platform-db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   platform-db-data:

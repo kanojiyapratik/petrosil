@@ -117,6 +117,21 @@ one) and points the engine's site entry at `ENGINE_SITE_API_BASE` (default
 instructions, rules, rounding — are left alone. Re-run it whenever a brand is
 added.
 
+The crawler is the same image run as a second process,
+`MODULE_PROCESS=estate-crawler` (`scraper/estate.py`): every fifteen minutes it
+reads every brand's watched pages, each brand on its own AI provider, through
+the same pass as the Watched pages screen's "Check now". Locally it is the
+`engine-crawler` compose service:
+
+```bash
+docker compose up -d engine-crawler                                   # the loop
+docker compose run --rm engine-crawler python -m scraper.estate --once # one pass now
+```
+
+A brand's watch list and crawler instructions come across from its old site
+with `npm run migrate:content -- --from <mysql db> --site <slug> --only crawl-watch`
+(safe to run again: pages are matched by address).
+
 `Dockerfile.local` builds on an image that already has the dependencies
 installed, so a code change does not wait on PyPI; `ENGINE_DOCKERFILE=Dockerfile`
 builds exactly as production will. The engine's own tests run where they
