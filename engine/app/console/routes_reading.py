@@ -10,12 +10,13 @@ A file that fails costs that file. Four reports already read are never
 thrown away because the fifth timed out -- and a file that failed says so on
 the screen, because a silent failure and a report with no prices in it look
 identical otherwise.
+
+The work itself is in flows.py, shared with the app's AI tools tab; this
+module is the console's screens around it.
 """
 
 from __future__ import annotations
 
-import math
-import re
 from datetime import date
 from urllib.parse import quote, urlencode
 
@@ -26,42 +27,9 @@ from fastapi.templating import Jinja2Templates
 from scraper.pdf import pdf_needs_password
 
 from ..editorial.extract import document_images, document_to_text
-from ..editorial.reading import parse_reading, reading_prompt, split_for_reading
 from .access import make_site_guard
+from .flows import MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, Engine, check_row_fields, grouped_files, read_reports
 from .routes import tone_for
-from .routes_editorial import MAX_DOCUMENTS, MAX_DOCUMENT_BYTES
-
-# The shape the screen and the prompt both ask for. It is only the shape:
-# "2026-13-01" and "2026-02-31" match it and are not days, so the calendar
-# itself has the last word below.
-_ISO_SHAPE = re.compile(r"\d{4}-\d{2}-\d{2}")
-
-IMAGE_PROMPT = (
-    "Transcribe every price table and price figure in these images as "
-    "plain text. Keep all company names, grades, viscosities and numbers "
-    "exactly as shown, one line per row, with column labels. Start each "
-    "table with its title and say which currency every column is in "
-    "(e.g. 'Local currency/t' and '$/t' side by side are two different "
-    "prices for the same row) -- a figure without its currency is useless."
-)
-
-
-def _is_a_day(text: str) -> bool:
-    """YYYY-MM-DD, and a day that exists.
-
-    A shape check alone let a hand-typed "2026-02-31" through to a DATE
-    column, where psycopg raised and the whole row edit became a 500 --
-    losing every other correction in that row.
-    """
-    if not _ISO_SHAPE.fullmatch(text):
-        return False
-
-    try:
-        date.fromisoformat(text)
-    except ValueError:
-        return False
-
-    return True
 
 
 def create_reading_routes(
@@ -69,16 +37,10 @@ def create_reading_routes(
     driver, default_model: str, driver_for=None, usage=None,
 ) -> APIRouter:
     router = APIRouter()
-
-    def note_usage(**fields) -> None:
-        # The ledger is a record of the work, never a condition of it.
-        if usage is None:
-            return
-
-        try:
-            usage.record(**fields)
-        except Exception:  # noqa: BLE001
-            pass
+    engine = Engine(
+        store=store, extractions=extractions, driver=driver,
+        default_model=default_model, driver_for=driver_for, usage=usage,
+    )
 
     # Returns (user, site, a-response-to-send-instead). The one implementation
     # lives in access.py, so a site the signed-in user has not been given
@@ -163,187 +125,20 @@ def create_reading_routes(
 
             bodies.append((upload.filename or "report", raw))
 
-        chosen = driver_for(site.slug) if driver_for is not None else None
-        active = chosen or driver
-        model = getattr(chosen, "model", default_model) if chosen is not None else default_model
-        provider_name = getattr(chosen or driver, "provider_key", "gemini")
-
-        # Kept as it was sent, not as it is saved: the rulebook is edited in
-        # place, so a week later console_sites no longer says what this run
-        # saw. "Did the model disobey, or was it never told?" is now a
-        # question with an answer.
-        reading = extractions.open_set(site.slug, user.email, instructions)
-        failures = []
-
-        def read_pictures(filename: str, pictures: str) -> list[dict]:
-            """Rows from a report's page pictures, each saying where it came
-            from. A failure costs these rows only, and is said out loud."""
-            try:
-                prompt = reading_prompt(
-                    pictures, f"{filename} (pages read as pictures)", instructions
-                )
-                seen = (
-                    active.generate(prompt) if chosen is not None
-                    else active.generate(model, prompt)
-                )
-            except Exception as error:  # noqa: BLE001
-                note_usage(
-                    kind="extract_file_pictures", provider=provider_name, model=model,
-                    status="failed", site_slug=site.slug,
-                )
-                failures.append(f"{filename}: the figures in its pictures were not read — {error}")
-
-                return []
-
-            note_usage(
-                kind="extract_file_pictures", provider=provider_name, model=model,
-                status=seen.status, prompt_tokens=seen.prompt_tokens,
-                completion_tokens=seen.completion_tokens, site_slug=site.slug,
-            )
-
-            if seen.status != "complete":
-                failures.append(
-                    f"{filename}: the figures in its pictures were not read — "
-                    + (seen.error or f"the model stopped ({seen.status}).")
-                )
-
-                return []
-
-            found = parse_reading(seen.text)
-
-            for row in found:
-                row["note"] = "; ".join(
-                    filter(None, [row.get("note"), "read from a picture of the page"])
-                )
-
-            return found
-
-        for filename, raw in bodies:
-            text = document_to_text(filename, raw)
-            images = document_images(filename, raw)
-            # What the pictures say, read on its own below -- see there.
-            pictures = ""
-
-            # Reports embed whole price tables as pictures -- the USA posted
-            # prices are one -- so each file's own pictures are transcribed
-            # into its own text before it is read. A provider without vision
-            # costs the pictures, never the file. Every way that can fail is
-            # said out loud: a picture silently unread is 40 plausible rows
-            # with the USA prices quietly missing from them.
-            if images and not hasattr(active, "generate_with_images"):
-                failures.append(
-                    f"{filename}: {len(images)} image(s) in it could not be read — "
-                    "pick a vision-capable provider on the AI settings screen."
-                )
-            elif images:
-                try:
-                    # The editor's note is usually about the pictures themselves
-                    # ("the USA prices are in the picture"), so it rides here too.
-                    image_prompt = IMAGE_PROMPT
-
-                    if instructions:
-                        image_prompt += (
-                            "\nEditor's instructions (guidance only): " + instructions
-                        )
-
-                    seen = active.generate_with_images(image_prompt, images[:6])
-                    note_usage(
-                        kind="extract_file_images", provider=provider_name, model=model,
-                        status=seen.status, prompt_tokens=seen.prompt_tokens,
-                        completion_tokens=seen.completion_tokens, site_slug=site.slug,
-                    )
-
-                    if seen.status == "complete" and (seen.text or "").strip():
-                        pictures = seen.text
-                    else:
-                        failures.append(
-                            f"{filename}: the pictures in it were not read — "
-                            + (seen.error or "the model declined to read them.")
-                        )
-                except Exception as error:  # noqa: BLE001 - pictures are optional
-                    note_usage(
-                        kind="extract_file_images", provider=provider_name, model=model,
-                        status="failed", site_slug=site.slug,
-                    )
-                    failures.append(f"{filename}: the pictures in it were not read — {error}")
-
-            # A scan has no text of its own: the pictures ARE the report.
-            if not text.strip():
-                text, pictures = pictures, ""
-
-            if not text.strip():
-                extractions.add_rows(reading.id, filename, [])
-                failures.append(
-                    f"{filename} is locked with a password — save it unlocked and upload it again"
-                    if filename.lower().endswith(".pdf") and pdf_needs_password(raw)
-                    else f"{filename} could not be read"
-                )
-                continue
-
-            # A long report is read a few pages at a time. Asked for all 19
-            # at once the model answers for the first few and stops -- see
-            # split_for_reading. One section failing costs that section.
-            sections = split_for_reading(text)
-            rows = []
-
-            for number, section in enumerate(sections, start=1):
-                part = (
-                    filename if len(sections) == 1
-                    else f"{filename} (part {number} of {len(sections)})"
-                )
-
-                # One file failing costs that file. Four reports already read
-                # are never thrown away because the fifth timed out.
-                try:
-                    prompt = reading_prompt(section, part, instructions)
-                    answer = (
-                        active.generate(prompt) if chosen is not None
-                        else active.generate(model, prompt)
-                    )
-                except Exception as error:  # noqa: BLE001
-                    note_usage(
-                        kind="extract_file", provider=provider_name, model=model,
-                        status="failed", site_slug=site.slug,
-                    )
-                    failures.append(f"{part}: {error}")
-                    continue
-
-                note_usage(
-                    kind="extract_file", provider=provider_name, model=model,
-                    status=answer.status, prompt_tokens=answer.prompt_tokens,
-                    completion_tokens=answer.completion_tokens, site_slug=site.slug,
-                )
-
-                if answer.status == "complete":
-                    rows += parse_reading(answer.text)
-                else:
-                    # A length cap, a refusal or a safety stop is not a part
-                    # with no prices in it, and the screen said the same
-                    # thing for both.
-                    failures.append(
-                        f"{part} was not read to the end — "
-                        + (answer.error or f"the model stopped ({answer.status}).")
-                    )
-
-            # The pictures' text gets its own, short reading. Appended to a
-            # 20-page report it sat at the end of ~15,000 tokens and was
-            # skimmed: the 11 Sep Argus "Turkey 29,084 ... 600" line was
-            # transcribed perfectly, then dropped by the same model on one run
-            # in two. Read alone it is a page of tables and nothing else.
-            if pictures.strip():
-                rows += read_pictures(filename, pictures)
-
-            extractions.add_rows(reading.id, filename, rows)
-
-        store.record(
-            user.email, "read reports", site.slug, f"{len(bodies)} file(s), reading #{reading.id}"
+        # The readers are this module's names, looked up now, so a test that
+        # stands in for one here still stands in for it.
+        result = read_reports(
+            engine, site, user.email, bodies, instructions,
+            document_to_text=document_to_text,
+            document_images=document_images,
+            pdf_needs_password=pdf_needs_password,
         )
         query = {"pricedate": pricedate}
 
-        if failures:
-            query["err"] = "; ".join(failures)[:1000]
+        if result.failures:
+            query["err"] = "; ".join(result.failures)[:1000]
 
-        target = f"/console/sites/{slug}/reading/{reading.id}?{urlencode(query)}"
+        target = f"/console/sites/{slug}/reading/{result.reading.id}?{urlencode(query)}"
 
         return RedirectResponse(target, status_code=303)
 
@@ -362,49 +157,6 @@ def create_reading_routes(
             },
             status_code=404,
         )
-
-    def grouped_files(reading, rows) -> list[dict]:
-        """One panel per file that was read -- per row of the files table, not
-        per filename. Two reports both called report.docx are two uploads and
-        two panels; keying on the name merged them into one.
-
-        Rows written before migration 0010 have no file_id. They still have to
-        land in the panel their file already made, so the panels are reachable
-        by name as well as by id: console_reading_files.id is never NULL, so a
-        name-only lookup was the one thing a legacy row could do, and without
-        it every such file was drawn twice -- once empty, saying "No prices
-        found in this report" above its own twelve prices.
-        """
-        panels: dict[int, dict] = {}
-        by_name: dict[str, dict] = {}
-        order: list[dict] = []
-
-        def panel_for(file_id: int | None, filename: str) -> dict:
-            if file_id is not None and file_id in panels:
-                return panels[file_id]
-
-            if file_id is None and filename in by_name:
-                return by_name[filename]
-
-            made = {"id": file_id, "filename": filename, "rows": []}
-
-            if file_id is not None:
-                panels[file_id] = made
-
-            # First file of a given name wins the name, so a legacy row goes
-            # to the earliest panel that could have produced it.
-            by_name.setdefault(filename, made)
-            order.append(made)
-
-            return made
-
-        for entry in reading.files:
-            panel_for(getattr(entry, "id", None), getattr(entry, "filename", entry))
-
-        for row in rows:
-            panel_for(getattr(row, "file_id", None), row.filename)["rows"].append(row)
-
-        return order
 
     @router.get("/console/sites/{slug}/reading/{set_id}", response_class=HTMLResponse)
     def check(request: Request, slug: str, set_id: int):
@@ -431,78 +183,6 @@ def create_reading_routes(
         return screen(
             request, user, site,
             {"set": reading, "files": files, "flash": flash, "pricedate": pricedate},
-        )
-
-    def checked_fields(form_data) -> tuple[dict | None, str | None]:
-        """One row's worth of hand-typed figures, or the reason to refuse them.
-
-        Shared by the correction form and the add-a-row form, so a row the
-        editor types is held to exactly what a row the editor corrects is.
-        """
-
-        def numeric(field: str) -> float | None:
-            raw = form_data.get(field)
-            raw = raw.strip() if isinstance(raw, str) else raw
-
-            if not raw:
-                return None
-
-            number = float(raw)
-
-            # float("nan") <= 0 is False, so nan walked straight past a
-            # positivity check and into a NUMERIC column. Same rule as
-            # review.py's _positive_number.
-            if not math.isfinite(number):
-                raise ValueError("not a finite number")
-
-            return number
-
-        def optional(field: str) -> str | None:
-            value = form_data.get(field)
-            value = value.strip() if isinstance(value, str) else value
-
-            return value or None
-
-        try:
-            price = numeric("price")
-            price_min = numeric("price_min")
-            price_max = numeric("price_max")
-        except (TypeError, ValueError):
-            return None, "That price is not a number."
-
-        if price is None:
-            return None, "That row needs a price."
-
-        if price <= 0:
-            return None, "A price has to be more than zero."
-
-        name = str(form_data.get("name") or "").strip()
-
-        # TEXT NOT NULL takes the empty string happily. A nameless row stays
-        # ticked, reaches the analysis as {"name": ""}, cannot be placed
-        # against any location, and the price simply disappears.
-        if not name:
-            return None, "That row needs a name — a price with no name cannot be used."
-
-        date_text = optional("price_date")
-
-        if date_text and not _is_a_day(date_text):
-            return None, "That date is not a real day in YYYY-MM-DD form."
-
-        return (
-            {
-                "name": name,
-                "price": price,
-                "price_min": price_min,
-                "price_max": price_max,
-                "currency": optional("currency"),
-                "unit": optional("unit"),
-                "basis": optional("basis"),
-                "price_date": date_text,
-                "note": optional("note"),
-                "kept": "kept" in form_data,
-            },
-            None,
         )
 
     @router.post("/console/sites/{slug}/reading/{set_id}/rows/{row_id}")
@@ -532,7 +212,7 @@ def create_reading_routes(
         # a row correction never resets the date chosen on the foot form back
         # to today.
         pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
-        fields, complaint = checked_fields(form_data)
+        fields, complaint = check_row_fields(form_data)
 
         if complaint is not None:
             return screen(
@@ -594,7 +274,7 @@ def create_reading_routes(
         if panel is None and filename not in {entry["filename"] for entry in panels}:
             return refuse("That price could not be added to any of these reports.")
 
-        fields, complaint = checked_fields(form_data)
+        fields, complaint = check_row_fields(form_data)
 
         if complaint is not None:
             return refuse(complaint)

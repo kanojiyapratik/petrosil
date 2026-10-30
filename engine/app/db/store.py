@@ -1409,6 +1409,31 @@ class DraftStore:
 
         return {int(row[0]): int(row[1]) for row in rows}
 
+    def recent(self, site_slug: str, limit: int = 20) -> list[dict]:
+        """A site's drafts, newest first, as a list wants them: who, when,
+        on which model, whether and where they were saved, and how many
+        locations they priced. Rows themselves stay with draft()."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT d.id, d.created_by, d.created_at, d.price_date, d.provider, d.model, "
+                "d.analysis_status, d.batch_id, d.saved_by, d.saved_at, d.reading_set_id, "
+                "count(r.id) FILTER (WHERE NOT r.is_benchmark), "
+                "count(r.id) FILTER (WHERE NOT r.is_benchmark AND r.suggested_price IS NOT NULL), "
+                "count(r.id) FILTER (WHERE r.ticked) "
+                "FROM console_editorial_drafts d "
+                "LEFT JOIN console_editorial_draft_rows r ON r.draft_id = d.id "
+                "WHERE d.site_slug = %s GROUP BY d.id ORDER BY d.id DESC LIMIT %s",
+                (site_slug, max(1, min(int(limit), 100))),
+            ).fetchall()
+
+        keys = (
+            "id", "created_by", "created_at", "price_date", "provider", "model",
+            "analysis_status", "batch_id", "saved_by", "saved_at", "reading_set_id",
+            "locations", "priced", "kept",
+        )
+
+        return [dict(zip(keys, row)) for row in rows]
+
     def latest_for_reading(self, site_slug: str, reading_set_id: int) -> int | None:
         """The newest draft made from a reading -- the only way back to one
         that was never saved, since it has no price update to hang off."""

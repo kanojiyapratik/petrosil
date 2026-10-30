@@ -20,6 +20,7 @@ from .ai.providers import create_driver
 from .api import create_api
 from .console.config import ConsoleConfigError, parse_seed_sites, parse_seed_users
 from .console.routes import create_console, datefmt, label_for
+from .console.engine_api import create_engine_api
 from .console.routes_ai import create_ai_routes
 from .console.routes_editorial import create_editorial_routes
 from .console.routes_prices import create_price_routes
@@ -314,6 +315,24 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 templates=TEMPLATES,
                 current_user=current_user,
                 usage=usage,
+            )
+        )
+
+        # The app's AI tools tab: the same steps as the screens above, as
+        # JSON, behind the API token. See app/console/engine_api.py.
+        app.include_router(
+            create_engine_api(
+                api_token=os.environ.get("PRICE_API_TOKEN", ""),
+                store=store,
+                extractions=extractions,
+                drafts=drafts,
+                driver=driver,
+                default_model=default_model,
+                driver_for=driver_for,
+                usage=usage,
+                rules=rules,
+                fx=app.state.fx,
+                rounding=rounding,
             )
         )
 

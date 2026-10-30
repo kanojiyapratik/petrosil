@@ -6,13 +6,14 @@ API; the model drafts a per-location suggestion; the editor reviews the draft
 here and stages the rows they keep back onto the site -- again over its API --
 as a normal draft batch, committed from the existing batch screen. The site
 gains no UI and the module still holds no site database credentials.
+
+The drafting and saving themselves are in flows.py, shared with the app's AI
+tools tab; this module is the console's screens around them.
 """
 
 from __future__ import annotations
 
-import csv
-import io
-from datetime import date, datetime
+from datetime import date
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
@@ -20,59 +21,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from ..db.store import Store, StoredSite
-from ..editorial.benchmarks import benchmark_prompt, merge_benchmarks
-from ..editorial.fx import FrankfurterRates, convert_rows
-from ..editorial.review import (
-    ParsedSuggestions,
-    build_rows,
-    editorial_prompt,
-    flag_unsupported,
-    flag_went_missing,
-    parse_suggestions,
-    reject_out_of_scale,
-    unsupported_by_evidence,
-)
-from ..editorial.preflight import preflight
-from ..editorial.rounding import apply_rounding
-from ..editorial.workings import export_columns, workings_for
-from ..editorial.rules import apply_rules, benchmark_names
-from ..editorial.secondlook import (
-    merge_second_look,
-    missed_locations,
-    second_look_prompt,
-)
 from .access import make_site_guard
+from .flows import (  # noqa: F401 - MAX_* and money_sign are imported from here too
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENTS,
+    Engine,
+    FlowError,
+    draft_prices,
+    money_sign,
+    save_draft,
+    workings_sheet,
+)
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
-
-MAX_DOCUMENTS = 5
-MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
-
-# The sign printed in front of a figure on the editorial screen. Only the
-# four this client actually publishes in get a symbol; anything else prints
-# its three-letter code, because a wrong symbol is worse than no symbol and
-# "¥" cannot tell yen from yuan. Matches app/console/routes_rules.py's
-# _SYMBOL, with GBP added for Southern UK.
-_MONEY_SIGN = {"USD": "$", "EUR": "€", "GBP": "£", "INR": "₹"}
-
-
-def money_sign(code: str | None) -> str:
-    """"$", "€", "₹" -- or "ZAR " for a currency with no sign of its own.
-
-    Never raises on an unexpected code: an unknown currency is a figure the
-    editor still has to read, and a bare number is worse than a prefix.
-    """
-    if not code:
-        return ""
-
-    code = str(code).strip().upper()
-
-    return _MONEY_SIGN.get(code, f"{code} ")
-
-
-def _figure(value: float) -> str:
-    """A checked figure as the report printed it, not as a float repr."""
-    return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
 
 
 def _price(value) -> str:
@@ -83,51 +44,6 @@ def _price(value) -> str:
     value = float(value)
 
     return f"{value:,.0f}" if value == int(value) else f"{value:,.2f}"
-
-
-def _plausible_timestamp(value: str) -> bool:
-    """A guard before a reuse token reaches reclaim_set's ``::timestamptz`` cast.
-
-    The button always carries exactly what this screen itself rendered, but
-    a hand-crafted request, stale or corrupted form state, or a browser
-    extension can send again=1 with a used_at that is missing, blank or
-    plain garbage. Postgres raises on a bad cast into a timestamp -- an
-    unhandled 500 -- so this is checked first. A value that merely looks
-    like a timestamp but is stale still reaches the database and fails the
-    compare-and-swap there, exactly as it always has.
-    """
-    if not value:
-        return False
-
-    try:
-        datetime.fromisoformat(value)
-    except ValueError:
-        return False
-
-    return True
-
-
-def _digest_line(row) -> str:
-    """One checked row, whole, for the focused benchmark pass.
-
-    That pass is asked to fill in "the range printed" and, for a benchmark in
-    another currency, "the date the report gives for it". A line of name,
-    single figure and currency carried neither: a benchmark printed
-    1,450-1,500 arrived as the one number 1450, and a lira benchmark lost its
-    assessment date -- which left price_date empty, sent convert_rows to the
-    editor's price date instead, and picked today's ECB rate.
-    """
-    if row.price_min is not None and row.price_max is not None and row.price_min != row.price_max:
-        figure = f"{_figure(row.price_min)}-{_figure(row.price_max)}"
-    else:
-        figure = _figure(row.price)
-
-    parts = [row.name, figure, row.currency or "", row.unit or "", row.basis or ""]
-
-    if row.price_date:
-        parts.append(f"dated {row.price_date}")
-
-    return " ".join(part for part in parts if part)
 
 
 def create_editorial_routes(
@@ -365,6 +281,12 @@ def create_editorial_routes(
             status_code=303,
         )
 
+
+    engine = Engine(
+        store=store, extractions=extractions, driver=driver, default_model=default_model,
+        driver_for=driver_for, usage=usage, rules=rules, fx=fx, rounding=rounding, drafts=drafts,
+    )
+
     if extractions is not None:
 
         @router.post("/console/sites/{slug}/editorial/analyse", response_class=HTMLResponse)
@@ -376,7 +298,6 @@ def create_editorial_routes(
 
             form_data = await request.form()
             pricedate = str(form_data.get("pricedate") or "").strip() or date.today().isoformat()
-            instructions = site.editorial_instructions or ""
 
             try:
                 set_id = int(str(form_data.get("set_id") or "").strip())
@@ -385,425 +306,29 @@ def create_editorial_routes(
                     request, user, site, {"error": "That reading could not be found."}, 404
                 )
 
-            # The set must belong to this site -- the same guard
-            # routes_reading.py's `check` and `edit_row` already carry.
-            # Without it, a set_id for another site's reading would be
-            # analysed against this site's locations and then closed.
-            reading = extractions.set_by_id(set_id)
-
-            if reading is None or reading.site_slug != site.slug:
-                return screen(
-                    request, user, site, {"error": "That reading could not be found."}, 404
-                )
-
-            # The editor asked, on the refusal screen below, to use these
-            # checked prices a second time -- a staging failure or a closed
-            # tab loses the draft, and the reports themselves are not kept,
-            # so without this the only way back is re-uploading five files
-            # and retyping every correction.
-            again = str(form_data.get("again") or "").strip() == "1"
-            # The used_at the reuse button was drawn with. reclaim_set swaps
-            # only that exact value, so a refresh or a back-forward re-POST of
-            # this form arrives stale and buys nothing.
-            held = str(form_data.get("used_at") or "")
-
-            def already_used():
-                # Re-read: when a concurrent submit won the claim, the copy
-                # fetched at the top of this request says used_at is still
-                # empty, and a reuse button drawn from it would be stale the
-                # moment it was rendered.
-                current = extractions.set_by_id(set_id) or reading
-
-                return screen(
-                    request, user, site,
-                    {
-                        "error": "Those prices have already been used.",
-                        "reuse": {
-                            "set_id": set_id,
-                            "pricedate": pricedate,
-                            "used_at": str(current.used_at or ""),
-                        },
-                    },
-                    409,
-                )
-
-            # The cheap first word. It is not the guard -- the claim below is
-            # -- but it keeps a plain double-submit off the site's API.
-            if reading.used_at is not None and not again:
-                return already_used()
-
-            # Only the rows the editor left ticked -- the reading step is
-            # where a figure gets corrected or dropped, never here.
-            kept_rows = [row for row in extractions.rows_for(set_id) if row.kept]
-
-            if not kept_rows:
-                return screen(
-                    request, user, site,
-                    {"error": "Nothing was kept from that reading. Check some prices first."},
-                    422,
-                )
-
-            evidence = [
-                {
-                    "name": row.name, "price": row.price, "price_min": row.price_min,
-                    "price_max": row.price_max, "currency": row.currency, "unit": row.unit,
-                    "basis": row.basis, "price_date": row.price_date, "note": row.note,
-                    "filename": row.filename,
-                }
-                for row in kept_rows
-            ]
-
-            # The site's current prices, over its API -- the module reads no site
-            # database. Without them there is nothing to compare against.
+            # The editor asked, on the refusal screen, to use these checked
+            # prices a second time -- a staging failure or a closed tab loses
+            # the draft, and the reports themselves are not kept, so without
+            # this the only way back is re-uploading five files and retyping
+            # every correction. `used_at` is the value the reuse button was
+            # drawn with; reclaim_set swaps only that exact value, so a
+            # refresh or a back-forward re-POST arrives stale and buys nothing.
             try:
-                locations = client_for(site).locations().get("data", [])
-            except SiteError as error:
-                return screen(request, user, site, {"error": str(error)}, 502)
-
-            names = [str(entry.get("title") or "") for entry in locations if entry.get("title")]
-            current = {
-                str(entry["title"]): float(entry["latest_price"])
-                for entry in locations
-                if entry.get("title") and entry.get("latest_price") is not None
-            }
-            # The currency each location is priced in, when the site says so.
-            # A site that does not is treated as all-dollar, as before.
-            home = {
-                str(entry["title"]): str(entry["currency"])
-                for entry in locations
-                if entry.get("title") and entry.get("currency")
-            }
-
-            if not names:
+                result = draft_prices(
+                    engine, site, user.email, client_for(site),
+                    set_id=set_id,
+                    pricedate=pricedate,
+                    again=str(form_data.get("again") or "").strip() == "1",
+                    held=str(form_data.get("used_at") or ""),
+                )
+            except FlowError as refused:
                 return screen(
                     request, user, site,
-                    {"error": f"{site.name} reported no live locations to draft prices for."},
-                    502,
+                    {"error": refused.message, "reuse": refused.reuse},
+                    refused.status,
                 )
 
-            chosen = driver_for(site.slug) if driver_for is not None else None
-            active = chosen or driver
-            model = getattr(chosen, "model", default_model) if chosen is not None else default_model
-
-            provider_name = getattr(chosen or driver, "provider_key", "gemini")
-
-            # A held value that could never match reclaim_set's compare -- not
-            # merely stale, but not a timestamp at all -- must not reach its
-            # ::timestamptz cast. Refuse it the same way a stale-but-well-formed
-            # token is refused, rather than letting Postgres raise on it.
-            if again and not _plausible_timestamp(held):
-                return already_used()
-
-            # The reading is spent HERE, before the first model call and in a
-            # single statement, so two submits arriving together cannot both
-            # pass a check and both buy a full draft. Reading used_at and
-            # deciding minutes earlier was never a guard, only a hint.
-            claimed = (
-                extractions.reclaim_set(set_id, held) if again
-                else extractions.claim_set(set_id)
-            )
-
-            if not claimed:
-                return already_used()
-
-            store.record(user.email, "used a reading", site.slug, f"reading #{set_id}")
-
-            # Report benchmarks: figures the rulebook derives from that are not
-            # site locations ("Report: FOB Asia SN 150"). Asked of the model like
-            # any location, shown separately, never staged.
-            site_rules = rules.for_site(site.slug) if rules is not None else []
-            benchmarks = benchmark_names(site_rules, names)
-            asked = names + benchmarks
-
-            try:
-                prompt = editorial_prompt(asked, [], instructions or None, evidence=evidence)
-                completion = (
-                    active.generate(prompt)
-                    if chosen is not None
-                    else active.generate(model, prompt)
-                )
-            except Exception as error:  # noqa: BLE001 - a provider failure is a screenful, not a 500
-                if usage is not None:
-                    usage.record(
-                        kind="editorial", provider=provider_name, model=model,
-                        status="failed", site_slug=site.slug,
-                    )
-
-                # No draft was produced, so nothing was used: the reading goes
-                # back to waiting. Otherwise a 502 and a closed tab left five
-                # reports read and paid for with no route back to them.
-                extractions.release_set(set_id)
-
-                return screen(request, user, site, {"error": str(error)}, 502)
-
-            if usage is not None:
-                usage.record(
-                    kind="editorial",
-                    provider=provider_name,
-                    model=model,
-                    status=completion.status,
-                    prompt_tokens=completion.prompt_tokens,
-                    completion_tokens=completion.completion_tokens,
-                    site_slug=site.slug,
-                )
-
-            parsed = (
-                parse_suggestions(completion.text, asked)
-                if completion.status == "complete"
-                else ParsedSuggestions()
-            )
-
-            # The benchmarks get a second, focused reading: only the checked
-            # figures, only the benchmark names, one answer per name. See
-            # app/editorial/benchmarks.py for why this pass exists. Every
-            # checked row is already a price line -- price_digest()'s job is
-            # finding price-bearing lines inside a whole report, which is not
-            # what this is; running it here would silently drop a row with no
-            # currency (its PRICE_LINE regex has nothing to match without a
-            # currency symbol, a "/t" unit or a currency code), so the lines
-            # are joined directly instead.
-            benchmark_note = None
-            # Built whether or not this site has benchmarks: the second look
-            # below reads the same lines.
-            digest = "\n".join(_digest_line(row) for row in kept_rows)
-
-            if digest and benchmarks:
-                try:
-                    focused_prompt = benchmark_prompt(benchmarks, digest, instructions or None)
-                    focused = (
-                        active.generate(focused_prompt)
-                        if chosen is not None
-                        else active.generate(model, focused_prompt)
-                    )
-
-                    if usage is not None:
-                        usage.record(
-                            kind="editorial_benchmarks", provider=provider_name, model=model,
-                            status=focused.status, prompt_tokens=focused.prompt_tokens,
-                            completion_tokens=focused.completion_tokens, site_slug=site.slug,
-                        )
-
-                    if focused.status == "complete":
-                        parsed = merge_benchmarks(
-                            parsed, parse_suggestions(focused.text, benchmarks), benchmarks
-                        )
-                    else:
-                        benchmark_note = focused.error
-                except Exception as error:  # noqa: BLE001 - the second reading is a bonus
-                    benchmark_note = str(error)
-
-                    if usage is not None:
-                        usage.record(
-                            kind="editorial_benchmarks", provider=provider_name, model=model,
-                            status="failed", site_slug=site.slug,
-                        )
-
-            # The locations the main pass skipped, asked once more on their
-            # own -- the same enumerate-and-fill shape as the benchmarks.
-            # See app/editorial/secondlook.py for what made this necessary.
-            # A location the rulebook fills is never asked: a figure here
-            # would occupy the row and apply_rules would then stay silent.
-            missed = missed_locations(
-                names, parsed, {rule.derived_location for rule in site_rules if rule.enabled}
-            )
-
-            if digest and missed:
-                try:
-                    again_prompt = second_look_prompt(missed, digest, instructions or None)
-                    second = (
-                        active.generate(again_prompt)
-                        if chosen is not None
-                        else active.generate(model, again_prompt)
-                    )
-
-                    if usage is not None:
-                        usage.record(
-                            kind="editorial_second_look", provider=provider_name, model=model,
-                            status=second.status, prompt_tokens=second.prompt_tokens,
-                            completion_tokens=second.completion_tokens, site_slug=site.slug,
-                        )
-
-                    if second.status == "complete":
-                        parsed = merge_second_look(
-                            parsed, parse_suggestions(second.text, missed), missed
-                        )
-                except Exception:  # noqa: BLE001 - a second look is a bonus, never the draft
-                    if usage is not None:
-                        usage.record(
-                            kind="editorial_second_look", provider=provider_name, model=model,
-                            status="failed", site_slug=site.slug,
-                        )
-
-            rows = build_rows(asked, current, parsed)
-
-            # The locations the editor has marked "take the figure as
-            # printed": UK South, where Argus prints pounds and his published
-            # euro price is that same number. Read once -- the evidence check
-            # and the conversion below must agree about which they are, or a
-            # figure left in its printed currency on purpose is flagged for
-            # being in its printed currency.
-            as_printed = (
-                rounding.as_printed_for_site(site.slug)
-                if rounding is not None and hasattr(rounding, "as_printed_for_site")
-                else set()
-            )
-
-            # Figures the checked reports never printed -- checked now, while
-            # every row still holds the figure the model returned.
-            unsupported = unsupported_by_evidence(rows, evidence, as_printed)
-
-            # A figure printed in another currency becomes the location's own
-            # currency (dollars, unless the site says otherwise) at the rate
-            # for its own date before any rule sees it; no rate, no
-            # conversion, and the rule below it stays silent. A rupee figure
-            # for a rupee location is left as printed. See app/editorial/fx.py.
-            rows = convert_rows(
-                rows,
-                fx if fx is not None else FrankfurterRates(),
-                pricedate,
-                home=home,
-                as_printed=as_printed,
-            )
-
-            # The rulebook fills what the reports never mention -- code, not the
-            # model, does this arithmetic. See app/editorial/rules.py.
-            rows = apply_rules(rows, site_rules)
-
-            # The client's rulebook rounds nearly every price it derives from
-            # a report ("round off closest multiple of 5"). Applied last, so
-            # a direct price, a converted price and a derived price all land
-            # on the same grid before the editor sees them. See
-            # app/editorial/rounding.py.
-            rows = apply_rounding(
-                rows,
-                (site.round_to_nearest, getattr(site, "round_direction", "nearest")),
-                rounding.for_site(site.slug) if rounding is not None else None,
-            )
-
-            # A figure far off the scale of this location (or the site's other
-            # prices) is not offered at all -- Vietnam CFR FOB at 13.
-            rows = reject_out_of_scale(rows, current, home)
-
-            # Last, so neither conversion nor rounding can clear the flag.
-            rows = flag_unsupported(rows, unsupported)
-
-            # A location that was priced from the reports last time and is
-            # empty now: the reading may have dropped the line, as it dropped
-            # Taiwan FOB on 15.10.2026. After the rules, so a location a rule
-            # filled is not called missing.
-            rows = flag_went_missing(
-                rows,
-                drafts.priced_last_time(site.slug)
-                if drafts is not None and hasattr(drafts, "priced_last_time")
-                else set(),
-            )
-
-            # Every figure on this screen is in its own location's currency,
-            # and "565" beside "565" is unreadable when one is euros and the
-            # other dollars (Italy Domestic and Italy FOB, on the same draft).
-            # A row still printed as the report had it carries its own
-            # currency; a converted one is in the location's home currency.
-            # Carried on the row so the saved draft shows it too.
-            for row in rows:
-                row["money"] = money_sign(
-                    row.get("currency") or home.get(row["location"], "USD")
-                )
-
-            # Benchmarks fed the rules; they are not site prices and never stage.
-            benchmark_set = set(benchmarks)
-            benchmark_rows = [row for row in rows if row["location"] in benchmark_set]
-            rows = [row for row in rows if row["location"] not in benchmark_set]
-
-            near_matches = sum(1 for row in rows if row["status"] == "near_match")
-            summary = {
-                "total_locations": len(names),
-                "suggested": sum(1 for row in rows if row["status"] == "suggested"),
-                "near_match": near_matches,
-                "derived": sum(1 for row in rows if row["status"] == "derived"),
-                "needs_rate": sum(
-                    1 for row in benchmark_rows + rows if row["status"] == "needs_rate"
-                ),
-                "no_evidence": sum(1 for row in rows if row["status"] == "no_evidence"),
-                "invalid": sum(1 for row in rows if row["status"] == "invalid"),
-                "flagged": sum(1 for row in rows if row["flag"] is not None),
-                "dropped_unknown": len(parsed.unmatched) - near_matches,
-            }
-
-            # The draft is kept before the editor sees it: the AI's figures,
-            # its reasoning and every row, ticked or not. Saving then fills in
-            # what the editor kept and at what price. See DraftStore.
-            draft_id = (
-                drafts.create(
-                    site_slug=site.slug, created_by=user.email, rows=rows,
-                    benchmark_rows=benchmark_rows, reading_set_id=set_id,
-                    price_date=pricedate, provider=provider_name, model=model,
-                    analysis_status=completion.status,
-                    # What this analyse run was told. Recorded beside the
-                    # prices it produced, because the two are only
-                    # explicable together.
-                    instructions=instructions or None,
-                )
-                if drafts is not None
-                else None
-            )
-
-            # Every figure, with the arithmetic that produced it. Attached to
-            # the row, so it rides into the draft's `detail` and can leave
-            # again as the sheet the client reads beside the report -- the
-            # rows they queried in all four October rounds were the ones
-            # whose figure is printed nowhere in it. See
-            # app/editorial/workings.py.
-            rounding_overrides = rounding.for_site(site.slug) if rounding is not None else None
-            site_default = (
-                site.round_to_nearest,
-                getattr(site, "round_direction", "nearest"),
-            )
-            by_location = {row["location"]: row for row in rows + benchmark_rows}
-
-            for row in rows + benchmark_rows:
-                row["workings"] = workings_for(
-                    row,
-                    by_location=by_location,
-                    rules=site_rules,
-                    default_step=site_default,
-                    overrides=rounding_overrides,
-                ).line
-
-            # Last of all, once every figure on the draft is final: ask the
-            # sheet whether it contradicts itself. Four rounds of mismatch
-            # files with the client in October 2026 were all explained by
-            # faults this finds without leaving the machine -- a derived
-            # price off its own rule, a figure rounded the wrong way, a price
-            # outside the range it was quoted from, a run built on last
-            # week's issue. See app/editorial/preflight.py.
-            findings = preflight(
-                rows + benchmark_rows,
-                rules=site_rules,
-                default_step=site_default,
-                overrides=rounding_overrides,
-                price_date=pricedate,
-            )
-
-            return screen(
-                request, user, site,
-                {
-                    "draft_id": draft_id,
-                    "rows": rows,
-                    "benchmarks": [row for row in benchmark_rows if row["status"] == "suggested"],
-                    "summary": summary,
-                    "findings": findings,
-                    "blockers": sum(1 for f in findings if f.severity == "blocker"),
-                    # What this run was told, shown beside what it produced.
-                    "instructions_used": instructions or None,
-                    "pricedate": pricedate,
-                    "benchmark_note": benchmark_note,
-                    "analysis": {
-                        "status": completion.status,
-                        "model": model,
-                        "error": completion.error,
-                    },
-                },
-            )
+            return screen(request, user, site, result)
 
     @router.get("/console/sites/{slug}/editorial/drafts/{draft_id}/workings.csv")
     def workings_csv(request: Request, slug: str, draft_id: int):
@@ -830,35 +355,10 @@ def create_editorial_routes(
                 status=404,
             )
 
-        columns = export_columns()
-        buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-
-        for row in draft.rows:
-            if row.is_benchmark or row.suggested_price is None:
-                continue
-
-            detail = row.detail or {}
-            writer.writerow(
-                {
-                    "Location": row.location,
-                    "Published": row.suggested_price,
-                    "Source": row.source or "",
-                    "Report date": detail.get("price_date") or "",
-                    "Quoted low": row.suggested_min,
-                    "Quoted high": row.suggested_max,
-                    "Workings": detail.get("workings") or row.rationale or "",
-                    # A draft kept before this column existed has no workings
-                    # to check, and saying "no" would read as a fault.
-                    "Checks out": "" if not detail.get("workings") else "yes",
-                }
-            )
-
         filename = f"{site.slug}-{draft.price_date or draft.id}-workings.csv"
 
         return Response(
-            content=buffer.getvalue(),
+            content=workings_sheet(draft),
             media_type="text/csv; charset=utf-8",
             headers={"content-disposition": f'attachment; filename="{filename}"'},
         )
@@ -901,53 +401,24 @@ def create_editorial_routes(
             if calculation:
                 derivations.append(f"{location} = {price}: {calculation}")
 
-        if not rows:
-            return RedirectResponse(
-                f"{path}?err={quote('Tick at least one row with a price to stage.')}",
-                status_code=303,
-            )
-
-        try:
-            result = client_for(site).stage_rows(rows, price_date=pricedate, source="editorial")
-        except SiteError as error:
-            return RedirectResponse(f"{path}?err={quote(str(error))}", status_code=303)
-
-        batch_id = result.get("batch", {}).get("id")
-
-        # Link the saved update back to the AI's draft: which rows were kept
-        # and at what price, so an AI figure and the editor's change to it
-        # stay distinguishable. A form without a usable id saves as before.
+        # Link the saved update back to the AI's draft. A form without a
+        # usable id saves as before.
         try:
             draft_id = int(str(form_data.get("draft_id") or "").strip())
         except ValueError:
             draft_id = None
 
-        linked = draft_id is not None and drafts is not None and drafts.mark_saved(
-            draft_id, site.slug, batch_id=batch_id, saved_by=user.email,
-            prices={row["location"]: row["price"] for row in rows},
-        )
-
-        store.record(
-            user.email,
-            "staged an editorial update",
-            site.slug,
-            f"{len(rows)} row(s) to batch #{batch_id}"
-            + (f", {len(derivations)} of them derived by rule" if derivations else "")
-            + (f", from AI draft #{draft_id}" if linked else ""),
-        )
-
-        # One audit line per derived price: source, rule and result, kept even
-        # after screens move on. "Both the source price and calculation rule
-        # are recorded in the audit log" -- the owner's requirement, verbatim.
-        for derivation in derivations:
-            store.record(
-                user.email, "saved a derived price", site.slug,
-                f"batch #{batch_id}: {derivation}",
+        try:
+            batch_id, saved = save_draft(
+                engine, site, user.email, client_for(site),
+                rows=rows, derivations=derivations, pricedate=pricedate, draft_id=draft_id,
             )
+        except FlowError as refused:
+            return RedirectResponse(f"{path}?err={quote(refused.message)}", status_code=303)
 
         return RedirectResponse(
             f"/console/sites/{site.slug}/prices/{batch_id}"
-            f"?ok={quote(f'Saved price update #{batch_id} with {len(rows)} price(s). Nothing is on the website yet.')}",
+            f"?ok={quote(f'Saved price update #{batch_id} with {saved} price(s). Nothing is on the website yet.')}",
             status_code=303,
         )
 
