@@ -10,3 +10,4 @@ coverage/
 
 # Uploaded and carried files (the disk store, lib/files/store.ts)
 storage/
+.env.engine

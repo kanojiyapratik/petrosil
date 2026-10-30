@@ -22,7 +22,8 @@
     "sweep:expiries": "tsx --env-file-if-exists=.env scripts/sweep-expiries.ts",
     "migrate:content": "tsx --env-file-if-exists=.env scripts/migrate-content.ts",
     "jobs": "tsx --env-file-if-exists=.env scripts/jobs.ts",
-    "import:files": "tsx --env-file-if-exists=.env scripts/import-files.ts"
+    "import:files": "tsx --env-file-if-exists=.env scripts/import-files.ts",
+    "engine:link": "tsx --env-file-if-exists=.env scripts/engine-link.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1146.0",

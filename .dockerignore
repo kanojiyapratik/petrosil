@@ -7,3 +7,5 @@ coverage
 *.tsbuildinfo
 .git
 storage
+engine
+.env.engine

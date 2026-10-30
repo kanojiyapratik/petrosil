@@ -95,6 +95,37 @@ npm run jobs -- --status                                              # when eac
 npm run import:files -- --site <slug> --from <old file_manager dir>   # carry a brand's files into the store
 ```
 
+### The AI engine
+
+`engine/` is the Python price module — report reading, drafting, rules,
+rounding, currency conversion, the crawler — brought in with its history
+(`git subtree`). It stays Python and does not draw the admin's screens; the
+brand's AI tools tab will call it. It keeps its tables in the `engine` schema
+of this same database and reaches each brand through this app's compat API,
+exactly as it reached the old PHP sites.
+
+```bash
+cp <the standalone module's .env> .env.engine   # PRICE_API_TOKEN, CONSOLE_SECRET, provider key; then:
+# DATABASE_URL=postgresql://petrosil:petrosil@platform-db:5432/petrosil?sslmode=disable&options=-csearch_path%3Dengine
+docker compose up -d --build engine   # http://127.0.0.1:8097, needs `npm run dev` running for the brands
+npm run engine:link                   # a token per brand, written straight into engine.console_sites
+```
+
+`engine:link` mints each brand a token named "engine" (revoking the previous
+one) and points the engine's site entry at `ENGINE_SITE_API_BASE` (default
+`http://host.docker.internal:3100/api/compat`). Its other settings — model,
+instructions, rules, rounding — are left alone. Re-run it whenever a brand is
+added.
+
+`Dockerfile.local` builds on an image that already has the dependencies
+installed, so a code change does not wait on PyPI; `ENGINE_DOCKERFILE=Dockerfile`
+builds exactly as production will. The engine's own tests run where they
+always did:
+
+```bash
+docker run --rm -v "$PWD/engine:/src" -w /src petrosil-module:test python -m pytest tests -q
+```
+
 ---
 
 ## What works today

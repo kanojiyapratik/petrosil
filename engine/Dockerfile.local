@@ -1,0 +1,12 @@
+# Local development only: the engine's code on top of an image that already
+# has every dependency in requirements.txt installed (the standalone module's
+# local image, same versions), so a code change does not wait on PyPI.
+# Production builds from ./Dockerfile, which installs them itself.
+FROM petrosil-module:py
+
+WORKDIR /app
+
+COPY app ./app
+COPY scraper ./scraper
+
+ENV PYTHONUNBUFFERED=1

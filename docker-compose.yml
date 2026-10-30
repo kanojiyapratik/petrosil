@@ -1,5 +1,6 @@
-# The platform's own Postgres. Port 5434 deliberately: 5433 is the price
-# module's database and nothing here may touch it.
+# The platform's own Postgres, and the AI engine beside it. Port 5434
+# deliberately: 5433 is the standalone price module's database and nothing
+# here may touch it.
 services:
   platform-db:
     image: postgres:16-alpine
@@ -17,6 +18,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # The AI engine (engine/, Python). It keeps its tables in the `engine`
+  # schema of the same database, and reaches the brands through the app's
+  # compat API on the host (`npm run dev`, port 3100). Port 8097 because the
+  # standalone module already has 8096.
+  engine:
+    build:
+      context: ./engine
+      # Dockerfile.local reuses an image with the dependencies installed;
+      # set ENGINE_DOCKERFILE=Dockerfile to build exactly as production does.
+      dockerfile: ${ENGINE_DOCKERFILE:-Dockerfile.local}
+    container_name: petrosil-engine
+    env_file: .env.engine
+    ports:
+      - "8097:8094"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      platform-db:
+        condition: service_healthy
 
 volumes:
   platform-db-data:
