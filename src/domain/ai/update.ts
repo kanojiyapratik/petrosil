@@ -15,7 +15,7 @@ import { db, type Database } from "@/db";
 import { auditLog, priceBatches, sites } from "@/db/schema";
 import { AccessError, requireSiteAccess, type Guarded } from "@/lib/auth/guard";
 import { engine, engineFile } from "@/lib/engine/client";
-import { requirePermission } from "@/domain/staff/permissions";
+import { can, requirePermission } from "@/domain/staff/permissions";
 
 export const AI_PERMISSION = "price-ai-update";
 
@@ -323,4 +323,49 @@ export async function askForNote(guard: Who, slug: string, batchId: number, data
   } catch (error) {
     console.error("the price note was not written", { slug, batchId, error });
   }
+}
+
+/* ------------------------------------------------------------ AI settings */
+
+export type AiSettings = {
+  providers: { id: number; name: string; provider: string; model: string; is_default: boolean; models: string[] }[];
+  /** This brand's own provider; null runs on the default one. */
+  provider_id: number | null;
+  /** Its own model on that provider; null runs the provider's model. */
+  model: string | null;
+  instructions: string | null;
+  /** Whether this person may change the model. */
+  canChange: boolean;
+};
+
+/** Which AI this brand's work runs on, and what it is told. Never a key. */
+export async function aiSettings(guard: Who, slug: string, database: Database = db()): Promise<AiSettings> {
+  const brand = await brandFor(guard, slug, database);
+  const view = await engine<Omit<AiSettings, "canChange">>(slug, "ai-settings", { actor: actor(guard) });
+
+  return { ...view, canChange: await can(guard, brand.id, "setting-edit", database) };
+}
+
+/**
+ * Point this brand at a provider and model; a blank provider means the
+ * default. Changing settings is its own permission: the model decides both
+ * what a draft costs and how well a report is read.
+ */
+export async function chooseModel(
+  guard: Who,
+  slug: string,
+  input: { providerId: string; model: string },
+  database: Database = db(),
+): Promise<string> {
+  const brand = await brandFor(guard, slug, database);
+
+  await requirePermission(guard, brand.id, "setting-edit", database);
+
+  return (
+    await engine<{ message: string }>(slug, "ai-settings", {
+      method: "PUT",
+      json: { provider_id: input.providerId, model: input.model },
+      actor: actor(guard),
+    })
+  ).message;
 }

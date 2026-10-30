@@ -26,7 +26,7 @@ export class EngineError extends Error {
 }
 
 type Call = {
-  method?: "GET" | "POST" | "PUT" | "PATCH";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   json?: unknown;
   form?: FormData;
   /** The staff member's email, for the engine's audit trail. */

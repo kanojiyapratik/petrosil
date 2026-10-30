@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from ..db.store import RoundingStore, RulesStore, Store, StoredSite
 from ..editorial.rounding import DIRECTION_LABELS, normalise_direction
 from ..editorial.rules import FIXED, PERCENT, PriceRule, _adjusted, adjustment_label
-from .config import ConsoleConfigError
+from .flows import FlowError
 from .access import make_site_guard
 from .routes import tone_for
 from .site_client import SiteClient, SiteError
@@ -202,6 +202,291 @@ def build_rule_notes(rules, locations) -> dict:
     return notes
 
 
+# ------------------------------------------------------------------------
+# The rulebook's steps, shared by the console's screen below and the app's
+# AI tools tab (engine_api.py). Each returns what to tell the editor, or
+# raises FlowError with the words to show instead -- the same words and the
+# same checks whichever screen asked.
+
+
+def rules_overview(site, *, rules: RulesStore, rounding: RoundingStore | None, client) -> dict:
+    """Everything the rulebook screen shows for one site."""
+    try:
+        locations = client.locations().get("data", [])
+    except SiteError:
+        locations = []
+
+    site_rules = rules.for_site(site.slug)
+    titles = [str(entry.get("title")) for entry in locations if entry.get("title")]
+
+    return {
+        "rules": site_rules,
+        "locations": titles,
+        # References that are report figures rather than site locations. They
+        # are typed, never picked, so the second field offers back the ones
+        # the rulebook already uses instead of asking for them from memory.
+        "benchmarks": sorted({rule.reference_location for rule in site_rules} - set(titles)),
+        # The last published price of each location, so the screen can do the
+        # sum in front of the person setting it up: an explanation of what a
+        # percentage or a dollar difference means is worth far less than
+        # "Singapore is 1560 today, so this would be 1535".
+        "prices": {
+            str(entry["title"]): float(entry["latest_price"])
+            for entry in locations
+            if entry.get("title") and entry.get("latest_price") is not None
+        },
+        "currencies": {
+            str(entry["title"]): str(entry["currency"])
+            for entry in locations
+            if entry.get("title") and entry.get("currency")
+        },
+        "rule_notes": build_rule_notes(site_rules, locations),
+        "round_to_nearest": site.round_to_nearest,
+        "round_direction": getattr(site, "round_direction", "nearest"),
+        "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
+    }
+
+
+def save_rule(
+    site, actor: str, *, rules: RulesStore, store, client,
+    derived: str, reference: str, raw_value: str, raw_kind: str,
+) -> str:
+    """Add a rule, or replace the one the derived location already has."""
+    derived = derived.strip()
+    reference = reference.strip()
+    raw_value = raw_value.strip()
+    kind = raw_kind if raw_kind in FIXED else PERCENT
+
+    if not derived or not reference:
+        raise FlowError("Pick both locations.", 422)
+
+    if derived == reference:
+        raise FlowError("A price cannot be calculated from itself.", 422)
+
+    try:
+        amount = float(raw_value)
+    except ValueError as error:
+        raise FlowError(
+            "Type a number — for example -10 for 10% less, or -25 for 25 less in the "
+            "price's own currency.",
+            422,
+        ) from error
+
+    # -100 is the real floor: at it, and below it, the price is nothing or
+    # less. The old -95 was tighter than the arithmetic needs and refused
+    # the one rule the client actually has down there -- a conversion at a
+    # fixed rate, which is a large negative percentage (dividing by 29 is
+    # -96.5517%). A price that still rounds to nothing is dropped by the
+    # engine, so the floor is the only guard this needs. Both bounds stay
+    # typo catches -- prices here run to four figures, so a five-figure
+    # difference is a slipped decimal point, not a rule.
+    if kind == PERCENT and not -100 < amount <= 1000:
+        raise FlowError(
+            "A percentage must be more than -100 (a price cannot fall below "
+            "nothing) and at most +1,000.",
+            422,
+        )
+
+    # Rupee prices run to six figures (packed over bulk is 11,800), so the
+    # typo catch there is ten times the dollar and euro one.
+    limit = FIXED_LIMITS.get(kind)
+
+    if limit is not None and not -limit <= amount <= limit:
+        raise FlowError(
+            f"A fixed difference in {FIXED[kind]} must be between -{limit:,} and +{limit:,}.", 422
+        )
+
+    try:
+        locations = client.locations().get("data", [])
+    except SiteError:
+        locations = None
+
+    # A fixed amount is added to the price as it stands, and the site
+    # stores the result in the derived location's own currency -- so "+5
+    # US dollars" on a euro price would be published as five euros. When
+    # the site says what currency the price is in, the amount must match.
+    if kind in FIXED and locations is not None:
+        priced_in = next(
+            (
+                str(entry.get("currency") or "").upper()
+                for entry in locations
+                if entry.get("title") == derived and entry.get("currency")
+            ),
+            None,
+        )
+
+        if priced_in and priced_in != FIXED[kind]:
+            raise FlowError(
+                f"{derived} is priced in {priced_in}, so a fixed amount for it has to be "
+                f"in {priced_in} too. Pick {_SHOWN_AS.get(priced_in, priced_in)} next to "
+                "the amount.",
+                422,
+            )
+
+    saved = PriceRule(
+        id=0,
+        derived_location=derived,
+        reference_location=reference,
+        adjustment_value=amount,
+        adjustment_kind=kind,
+    )
+    rules.create(site.slug, derived, reference, amount, kind)
+    store.record(actor, "set a price rule", site.slug, f"{derived} = {reference} {adjustment_label(saved)}")
+
+    # A saved formula is invisible until the next draft, which reads as
+    # "nothing happened". Previewing it against the latest published price
+    # shows immediately what the rule will do.
+    preview = ""
+    latest = next(
+        (entry.get("latest_price") for entry in (locations or []) if entry.get("title") == reference),
+        None,
+    )
+
+    if latest is not None:
+        would_be = round(_adjusted(float(latest), saved))
+        preview = f" With today's prices: {reference} is {latest:g}, so {derived} would be {would_be}."
+
+    return (
+        f"Saved. {derived} now comes from {reference} {adjustment_label(saved)}. It is "
+        f"used the next time prices are fetched.{preview}"
+    )
+
+
+def switch_rule(site, actor: str, rule_id: int, enabled: bool, *, rules: RulesStore, store) -> str:
+    # The rule has to be this site's own. The id comes off the address
+    # bar and the ids are small and sequential, so being allowed to use
+    # one site would otherwise be enough to turn off another site's
+    # rules -- and the trail would name this site for it.
+    if not rules.set_enabled(site.slug, rule_id, enabled):
+        raise FlowError("No such rule.", 404)
+
+    store.record(actor, "turned a price rule " + ("on" if enabled else "off"), site.slug, f"rule #{rule_id}")
+
+    return "Rule turned " + ("on." if enabled else "off.")
+
+
+def remove_rule(site, actor: str, rule_id: int, *, rules: RulesStore, store) -> str:
+    if not rules.delete(site.slug, rule_id):
+        raise FlowError("No such rule.", 404)
+
+    store.record(actor, "removed a price rule", site.slug, f"rule #{rule_id}")
+
+    return "Rule removed."
+
+
+def parse_step(raw: str) -> float | None:
+    """Blank clears the step; anything else must be a plain positive
+    number -- the same "0 or blank means no rounding" rule rounding.py
+    itself applies, so a bad value here is refused rather than silently
+    turning rounding off."""
+    raw = raw.strip()
+
+    if raw == "":
+        return None
+
+    try:
+        value = float(raw)
+    except ValueError as error:
+        raise FlowError(
+            "Type a plain number to round to — for example 5 — or leave it blank for no "
+            "rounding.",
+            422,
+        ) from error
+
+    if value <= 0:
+        raise FlowError("A rounding step must be greater than zero.", 422)
+
+    return value
+
+
+def set_site_rounding(site, actor: str, *, store, raw_step: str, raw_direction: str) -> str:
+    """The site-wide step -- what bitumart sets to 5. Read/checked prices,
+    FX conversions and rule-derived prices all round to this once they
+    reach the editorial screen; see app/editorial/rounding.py."""
+    step = parse_step(raw_step)
+    direction = normalise_direction(raw_direction)
+    shown = f"{DIRECTION_LABELS[direction]} {plain_number(step)}"
+
+    store.set_round_to_nearest(site.slug, step, direction)
+    store.record(actor, "set the site's rounding step", site.slug, f"round {shown}" if step else "no rounding")
+
+    return (
+        f"Prices now round {shown}, in each price's own currency." if step
+        else "Rounding turned off — prices are used exactly as worked out."
+    )
+
+
+def set_location_rounding(
+    site, actor: str, *, rounding: RoundingStore, store, client,
+    location: str, exact: bool, as_printed: bool, raw_step: str, raw_direction: str,
+) -> str:
+    """A location that rounds differently from the site default --
+    Turkey's own-currency price, to the nearest 10."""
+    location = location.strip()
+
+    if not location:
+        raise FlowError("Pick a location.", 422)
+
+    # "Uk south is already in euro in argus.. No need to convert" --
+    # whatever currency the report prints this location's figure in,
+    # it is already a price here and the exchange rate never touches
+    # it. See app/editorial/fx.py.
+    asked = " and its figure is taken as printed, never converted" if as_printed else ""
+
+    # "Use the price exactly as it is" -- the client's Indonesia,
+    # where the printed 896 must never become 895. Stored as a step
+    # of 0, which apply_rounding already reads as "leave this
+    # location alone" whatever the site default says.
+    if exact:
+        rounding.set_override(site.slug, location, 0.0, "nearest", as_printed)
+        store.record(
+            actor, "set a location's rounding step", site.slug,
+            f"{location} is never rounded — the price is used exactly as it is{asked}",
+        )
+
+        return f"{location} is never rounded — its price is used exactly as it is{asked}."
+
+    step = parse_step(raw_step)
+
+    if step is None:
+        raise FlowError(
+            "Type a rounding step for this location, or remove it from the list below instead.", 422
+        )
+
+    direction = normalise_direction(raw_direction)
+
+    rounding.set_override(site.slug, location, step, direction, as_printed)
+
+    # Said in the location's own currency -- "the nearest Rs 1" -- when
+    # the site names it. A site that is down only costs the sign.
+    try:
+        currency = next(
+            (
+                entry.get("currency")
+                for entry in client.locations().get("data", [])
+                if entry.get("title") == location
+            ),
+            None,
+        )
+    except SiteError:
+        currency = None
+
+    # "rounds to the nearest $5", "rounds up to the next $5".
+    shown = f"{DIRECTION_LABELS[direction]} {step_label(step, currency)}"
+    store.record(actor, "set a location's rounding step", site.slug, f"{location} rounds {shown}{asked}")
+
+    return f"{location} now rounds {shown}{asked}."
+
+
+def remove_location_rounding(site, actor: str, override_id: int, *, rounding: RoundingStore, store) -> str:
+    if not rounding.delete(site.slug, override_id):
+        raise FlowError("No such rounding step.", 404)
+
+    store.record(actor, "removed a location's rounding step", site.slug, f"override #{override_id}")
+
+    return "Removed. This location now uses the site default."
+
+
 def create_rules_routes(
     *,
     store: Store,
@@ -229,6 +514,13 @@ def create_rules_routes(
             f"/console/sites/{slug}/rules?{kind}={quote(text)}", status_code=303
         )
 
+    def done(slug: str, step) -> RedirectResponse:
+        """Run one of the rulebook's steps and say how it went."""
+        try:
+            return back(slug, "ok", step())
+        except FlowError as refused:
+            return back(slug, "err", refused.message)
+
     @router.get("/console/sites/{slug}/rules", response_class=HTMLResponse)
     def rules_screen(request: Request, slug: str):
         user, site, response = guard(request, slug)
@@ -236,28 +528,6 @@ def create_rules_routes(
         if response is not None:
             return response
 
-        try:
-            locations = client_for(site).locations().get("data", [])
-        except SiteError:
-            locations = []
-
-        site_rules = rules.for_site(site.slug)
-        titles = [str(entry.get("title")) for entry in locations if entry.get("title")]
-        # The last published price of each location, so the screen can do the
-        # sum in front of the person setting it up: an explanation of what a
-        # percentage or a dollar difference means is worth far less than
-        # "Singapore is 1560 today, so this would be 1535".
-        prices = {
-            str(entry["title"]): float(entry["latest_price"])
-            for entry in locations
-            if entry.get("title") and entry.get("latest_price") is not None
-        }
-        # References that are report figures rather than site locations. They
-        # are typed, never picked, so the second field offers back the ones
-        # the rulebook already uses instead of asking for them from memory.
-        benchmarks = sorted(
-            {rule.reference_location for rule in site_rules} - set(titles)
-        )
         flash = None
 
         if request.query_params.get("ok"):
@@ -279,23 +549,11 @@ def create_rules_routes(
                 ],
                 "tone_for": tone_for,
                 "title": f"Price rules · {site.name}",
-                "rules": site_rules,
                 "label": adjustment_label,
-                "locations": titles,
-                "benchmarks": benchmarks,
-                "prices": prices,
-                "currencies": {
-                    str(entry["title"]): str(entry["currency"])
-                    for entry in locations
-                    if entry.get("title") and entry.get("currency")
-                },
                 "step_label": step_label,
                 "plain_number": plain_number,
-                "rule_notes": build_rule_notes(site_rules, locations),
-                "round_to_nearest": site.round_to_nearest,
-                "round_direction": getattr(site, "round_direction", "nearest"),
                 "direction_labels": DIRECTION_LABELS,
-                "rounding_overrides": rounding.list_for_site(site.slug) if rounding else [],
+                **rules_overview(site, rules=rules, rounding=rounding, client=client_for(site)),
             },
         )
 
@@ -307,123 +565,16 @@ def create_rules_routes(
             return response
 
         form = await request.form()
-        derived = str(form.get("derived_location") or "").strip()
-        reference = str(form.get("reference_location") or "").strip()
-        raw_value = str(form.get("adjustment_value") or "").strip()
-        raw_kind = str(form.get("adjustment_kind") or "")
-        kind = raw_kind if raw_kind in FIXED else PERCENT
 
-        if not derived or not reference:
-            return back(site.slug, "err", "Pick both locations.")
-
-        if derived == reference:
-            return back(site.slug, "err", "A price cannot be calculated from itself.")
-
-        try:
-            amount = float(raw_value)
-        except ValueError:
-            return back(
-                site.slug,
-                "err",
-                "Type a number — for example -10 for 10% less, or -25 for 25 less in the "
-                "price's own currency.",
-            )
-
-        # -100 is the real floor: at it, and below it, the price is nothing or
-        # less. The old -95 was tighter than the arithmetic needs and refused
-        # the one rule the client actually has down there -- a conversion at a
-        # fixed rate, which is a large negative percentage (dividing by 29 is
-        # -96.5517%). A price that still rounds to nothing is dropped by the
-        # engine, so the floor is the only guard this needs. Both bounds stay
-        # typo catches -- prices here run to four figures, so a five-figure
-        # difference is a slipped decimal point, not a rule.
-        if kind == PERCENT and not -100 < amount <= 1000:
-            return back(
-                site.slug,
-                "err",
-                "A percentage must be more than -100 (a price cannot fall below "
-                "nothing) and at most +1,000.",
-            )
-
-        # Rupee prices run to six figures (packed over bulk is 11,800), so the
-        # typo catch there is ten times the dollar and euro one.
-        limit = FIXED_LIMITS.get(kind)
-
-        if limit is not None and not -limit <= amount <= limit:
-            return back(
-                site.slug,
-                "err",
-                f"A fixed difference in {FIXED[kind]} must be between -{limit:,} and +{limit:,}.",
-            )
-
-        try:
-            locations = client_for(site).locations().get("data", [])
-        except SiteError:
-            locations = None
-
-        # A fixed amount is added to the price as it stands, and the site
-        # stores the result in the derived location's own currency -- so "+5
-        # US dollars" on a euro price would be published as five euros. When
-        # the site says what currency the price is in, the amount must match.
-        if kind in FIXED and locations is not None:
-            priced_in = next(
-                (
-                    str(entry.get("currency") or "").upper()
-                    for entry in locations
-                    if entry.get("title") == derived and entry.get("currency")
-                ),
-                None,
-            )
-
-            if priced_in and priced_in != FIXED[kind]:
-                return back(
-                    site.slug,
-                    "err",
-                    f"{derived} is priced in {priced_in}, so a fixed amount for it has to be "
-                    f"in {priced_in} too. Pick {_SHOWN_AS.get(priced_in, priced_in)} next to "
-                    "the amount.",
-                )
-
-        saved = PriceRule(
-            id=0,
-            derived_location=derived,
-            reference_location=reference,
-            adjustment_value=amount,
-            adjustment_kind=kind,
-        )
-        rules.create(site.slug, derived, reference, amount, kind)
-        store.record(
-            user.email,
-            "set a price rule",
+        return done(
             site.slug,
-            f"{derived} = {reference} {adjustment_label(saved)}",
-        )
-
-        # A saved formula is invisible until the next draft, which reads as
-        # "nothing happened". Previewing it against the latest published price
-        # shows immediately what the rule will do.
-        preview = ""
-        latest = next(
-            (
-                entry.get("latest_price")
-                for entry in (locations or [])
-                if entry.get("title") == reference
+            lambda: save_rule(
+                site, user.email, rules=rules, store=store, client=client_for(site),
+                derived=str(form.get("derived_location") or ""),
+                reference=str(form.get("reference_location") or ""),
+                raw_value=str(form.get("adjustment_value") or ""),
+                raw_kind=str(form.get("adjustment_kind") or ""),
             ),
-            None,
-        )
-
-        if latest is not None:
-            would_be = round(_adjusted(float(latest), saved))
-            preview = (
-                f" With today's prices: {reference} is {latest:g}, "
-                f"so {derived} would be {would_be}."
-            )
-
-        return back(
-            site.slug,
-            "ok",
-            f"Saved. {derived} now comes from {reference} {adjustment_label(saved)}. It is "
-            f"used the next time prices are fetched.{preview}",
         )
 
     @router.post("/console/sites/{slug}/rules/{rule_id}/toggle")
@@ -436,21 +587,7 @@ def create_rules_routes(
         form = await request.form()
         enabled = str(form.get("enabled") or "") == "1"
 
-        # The rule has to be this site's own. The id comes off the address
-        # bar and the ids are small and sequential, so being allowed to use
-        # one site would otherwise be enough to turn off another site's
-        # rules -- and the trail would name this site for it.
-        if not rules.set_enabled(site.slug, rule_id, enabled):
-            return back(site.slug, "err", "No such rule.")
-
-        store.record(
-            user.email,
-            "turned a price rule " + ("on" if enabled else "off"),
-            site.slug,
-            f"rule #{rule_id}",
-        )
-
-        return back(site.slug, "ok", "Rule turned " + ("on." if enabled else "off."))
+        return done(site.slug, lambda: switch_rule(site, user.email, rule_id, enabled, rules=rules, store=store))
 
     @router.post("/console/sites/{slug}/rules/{rule_id}/delete")
     async def delete_rule(request: Request, slug: str, rule_id: int):
@@ -459,44 +596,12 @@ def create_rules_routes(
         if response is not None:
             return response
 
-        if not rules.delete(site.slug, rule_id):
-            return back(site.slug, "err", "No such rule.")
-
-        store.record(user.email, "removed a price rule", site.slug, f"rule #{rule_id}")
-
-        return back(site.slug, "ok", "Rule removed.")
-
-    def _parse_step(raw: str) -> float | None:
-        """Blank clears the step; anything else must be a plain positive
-        number -- the same "0 or blank means no rounding" rule rounding.py
-        itself applies, so a bad value here is refused rather than silently
-        turning rounding off."""
-        raw = raw.strip()
-
-        if raw == "":
-            return None
-
-        try:
-            value = float(raw)
-        except ValueError as error:
-            raise ConsoleConfigError(
-                "Type a plain number to round to — for example 5 — or leave it blank for no "
-                "rounding."
-            ) from error
-
-        if value <= 0:
-            raise ConsoleConfigError("A rounding step must be greater than zero.")
-
-        return value
+        return done(site.slug, lambda: remove_rule(site, user.email, rule_id, rules=rules, store=store))
 
     if rounding is not None:
 
         @router.post("/console/sites/{slug}/rounding")
         async def set_default_rounding(request: Request, slug: str):
-            """The site-wide step -- what bitumart sets to 5. Read/checked
-            prices, FX conversions and rule-derived prices all round to this
-            once they reach the editorial screen; see
-            app/editorial/rounding.py."""
             user, site, response = guard(request, slug)
 
             if response is not None:
@@ -504,106 +609,35 @@ def create_rules_routes(
 
             form = await request.form()
 
-            try:
-                step = _parse_step(str(form.get("round_to_nearest") or ""))
-            except ConsoleConfigError as error:
-                return back(site.slug, "err", str(error))
-
-            direction = normalise_direction(str(form.get("direction") or ""))
-            shown = f"{DIRECTION_LABELS[direction]} {plain_number(step)}"
-
-            store.set_round_to_nearest(site.slug, step, direction)
-            store.record(
-                user.email,
-                "set the site's rounding step",
+            return done(
                 site.slug,
-                f"round {shown}" if step else "no rounding",
-            )
-
-            return back(
-                site.slug, "ok",
-                f"Prices now round {shown}, in each price's own currency." if step
-                else "Rounding turned off — prices are used exactly as worked out.",
+                lambda: set_site_rounding(
+                    site, user.email, store=store,
+                    raw_step=str(form.get("round_to_nearest") or ""),
+                    raw_direction=str(form.get("direction") or ""),
+                ),
             )
 
         @router.post("/console/sites/{slug}/rounding/override")
         async def add_rounding_override(request: Request, slug: str):
-            """A location that rounds differently from the site default --
-            Turkey's own-currency price, to the nearest 10."""
             user, site, response = guard(request, slug)
 
             if response is not None:
                 return response
 
             form = await request.form()
-            location = str(form.get("location") or "").strip()
 
-            if not location:
-                return back(site.slug, "err", "Pick a location.")
-
-            # "Use the price exactly as it is" -- the client's Indonesia,
-            # where the printed 896 must never become 895. Stored as a step
-            # of 0, which apply_rounding already reads as "leave this
-            # location alone" whatever the site default says.
-            exact = str(form.get("exact") or "").strip() == "1"
-
-            # "Uk south is already in euro in argus.. No need to convert" --
-            # whatever currency the report prints this location's figure in,
-            # it is already a price here and the exchange rate never touches
-            # it. See app/editorial/fx.py.
-            as_printed = str(form.get("as_printed") or "").strip() == "1"
-            asked = " and its figure is taken as printed, never converted" if as_printed else ""
-
-            if exact:
-                rounding.set_override(site.slug, location, 0.0, "nearest", as_printed)
-                store.record(
-                    user.email, "set a location's rounding step", site.slug,
-                    f"{location} is never rounded — the price is used exactly as it is{asked}",
-                )
-
-                return back(
-                    site.slug, "ok",
-                    f"{location} is never rounded — its price is used exactly as it is{asked}.",
-                )
-
-            try:
-                step = _parse_step(str(form.get("round_to_nearest") or ""))
-            except ConsoleConfigError as error:
-                return back(site.slug, "err", str(error))
-
-            if step is None:
-                return back(
-                    site.slug, "err",
-                    "Type a rounding step for this location, or remove it from the list below "
-                    "instead.",
-                )
-
-            direction = normalise_direction(str(form.get("direction") or ""))
-
-            rounding.set_override(site.slug, location, step, direction, as_printed)
-
-            # Said in the location's own currency -- "the nearest Rs 1" -- when
-            # the site names it. A site that is down only costs the sign.
-            try:
-                currency = next(
-                    (
-                        entry.get("currency")
-                        for entry in client_for(site).locations().get("data", [])
-                        if entry.get("title") == location
-                    ),
-                    None,
-                )
-            except SiteError:
-                currency = None
-
-            # "rounds to the nearest $5", "rounds up to the next $5".
-            shown = f"{DIRECTION_LABELS[direction]} {step_label(step, currency)}"
-            store.record(
-                user.email, "set a location's rounding step", site.slug,
-                f"{location} rounds {shown}{asked}",
+            return done(
+                site.slug,
+                lambda: set_location_rounding(
+                    site, user.email, rounding=rounding, store=store, client=client_for(site),
+                    location=str(form.get("location") or ""),
+                    exact=str(form.get("exact") or "").strip() == "1",
+                    as_printed=str(form.get("as_printed") or "").strip() == "1",
+                    raw_step=str(form.get("round_to_nearest") or ""),
+                    raw_direction=str(form.get("direction") or ""),
+                ),
             )
-
-            return back(site.slug, "ok", f"{location} now rounds {shown}{asked}.")
 
         @router.post("/console/sites/{slug}/rounding/override/{override_id}/delete")
         async def delete_rounding_override(request: Request, slug: str, override_id: int):
@@ -612,14 +646,9 @@ def create_rules_routes(
             if response is not None:
                 return response
 
-            if not rounding.delete(site.slug, override_id):
-                return back(site.slug, "err", "No such rounding step.")
-
-            store.record(
-                user.email, "removed a location's rounding step", site.slug,
-                f"override #{override_id}",
+            return done(
+                site.slug,
+                lambda: remove_location_rounding(site, user.email, override_id, rounding=rounding, store=store),
             )
-
-            return back(site.slug, "ok", "Removed. This location now uses the site default.")
 
     return router

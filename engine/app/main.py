@@ -148,10 +148,12 @@ def create_app() -> FastAPI:
         """A machine gets JSON, a person gets a page.
 
         The API's callers are PHP sites parsing JSON, so /api must keep
-        answering JSON; everything else is opened in a browser.
+        answering JSON; everything else is opened in a browser. A 404 an
+        endpoint raised on purpose keeps its own words ("That AI draft could
+        not be found."); a path that matches nothing still says Not Found.
         """
         if request.url.path.startswith("/api"):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
+            return JSONResponse({"detail": getattr(_exc, "detail", None) or "Not Found"}, status_code=404)
 
         return TEMPLATES.TemplateResponse(
             request, "notfound.html", {"path": request.url.path}, status_code=404
@@ -333,6 +335,7 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
                 rules=rules,
                 fx=app.state.fx,
                 rounding=rounding,
+                providers=provider_store,
             )
         )
 

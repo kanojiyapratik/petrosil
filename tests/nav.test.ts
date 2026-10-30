@@ -316,6 +316,7 @@ describe("the cards tell the truth", () => {
         "sample-reports",
         "ai-note",
         "ai-update",
+        "ai-settings",
         "deliveries",
       ].map(under),
     );

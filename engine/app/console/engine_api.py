@@ -28,6 +28,7 @@ from scraper.pdf import pdf_needs_password
 
 from ..editorial.extract import document_images, document_to_text
 from ..editorial.preflight import preflight
+from ..editorial.rules import adjustment_label
 from .flows import (
     MAX_DOCUMENT_BYTES,
     MAX_DOCUMENTS,
@@ -40,6 +41,16 @@ from .flows import (
     save_draft,
     workings_sheet,
     write_update_note,
+)
+from .routes_ai import assign_site_model, site_ai_view
+from .routes_rules import (
+    remove_location_rounding,
+    remove_rule,
+    rules_overview,
+    save_rule,
+    set_location_rounding,
+    set_site_rounding,
+    switch_rule,
 )
 from .site_client import SiteClient
 
@@ -104,6 +115,7 @@ def create_engine_api(
     rules=None,
     fx=None,
     rounding=None,
+    providers=None,
     client_factory=None,
 ) -> APIRouter:
     engine = Engine(
@@ -414,6 +426,126 @@ def create_engine_api(
             return refusal(refused)
 
         return JSONResponse({"batch_id": batch_id, "saved": saved}, status_code=201)
+
+    # ------------------------------------------------- the rulebook and rounding
+
+    def said(step, status: int = 200) -> JSONResponse:
+        """Run one rulebook step: its message, or the console's refusal."""
+        try:
+            return JSONResponse({"message": step()}, status_code=status)
+        except FlowError as refused:
+            return refusal(refused)
+
+    @router.get("/rules")
+    def rulebook(slug: str, actor: str = Depends(caller)):
+        """The rules, the rounding, and what each location is priced at and in."""
+        site = site_or_404(slug)
+        view = rules_overview(site, rules=rules, rounding=rounding, client=client_for(site))
+
+        return {
+            **jsonable(view),
+            "rules": [{**jsonable(rule), "label": adjustment_label(rule)} for rule in view["rules"]],
+        }
+
+    @router.post("/rules")
+    async def add_rule(slug: str, request: Request, actor: str = Depends(caller)):
+        """{derived, reference, value, kind}: add a rule, or replace the one the
+        derived location has. kind is "percent", "usd", "eur" or "inr"."""
+        site = site_or_404(slug)
+        body = await request.json()
+
+        return said(
+            lambda: save_rule(
+                site, actor, rules=rules, store=store, client=client_for(site),
+                derived=str(body.get("derived") or ""),
+                reference=str(body.get("reference") or ""),
+                raw_value=str(body.get("value") if body.get("value") is not None else ""),
+                raw_kind=str(body.get("kind") or ""),
+            ),
+            201,
+        )
+
+    @router.patch("/rules/{rule_id}")
+    async def turn_rule(slug: str, rule_id: int, request: Request, actor: str = Depends(caller)):
+        site = site_or_404(slug)
+        body = await request.json()
+
+        return said(lambda: switch_rule(site, actor, rule_id, bool(body.get("enabled")), rules=rules, store=store))
+
+    @router.delete("/rules/{rule_id}")
+    def drop_rule(slug: str, rule_id: int, actor: str = Depends(caller)):
+        site = site_or_404(slug)
+
+        return said(lambda: remove_rule(site, actor, rule_id, rules=rules, store=store))
+
+    @router.put("/rounding")
+    async def site_rounding(slug: str, request: Request, actor: str = Depends(caller)):
+        """{step, direction}: the site-wide step; blank step turns rounding off."""
+        site = site_or_404(slug)
+        body = await request.json()
+
+        return said(
+            lambda: set_site_rounding(
+                site, actor, store=store,
+                raw_step=str(body.get("step") if body.get("step") is not None else ""),
+                raw_direction=str(body.get("direction") or ""),
+            )
+        )
+
+    @router.post("/rounding/locations")
+    async def location_rounding(slug: str, request: Request, actor: str = Depends(caller)):
+        """{location, step, direction, exact, as_printed}: one location's own
+        rounding; exact means never rounded."""
+        site = site_or_404(slug)
+        body = await request.json()
+
+        return said(
+            lambda: set_location_rounding(
+                site, actor, rounding=rounding, store=store, client=client_for(site),
+                location=str(body.get("location") or ""),
+                exact=bool(body.get("exact")),
+                as_printed=bool(body.get("as_printed")),
+                raw_step=str(body.get("step") if body.get("step") is not None else ""),
+                raw_direction=str(body.get("direction") or ""),
+            ),
+            201,
+        )
+
+    @router.delete("/rounding/locations/{override_id}")
+    def drop_location_rounding(slug: str, override_id: int, actor: str = Depends(caller)):
+        site = site_or_404(slug)
+
+        return said(lambda: remove_location_rounding(site, actor, override_id, rounding=rounding, store=store))
+
+    # ------------------------------------------------------------ AI settings
+
+    @router.get("/ai-settings")
+    def ai_settings(slug: str, actor: str = Depends(caller)):
+        """This site's model, the providers it may choose from (never their
+        keys), and its saved instructions."""
+        site = site_or_404(slug)
+
+        if providers is None:
+            raise HTTPException(status_code=404, detail="AI settings are not available here.")
+
+        return {**site_ai_view(site.slug, providers=providers), "instructions": site.editorial_instructions}
+
+    @router.put("/ai-settings")
+    async def choose_model(slug: str, request: Request, actor: str = Depends(caller)):
+        """{provider_id, model}: blank provider means the default."""
+        site = site_or_404(slug)
+        body = await request.json()
+
+        if providers is None:
+            raise HTTPException(status_code=404, detail="AI settings are not available here.")
+
+        return said(
+            lambda: assign_site_model(
+                site, actor, providers=providers, store=store,
+                raw_provider_id=str(body.get("provider_id") or ""),
+                raw_model=str(body.get("model") or ""),
+            )
+        )
 
     # ---------------------------------------------------------- after a commit
 

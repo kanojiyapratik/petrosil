@@ -23,6 +23,7 @@ from ..ai.providers import (
 )
 from ..db.store import ProviderStore, Store
 from .access import managed_site, may_change_settings, visible_sites
+from .flows import FlowError
 from .routes import tone_for
 
 
@@ -37,6 +38,78 @@ def clean_key(raw) -> str:
     removing all of it can only repair a paste, never damage a real key.
     """
     return "".join(str(raw or "").split())
+
+
+def models_offered(provider) -> list[str]:
+    """What this provider's key can actually run, asked of the provider, so
+    the list cannot go stale; the catalogue is only the fallback. Whatever
+    is in use stays selectable even if the listing missed it."""
+    offered = available_models(provider.provider, provider.api_key) or PROVIDERS.get(
+        provider.provider, {}
+    ).get("models", [])
+
+    return offered if provider.model in offered else [provider.model, *offered]
+
+
+def site_ai_view(slug: str, *, providers: ProviderStore) -> dict:
+    """One site's AI choice, for the app's AI settings screen: the
+    providers it may pick from -- never their keys -- and what it has
+    picked. No provider of its own means the default one."""
+    return {
+        "providers": [
+            {
+                "id": row.id,
+                "name": row.name,
+                "provider": PROVIDERS.get(row.provider, {}).get("label", row.provider),
+                "model": row.model,
+                "is_default": row.is_default,
+                "models": models_offered(row),
+            }
+            for row in providers.all()
+            if row.enabled
+        ],
+        "provider_id": providers.assignments().get(slug),
+        "model": providers.site_models().get(slug),
+    }
+
+
+def assign_site_model(
+    site, actor: str, *, providers: ProviderStore, store, raw_provider_id: str, raw_model: str
+) -> str:
+    """Which provider, and which of its models, this site's AI work runs on.
+    Blank means the default provider."""
+    raw = raw_provider_id.strip()
+    provider_id = int(raw) if raw.isdigit() else None
+    provider = providers.get(provider_id) if provider_id else None
+
+    if provider_id and provider is None:
+        raise FlowError("That provider no longer exists.", 422)
+
+    # Blank means the provider's own model. A model of its own is only
+    # kept with a provider picked for this site -- see ProviderStore.
+    model = raw_model.strip() if provider else ""
+
+    # Picking the provider's own model is the same as not picking one, and
+    # stored blank it follows the provider when its model is changed.
+    if provider and model == provider.model:
+        model = ""
+
+    # A model this key cannot run would only fail later, in the middle of
+    # a price update, so it is refused here.
+    if model:
+        allowed = available_models(provider.provider, provider.api_key) or PROVIDERS.get(
+            provider.provider, {}
+        ).get("models", [])
+
+        if model not in allowed:
+            raise FlowError(f"{provider.name} cannot run {model}.", 422)
+
+    providers.assign_to_site(site.slug, provider_id, model or None)
+
+    chosen = f"{provider.name} ({model or provider.model})" if provider else "the default"
+    store.record(actor, "chose an AI provider for a site", site.slug, chosen)
+
+    return f"{site.name} now uses {chosen}."
 
 
 def create_ai_routes(
@@ -385,38 +458,15 @@ def create_ai_routes(
         if site is None:
             return back("err", "No such site.")
 
-        provider_id = int(raw) if raw.isdigit() else None
-        provider = providers.get(provider_id) if provider_id else None
-
-        if provider_id and provider is None:
-            return back("err", "That provider no longer exists.")
-
-        # Blank means the provider's own model. A model of its own is only
-        # kept with a provider picked for this site -- see ProviderStore.
-        model = str(form.get("model") or "").strip() if provider else ""
-
-        # Picking the provider's own model is the same as not picking one, and
-        # stored blank it follows the provider when its model is changed.
-        if provider and model == provider.model:
-            model = ""
-
-        # A model this key cannot run would only fail later, in the middle of
-        # a price update, so it is refused here.
-        if model:
-            allowed = available_models(provider.provider, provider.api_key) or PROVIDERS.get(
-                provider.provider, {}
-            ).get("models", [])
-
-            if model not in allowed:
-                return back("err", f"{provider.name} cannot run {model}.")
-
-        providers.assign_to_site(slug, provider_id, model or None)
-
-        chosen = (
-            f"{provider.name} ({model or provider.model})" if provider else "the default"
-        )
-        store.record(user.email, "chose an AI provider for a site", slug, chosen)
-
-        return back("ok", f"{site.name} now uses {chosen}.")
+        try:
+            return back(
+                "ok",
+                assign_site_model(
+                    site, user.email, providers=providers, store=store,
+                    raw_provider_id=raw, raw_model=str(form.get("model") or ""),
+                ),
+            )
+        except FlowError as refused:
+            return back("err", refused.message)
 
     return router

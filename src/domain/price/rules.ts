@@ -3,9 +3,11 @@
  *
  * Most of a brand's markets never appear in a market report; the price
  * module calculates them from the few that do ("South Korea FOB = Singapore
- * FOB −10%"). The rulebook lives in the module's own database and is edited
- * on its console, where the arithmetic runs — so this side reads it, never
- * writes it, and links to the console for changes.
+ * FOB −10%"). The rulebook belongs to the AI engine (engine/), where the
+ * arithmetic runs: it is read and changed through the engine, so a rule
+ * saved here meets exactly the checks a rule saved on its console meets —
+ * not calculated from itself, a fixed amount in the market's own currency,
+ * the typo limits — and comes back with what it would do at today's prices.
  *
  * What it adds over the console's list is the brand's side of each rule: a
  * rule names its markets by exact title, and a title that matches nothing on
@@ -14,13 +16,13 @@
  */
 
 import { and, eq, isNull } from "drizzle-orm";
-import postgres from "postgres";
 
 import { db, type Database } from "@/db";
 import { locations, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { requirePermission } from "@/domain/staff/permissions";
+import { can, requirePermission } from "@/domain/staff/permissions";
+import { engine, EngineError } from "@/lib/engine/client";
 
 import { locationsWithLatestPrice, normaliseName } from "./locations";
 
@@ -39,13 +41,21 @@ export type ModuleRounding = {
   /** The brand's default step, or null for none. */
   step: number | null;
   direction: string;
-  overrides: { location: string; step: number; direction: string; asPrinted: boolean }[];
+  overrides: { id?: number; location: string; step: number; direction: string; asPrinted: boolean }[];
 };
 
-export type ModuleBook = { rules: ModuleRule[]; rounding: ModuleRounding };
+/** What the editing form offers: the markets, today's price and currency of each, and the report figures already in use. */
+export type RuleEditor = {
+  markets: string[];
+  prices: Record<string, number>;
+  currencies: Record<string, string>;
+  benchmarks: string[];
+};
 
-/** Reads one brand's rulebook from the module. Injected in tests. */
-export type ModuleReader = (slug: string) => Promise<ModuleBook>;
+export type ModuleBook = { rules: ModuleRule[]; rounding: ModuleRounding; editor?: RuleEditor };
+
+/** Reads one brand's rulebook. Injected in tests. */
+export type ModuleReader = (slug: string, actor: string) => Promise<ModuleBook>;
 
 export class ModuleUnavailable extends Error {}
 
@@ -74,9 +84,15 @@ export type RulesView = {
   markets: number;
   /** Rules that cannot run, because a name matches nothing on this brand. */
   broken: number;
+  /** For the editing form; null when the reader gave none. */
+  editor: RuleEditor | null;
+  /** Whether this person may change the rules and rounding. */
+  canEdit: boolean;
 };
 
 const FIXED: Record<string, string> = { usd: "USD", eur: "EUR", inr: "INR" };
+
+export const RULE_PERMISSION = "price-rule-edit";
 
 /** "−10%" or "+25 USD" — written the way the console writes it. */
 export function adjustment(rule: Pick<ModuleRule, "value" | "kind">): string {
@@ -86,77 +102,63 @@ export function adjustment(rule: Pick<ModuleRule, "value" | "kind">): string {
   return FIXED[rule.kind] ? `${sign}${amount} ${FIXED[rule.kind]}` : `${sign}${amount}%`;
 }
 
-let moduleClient: ReturnType<typeof postgres> | undefined;
-
 /**
- * The module's database, read-only at the session level: this side has no
- * business writing the rulebook, and the connection cannot.
+ * Reads one brand's rulebook from the AI engine, which owns it: the rules,
+ * the rounding, and — for the editing form — the markets as the engine sees
+ * them, with today's price and currency of each.
  */
-export const readModule: ModuleReader = async (slug) => {
-  const url = process.env.MODULE_DATABASE_URL;
-
-  if (!url) {
-    throw new ModuleUnavailable("MODULE_DATABASE_URL is not set.");
-  }
-
-  moduleClient ??= postgres(url, {
-    max: 2,
-    idle_timeout: 30,
-    connect_timeout: 5,
-    connection: { default_transaction_read_only: true },
-    onnotice: () => {},
-  });
-
+export const readEngine: ModuleReader = async (slug, actor) => {
   try {
-    const [rules, sitesRow, overrides] = await Promise.all([
-      moduleClient<{ id: string; derived_location: string; reference_location: string; adjustment_value: string; adjustment_kind: string; enabled: boolean }[]>`
-        select id, derived_location, reference_location, adjustment_value, adjustment_kind, enabled
-        from console_price_rules where site_slug = ${slug} order by derived_location`,
-      moduleClient<{ round_to_nearest: string | null; round_direction: string | null }[]>`
-        select round_to_nearest, round_direction from console_sites where slug = ${slug}`,
-      moduleClient<{ location: string; round_to_nearest: string; direction: string; as_printed: boolean }[]>`
-        select location, round_to_nearest, direction, as_printed
-        from console_location_rounding where site_slug = ${slug} order by location`,
-    ]);
+    const book = await engine<EngineBook>(slug, "rules", { actor });
 
     return {
-      rules: rules.map((row) => ({
-        id: Number(row.id),
-        derived: row.derived_location,
-        reference: row.reference_location,
-        value: Number(row.adjustment_value),
-        kind: row.adjustment_kind,
-        enabled: row.enabled,
+      rules: book.rules.map((rule) => ({
+        id: rule.id,
+        derived: rule.derived_location,
+        reference: rule.reference_location,
+        value: Number(rule.adjustment_value),
+        kind: rule.adjustment_kind,
+        enabled: rule.enabled,
       })),
       rounding: {
-        step: sitesRow[0]?.round_to_nearest == null ? null : Number(sitesRow[0].round_to_nearest),
-        direction: sitesRow[0]?.round_direction ?? "nearest",
-        overrides: overrides.map((row) => ({
+        step: book.round_to_nearest == null || Number(book.round_to_nearest) === 0 ? null : Number(book.round_to_nearest),
+        direction: book.round_direction ?? "nearest",
+        overrides: book.rounding_overrides.map((row) => ({
+          id: row.id,
           location: row.location,
           step: Number(row.round_to_nearest),
           direction: row.direction,
           asPrinted: row.as_printed,
         })),
       },
+      editor: { markets: book.locations, prices: book.prices, currencies: book.currencies, benchmarks: book.benchmarks },
     };
   } catch (error) {
-    throw new ModuleUnavailable(error instanceof Error ? error.message : String(error));
+    if (error instanceof EngineError) {
+      throw new ModuleUnavailable(error.message);
+    }
+
+    throw error;
   }
 };
 
-/** Where the rules are edited, when the console's address is known. */
-export function consoleRulesUrl(slug: string): string | null {
-  const base = process.env.MODULE_CONSOLE_URL?.replace(/\/+$/, "");
-
-  return base ? `${base}/console/sites/${encodeURIComponent(slug)}/rules` : null;
-}
+type EngineBook = {
+  rules: { id: number; derived_location: string; reference_location: string; adjustment_value: number; adjustment_kind: string; enabled: boolean }[];
+  locations: string[];
+  benchmarks: string[];
+  prices: Record<string, number>;
+  currencies: Record<string, string>;
+  round_to_nearest: number | null;
+  round_direction: string | null;
+  rounding_overrides: { id: number; location: string; round_to_nearest: number; direction: string; as_printed: boolean }[];
+};
 
 /** One brand's rulebook, each rule checked against the brand's markets. */
 export async function rulesFor(
   guard: Guarded,
   input: { site: string },
   database: Database = db(),
-  read: ModuleReader = readModule,
+  read: ModuleReader = readEngine,
 ): Promise<RulesView | { connected: false; reason: string }> {
   const [brand] = await database.select().from(sites).where(eq(sites.slug, input.site)).limit(1);
 
@@ -173,7 +175,7 @@ export async function rulesFor(
   let book: ModuleBook;
 
   try {
-    book = await read(brand.slug);
+    book = await read(brand.slug, guard.identity.user.email);
   } catch (error) {
     if (error instanceof ModuleUnavailable) {
       return { connected: false, reason: error.message };
@@ -231,6 +233,8 @@ export async function rulesFor(
     connected: true,
     rules: rows,
     rounding: book.rounding,
+    editor: book.editor ?? null,
+    canEdit: await can(guard, brand.id, RULE_PERMISSION, database),
     markets: latest.length,
     fromReports: latest.filter((row) => !derivedTitles.has(row.title)).length,
     broken: rows.filter(
@@ -242,4 +246,74 @@ export async function rulesFor(
           row.referenceMatch.status === "missing"),
     ).length,
   };
+}
+
+/* ------------------------------------------------------------- editing */
+
+/** The brand, if this person may change its rules. */
+async function editable(guard: Guarded, slug: string, database: Database) {
+  const [brand] = await database.select().from(sites).where(eq(sites.slug, slug)).limit(1);
+
+  if (!brand || (!guard.isSuperadmin && !guard.siteIds.includes(brand.id))) {
+    throw new AccountError("You do not have access to that brand.", 403, "site");
+  }
+
+  await requirePermission(guard, brand.id, RULE_PERMISSION, database);
+
+  return brand;
+}
+
+/** One change through the engine; answers with what the engine says happened. */
+async function change(
+  guard: Guarded,
+  slug: string,
+  path: string,
+  method: "POST" | "PATCH" | "PUT",
+  json: unknown,
+  database: Database,
+): Promise<string> {
+  await editable(guard, slug, database);
+
+  return (await engine<{ message: string }>(slug, path, { method, json, actor: guard.identity.user.email })).message;
+}
+
+/** Add a rule, or replace the one the derived market already has. */
+export function saveRule(
+  guard: Guarded,
+  slug: string,
+  input: { derived: string; reference: string; value: string; kind: string },
+  database: Database = db(),
+) {
+  return change(guard, slug, "rules", "POST", input, database);
+}
+
+export function switchRule(guard: Guarded, slug: string, id: number, enabled: boolean, database: Database = db()) {
+  return change(guard, slug, `rules/${id}`, "PATCH", { enabled }, database);
+}
+
+export async function removeRule(guard: Guarded, slug: string, id: number, database: Database = db()) {
+  await editable(guard, slug, database);
+
+  return (await engine<{ message: string }>(slug, `rules/${id}`, { method: "DELETE", actor: guard.identity.user.email })).message;
+}
+
+/** The brand's step for every market; a blank step turns rounding off. */
+export function setSiteRounding(guard: Guarded, slug: string, input: { step: string; direction: string }, database: Database = db()) {
+  return change(guard, slug, "rounding", "PUT", input, database);
+}
+
+/** One market's own rounding: a step, "never rounded", and whether its figure is taken as printed. */
+export function setMarketRounding(
+  guard: Guarded,
+  slug: string,
+  input: { location: string; step: string; direction: string; exact: boolean; as_printed: boolean },
+  database: Database = db(),
+) {
+  return change(guard, slug, "rounding/locations", "POST", input, database);
+}
+
+export async function removeMarketRounding(guard: Guarded, slug: string, id: number, database: Database = db()) {
+  await editable(guard, slug, database);
+
+  return (await engine<{ message: string }>(slug, `rounding/locations/${id}`, { method: "DELETE", actor: guard.identity.user.email })).message;
 }

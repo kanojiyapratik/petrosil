@@ -90,6 +90,7 @@ export const PERMISSIONS: PermissionGroup[] = [
       { key: "trade-qty-edit", label: "Enter import and export quantities" },
       { key: "price-note-edit", label: "Correct the published price note" },
       { key: "price-ai-update", label: "Use the AI price update" },
+      { key: "price-rule-edit", label: "Change the per-market rules and rounding" },
     ],
   },
 ];
