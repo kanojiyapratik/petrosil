@@ -906,3 +906,26 @@
   font-weight: 700;
   font-size: 18px;
 }
+
+.bs-card > h2 {
+  font-size: 19px;
+  margin-bottom: 12px;
+}
+
+.bs-card > h3 {
+  font-size: 15px;
+  margin: 18px 0 8px;
+}
+
+.bs-email {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.bs-head form.more {
+  align-self: center;
+}
+
+.bs td.nowrap {
+  white-space: nowrap;
+}

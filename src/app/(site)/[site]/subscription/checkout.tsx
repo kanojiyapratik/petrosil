@@ -31,6 +31,10 @@ const money = (amount: string | number, currency: string) =>
     maximumFractionDigits: 2,
   }).format(Number(amount));
 
+/** "30 Oct 2028" from a Y-m-d, matching the dates elsewhere on the site. */
+const day = (ymd: string) =>
+  new Date(`${ymd.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
 const span = (years: number) => (years === 1 ? "1 year" : `${years} years`);
 
 /** Sends the browser's time zone once, so a first visit is shown its own currency. */
@@ -156,7 +160,7 @@ export function Checkout({
     return (
       <section className="bs-card">
         <p className="bs-flash good" role="status">
-          Thank you — {paid.plan_name} is yours{paid.granted_until ? ` until ${paid.granted_until}` : ""}. Every figure is
+          Thank you — {paid.plan_name} is yours{paid.granted_until ? ` until ${day(paid.granted_until)}` : ""}. Every figure is
           now open to you.
         </p>
         <p>

@@ -22,6 +22,7 @@ import { currentIdentity } from "@/lib/auth/server";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { askForTrial } from "../actions";
 import { ReaderForm } from "../forms";
+import { plainText } from "@/lib/public/html";
 import { day } from "../ui";
 import { Checkout, TimeZone, type OnSale } from "./checkout";
 
@@ -53,7 +54,7 @@ export default async function Subscription({ params, searchParams }: Props) {
     .map((plan) => ({
       code: plan.code,
       name: plan.name,
-      description: plan.description,
+      description: plan.description ? plainText(plan.description, 400) || null : null,
       on_sale: plan.on_sale,
       terms: plan.terms.filter((term) => term.currency === currency),
     }))

@@ -61,6 +61,7 @@ export default async function Account({ params }: { params: Promise<{ site: stri
       : [],
   ]);
   const nameOf = new Map(named.map((row) => [row.id, row.name]));
+  const brandName = new Map([[brand.slug, brand.name], ...others.map((m) => [m.slug, nameOf.get(m.siteId) ?? m.slug] as const)]);
   const me = identity.user;
   const reason = reader.entitlement.reason;
   const here = identity.memberships.find((m) => m.siteId === brand.id);
@@ -71,9 +72,9 @@ export default async function Account({ params }: { params: Promise<{ site: stri
         <div>
           <p className="eyebrow">My account</p>
           <h1>{me.name}</h1>
-          <p className="bs-sub">{me.email}</p>
+          <p className="muted bs-email">{me.email}</p>
         </div>
-        <form action={signOutReader}>
+        <form action={signOutReader} className="more">
           <input type="hidden" name="site" value={site} />
           <button className="btn ghost" type="submit">
             Sign out
@@ -136,12 +137,12 @@ export default async function Account({ params }: { params: Promise<{ site: stri
                   <tbody>
                     {orders.map((o) => (
                       <tr key={o.id}>
-                        <td className="num">{day(o.created_at)}</td>
-                        <td>{o.site}</td>
+                        <td className="num nowrap">{day(o.created_at)}</td>
+                        <td>{brandName.get(o.site) ?? o.site}</td>
                         <td>
                           {o.plan_name}, {o.years === 1 ? "1 year" : `${o.years} years`}
                         </td>
-                        <td className="r num">
+                        <td className="r num nowrap">
                           {Number(o.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })} {o.currency}
                         </td>
                         <td>{ORDER_STATUS[o.status] ?? o.status}</td>
