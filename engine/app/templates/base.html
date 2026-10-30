@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ title }} · Petrosil console</title>
+<style>
+*,*::before,*::after { box-sizing:border-box; }
+:root {
+  --ink:#0f172a; --muted:#64748b; --faint:#94a3b8; --line:#e2e8f0; --bg:#f1f5f9;
+  --panel:#ffffff; --accent:#1d4ed8; --accent-soft:#eff6ff;
+  --ok:#047857; --ok-soft:#ecfdf5; --warn:#b45309; --warn-soft:#fffbeb;
+  --bad:#b91c1c; --bad-soft:#fef2f2;
+  --radius:10px; --shadow:0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+}
+body { margin:0; background:var(--bg); color:var(--ink);
+  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+
+/* The page itself never scrolls: the sidebar and the content pane scroll
+   independently, so navigation stays put while a long batch is read.
+   The scrollbars themselves are hidden -- scrolling still works by wheel,
+   trackpad, touch and keyboard. */
+.content, .side, .panel { scrollbar-width:none; -ms-overflow-style:none; }
+.content::-webkit-scrollbar,
+.side::-webkit-scrollbar,
+.panel::-webkit-scrollbar { width:0; height:0; display:none; }
+html,body { height:100%; overflow:hidden; }
+.shell { display:grid; grid-template-columns:15rem 1fr; height:100vh; overflow:hidden; }
+.side { background:#0f172a; color:#cbd5e1; padding:1.1rem .85rem; overflow-y:auto; }
+.side .logo { color:#fff; font-weight:700; letter-spacing:-.015em; font-size:1.02rem;
+  padding:.3rem .6rem 1.1rem; display:block; }
+.side .logo small { display:block; font-weight:500; font-size:.75rem; color:#64748b; letter-spacing:0; }
+.side .group { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; color:#64748b;
+  padding:1.1rem .6rem .35rem; }
+.side a.nav { display:block; padding:.45rem .6rem; border-radius:7px; color:#cbd5e1; font-size:.9rem; }
+.side a.nav:hover { background:#1e293b; color:#fff; text-decoration:none; }
+.side a.nav.on { background:var(--accent); color:#fff; }
+
+.main { display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+.top { background:var(--panel); border-bottom:1px solid var(--line); padding:.7rem 1.5rem;
+  display:flex; align-items:center; gap:.6rem; flex:none; }
+.crumb { color:var(--muted); font-size:.88rem; }
+.crumb b { color:var(--ink); font-weight:600; }
+.spacer { flex:1; }
+.who { color:var(--muted); font-size:.85rem; }
+.content { padding:1.6rem 1.5rem 3.5rem; max-width:72rem; width:100%; flex:1; overflow-y:auto; }
+/* Opt-in per screen (the "check what was read" table needs it; nothing
+   else does) -- the content pane fills the window instead of stopping at
+   the shared 72rem column. */
+.content.wide { max-width:none; }
+
+h1 { font-size:1.45rem; letter-spacing:-.015em; margin:0 0 .3rem; }
+h2 { font-size:1rem; margin:0 0 .9rem; letter-spacing:-.005em; }
+.lede { color:var(--muted); margin:0 0 1.4rem; max-width:46rem; }
+
+/* A wide table scrolls inside its own panel rather than pushing the page. */
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); margin-bottom:1.15rem; overflow-x:auto; }
+.panel > .body { padding:1.15rem 1.25rem; }
+.panel > .head { padding:.9rem 1.25rem; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:.6rem; }
+.panel > .head h2 { margin:0; }
+
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(16rem,1fr)); gap:1rem; }
+.tile { display:block; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:1.1rem 1.2rem; box-shadow:var(--shadow); color:inherit; }
+.tile:hover { border-color:var(--accent); text-decoration:none; }
+.tile strong { display:block; font-size:1.02rem; margin-bottom:.25rem; }
+.tile span { color:var(--muted); font-size:.87rem; }
+
+table { width:100%; border-collapse:collapse; font-size:.89rem; }
+thead th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--faint); font-weight:600; padding:.55rem .75rem; border-bottom:1px solid var(--line); }
+tbody td { padding:.6rem .75rem; border-bottom:1px solid var(--line); vertical-align:top; }
+tbody tr:last-child td { border-bottom:0; }
+tbody tr:hover { background:#f8fafc; }
+/* A row that is standing in for another (an editor opened in place) is
+   hidden outright: spelled out, because the rest of this sheet does the
+   same wherever `hidden` has to beat a display of its own. */
+tr[hidden] { display:none; }
+tbody tr.row-editing:hover { background:transparent; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+.wrap { word-break:break-all; }
+
+.badge { display:inline-block; padding:.12rem .5rem; border-radius:999px; font-size:.72rem;
+  font-weight:600; white-space:nowrap; }
+.badge.ok { background:var(--ok-soft); color:var(--ok); }
+.badge.mute { background:#f1f5f9; color:var(--muted); }
+.badge.warn { background:var(--warn-soft); color:var(--warn); }
+.badge.bad { background:var(--bad-soft); color:var(--bad); }
+
+label { display:block; font-size:.8rem; font-weight:600; color:var(--muted); margin-bottom:.25rem; }
+input,textarea,select { width:100%; font:inherit; padding:.5rem .65rem; color:var(--ink);
+  border:1px solid var(--line); border-radius:7px; background:#fff; }
+input:focus,textarea:focus,select:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+textarea { min-height:8.5rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85rem; }
+.field { margin-bottom:.9rem; }
+.fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:0 1rem; }
+/* A number and the unit it is in, read as one control. */
+.pair { display:flex; gap:.4rem; }
+.pair select { width:auto; flex:none; font-weight:600; }
+.check { display:flex; align-items:center; gap:.45rem; font-size:.88rem; color:var(--ink); font-weight:500; }
+.check input { width:auto; }
+/* A heading over a group of radios: a <label> would claim one of them. */
+.label-like { display:block; font-size:.8rem; font-weight:600; color:var(--muted); margin-bottom:.25rem; }
+/* A form opened inside a table row, in place of the row it edits. */
+.row-edit { background:var(--wash,#f7f8fa); border-radius:8px; padding:.75rem .85rem; }
+/* A value the row's form shows but does not offer to change. */
+.fixed-value { margin:0; padding:.5rem 0; font-weight:600; color:var(--ink); }
+
+button,.btn { font:inherit; font-weight:600; font-size:.88rem; padding:.5rem .95rem; border-radius:7px;
+  border:1px solid transparent; background:var(--accent); color:#fff; cursor:pointer; display:inline-block; }
+button:hover { filter:brightness(1.06); }
+button.ghost { background:#fff; color:var(--ink); border-color:var(--line); }
+button.danger { background:#fff; color:var(--bad); border-color:var(--line); }
+button.link { background:none; border:0; color:var(--accent); padding:0; font-weight:600; }
+button[disabled] { opacity:.5; cursor:not-allowed; }
+
+.flash { padding:.7rem .95rem; border-radius:8px; margin-bottom:1.15rem; font-size:.9rem; border:1px solid transparent; }
+.flash.ok { background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0; }
+.flash.bad { background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
+.flash.toast { position:fixed; top:1.1rem; left:50%; transform:translateX(-50%); z-index:60;
+  display:flex; align-items:flex-start; gap:.75rem; width:max-content; max-width:min(34rem, calc(100vw - 2rem));
+  margin:0; box-shadow:0 10px 30px rgba(15,23,42,.18); transition:opacity .3s, transform .3s; }
+.flash.toast.leaving { opacity:0; transform:translate(-50%, -.6rem); }
+.flash.toast .toast-close { background:none; border:0; padding:0 .1rem; color:inherit; font-size:1.15rem;
+  line-height:1; font-weight:400; opacity:.7; }
+.flash.toast .toast-close:hover { opacity:1; filter:none; }
+
+.hint { color:var(--muted); font-size:.82rem; margin:.4rem 0 0; }
+ul.steps { margin:.5rem 0 0; padding-left:1.1rem; }
+ul.steps li { margin-bottom:.25rem; }
+/* A dropdown that can say something about each option. Used for both fields
+   on the Price rules screen: a native <select> can hold neither a second line
+   per option nor a value that is not in its list. */
+.combo { position:relative; }
+.combo-field { display:flex; width:100%; align-items:center; gap:.5rem; text-align:left;
+  font:inherit; font-weight:400; color:var(--ink); background:#fff; cursor:pointer;
+  border:1px solid var(--line); border-radius:7px; padding:.5rem .65rem; }
+.combo-field:hover { filter:none; border-color:#cbd5e1; }
+.combo-field[aria-expanded="true"] { border-color:var(--accent); outline:2px solid var(--accent-soft); }
+.combo.missing .combo-field { border-color:var(--bad); background:var(--bad-soft); }
+.combo-value { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.combo-value.empty { color:var(--faint); }
+.combo-caret { flex:none; color:var(--faint); font-size:.65rem; }
+/* Fixed, not absolute, and placed by script: every ancestor here scrolls --
+   the panel (overflow-x for wide tables) and the content pane -- and each one
+   would clip a popup that hangs below its own edge. */
+.combo-pop { position:fixed; z-index:40; background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:0 12px 30px rgba(15,23,42,.16); padding:.45rem; }
+.combo-pop[hidden] { display:none; }
+.combo-search { margin-bottom:.3rem; font-size:.88rem; }
+.combo-list { overflow-y:auto; scrollbar-width:none; }
+.combo-list::-webkit-scrollbar { width:0; display:none; }
+.combo-opt { display:block; width:100%; text-align:left; font:inherit; font-weight:400;
+  background:none; border:0; border-radius:7px; padding:.4rem .5rem; cursor:pointer; color:var(--ink); }
+.combo-opt:hover, .combo-opt.on { filter:none; background:var(--accent-soft); }
+.combo-opt b { display:block; font-weight:600; font-size:.88rem; }
+.combo-opt small { display:block; color:var(--muted); font-size:.77rem; margin-top:.05rem; }
+.combo-group { font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; font-weight:600;
+  color:var(--faint); padding:.55rem .5rem .2rem; }
+.combo-empty { color:var(--muted); font-size:.85rem; padding:.5rem; }
+.mark { color:var(--accent); font-weight:600; }
+
+/* What the rulebook already does with the name chosen in the field above. */
+.rulenote { display:flex; gap:.5rem; align-items:flex-start; margin:.45rem 0 0;
+  border:1px solid transparent; border-radius:8px; padding:.5rem .6rem; font-size:.81rem; }
+.rulenote[hidden] { display:none; }
+.rulenote .mark { flex:none; color:inherit; font-size:.95rem; line-height:1.3; }
+.rulenote b { display:block; margin-bottom:.1rem; }
+.rulenote b + span { display:block; color:var(--muted); font-weight:400; }
+.rulenote.info { background:var(--accent-soft); border-color:#dbeafe; color:var(--accent); }
+.rulenote.warn { background:var(--warn-soft); border-color:#fde68a; color:var(--warn); }
+.rulenote.mute { background:#f8fafc; border-color:var(--line); color:var(--muted); }
+/* An ⓘ beside a heading: the page's explanation, shown on hover, focus or
+   tap instead of taking up the top of the page. */
+.info-tip { position:relative; display:inline-block; margin-left:.35rem; vertical-align:middle;
+  color:var(--accent); font-size:1rem; font-weight:400; line-height:1; cursor:help; }
+.info-tip:focus { outline:none; }
+.info-tip .info-pop { display:none; position:absolute; left:0; top:calc(100% + .45rem); z-index:30;
+  width:min(26rem, 80vw); padding:.7rem .85rem; border:1px solid var(--line); border-radius:8px;
+  background:var(--panel); box-shadow:var(--shadow); color:var(--ink); font-size:.84rem;
+  line-height:1.45; letter-spacing:0; cursor:auto; }
+.info-tip .info-pop p { margin:0 0 .5rem; }
+.info-tip .info-pop p:last-child { margin:0; }
+.info-tip:hover .info-pop, .info-tip:focus .info-pop, .info-tip:focus-within .info-pop { display:block; }
+.muted { color:var(--muted); }
+.small { font-size:.83rem; }
+.empty { color:var(--muted); font-size:.9rem; padding:.4rem 0; }
+.quote { color:var(--muted); font-size:.82rem; margin-top:.2rem; }
+.err { color:var(--bad); font-size:.82rem; margin-top:.2rem; }
+.actions { display:flex; gap:.5rem; align-items:center; margin-top:.4rem; }
+
+.filters { display:flex; gap:.35rem; flex-wrap:wrap; }
+.chip { font-size:.76rem; font-weight:600; padding:.2rem .55rem; border-radius:999px;
+  border:1px solid var(--line); color:var(--muted); background:#fff; white-space:nowrap; }
+.chip:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
+.chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.chip b { font-weight:700; }
+
+.login-wrap { display:flex; height:100%; overflow-y:auto; align-items:center; justify-content:center; padding:1.5rem; }
+.login { width:100%; max-width:23rem; }
+.login .brand { text-align:center; margin-bottom:1.1rem; }
+.login .brand strong { display:block; font-size:1.15rem; letter-spacing:-.02em; }
+.login .brand span { color:var(--muted); font-size:.85rem; }
+
+#working { position:fixed; inset:0; z-index:50; display:flex; align-items:center;
+  justify-content:center; background:rgba(15,23,42,.5); }
+#working[hidden] { display:none; }
+.working-panel { background:#fff; border-radius:var(--radius); padding:1.6rem 1.9rem;
+  text-align:center; box-shadow:0 10px 30px rgba(0,0,0,.25); max-width:22rem; }
+.spinner { width:2.2rem; height:2.2rem; margin:0 auto .9rem; border:3px solid rgba(15,23,42,.12);
+  border-top-color:var(--accent); border-radius:50%; animation:spin .9s linear infinite; }
+.working-title { margin:0 0 .35rem; font-weight:600; }
+.working-hint { margin:0; font-size:.85rem; color:var(--muted); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .spinner { animation-duration:3s; } }
+
+@media (max-width:820px) {
+  html,body { overflow:auto; }
+  .shell { grid-template-columns:1fr; height:auto; overflow:visible; }
+  .main { overflow:visible; }
+  .content { overflow:visible; }
+  .side { display:flex; flex-wrap:wrap; gap:.3rem; padding:.7rem; }
+  .side .logo { width:100%; padding-bottom:.5rem; }
+  .side .group { display:none; }
+}
+
+/* The rulebook, shown where it is being approved rather than offered as a
+   second box to edit. Capped and scrollable: it is 8,000 characters and
+   climbing, and it must not push the Read button off the screen. */
+details.rulebook { margin:.4rem 0 0; }
+details.rulebook > summary {
+  cursor:pointer; color:var(--accent); font-size:.85rem; width:fit-content;
+}
+details.rulebook > pre {
+  margin:.5rem 0 0; padding:.6rem .7rem; max-height:15rem; overflow:auto;
+  border:1px solid var(--line); border-radius:6px; background:var(--bg);
+  color:var(--muted); font-size:.78rem; line-height:1.5;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+</style>
+</head>
+<body>
+{% block shell %}
+<div class="shell">
+  <nav class="side">
+    <a class="logo" href="/console">Petrosil <small>price console</small></a>
+    <a class="nav {% if not site %}on{% endif %}" href="/console">All sites</a>
+    {% if site %}
+      <div class="group">This site</div>
+      {# "Update prices" (exact file upload + bulk edit) is deliberately not
+         in the menu: two price tabs confused editors, and the owner ruled the
+         editorial flow is the one screen. Its routes stay alive — the batch
+         pages under /prices/{id} are where staged rows get committed. #}
+      <a class="nav {% if section in ('editorial', 'prices') %}on{% endif %}" href="/console/sites/{{ site.slug }}/editorial">Update prices (AI editorial)</a>
+      <a class="nav {% if section == 'rules' %}on{% endif %}" href="/console/sites/{{ site.slug }}/rules">Price rules</a>
+      <a class="nav {% if section == 'crawler' %}on{% endif %}" href="/console/sites/{{ site.slug }}/crawler">Crawler</a>
+    {% endif %}
+    {% if user.is_admin or user.is_superadmin %}
+      <div class="group">Settings</div>
+      <a class="nav {% if section == 'sites' %}on{% endif %}" href="/console/settings/sites">Sites</a>
+      <a class="nav {% if section == 'users' %}on{% endif %}" href="/console/settings/users">Users</a>
+      {#- Saying who may use which website is the superadmin's job alone. #}
+      {% if user.is_superadmin %}
+        <a class="nav {% if section == 'access' %}on{% endif %}" href="/console/settings/access">Website access</a>
+      {% endif %}
+      <a class="nav {% if section == 'ai' %}on{% endif %}" href="/console/settings/ai">AI</a>
+    {% endif %}
+  </nav>
+  <div class="main">
+    <header class="top">
+      <span class="crumb">
+        {% if crumbs %}
+          {% for crumb in crumbs %}
+            {%- if not loop.first %} &rsaquo; {% endif -%}
+            {% if crumb.href %}<a href="{{ crumb.href }}">{{ crumb.label }}</a>{% else %}<b>{{ crumb.label }}</b>{% endif %}
+          {% endfor %}
+        {% else %}<b>{{ title }}</b>{% endif %}
+      </span>
+      <span class="spacer"></span>
+      <a class="who" href="/console/account">{{ user.name }}{% if user.is_superadmin %} · superadmin{% elif user.is_admin %} · admin{% endif %}</a>
+      <form method="post" action="/console/logout" style="margin:0">
+        <button class="ghost" type="submit">Sign out</button>
+      </form>
+    </header>
+    <div class="content{% block content_class %}{% endblock %}">
+      {# The answer to a save or a test, as a popup over the page rather than
+         a card pushing the page down. A success fades by itself; a problem
+         stays until it is closed, so it cannot be missed. #}
+      {% if flash %}
+        <div class="flash toast {{ flash.kind }}" role="{{ 'alert' if flash.kind == 'bad' else 'status' }}"
+          id="toast" data-kind="{{ flash.kind }}">
+          <span>{{ flash.text }}</span>
+          <button type="button" class="toast-close" aria-label="Close">&times;</button>
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+<div id="working" hidden>
+  <div class="working-panel">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="working-title" id="working-title">Working&hellip;</p>
+    <p class="working-hint" id="working-hint">Talking to the website — almost done. Please keep this page open.</p>
+  </div>
+</div>
+<script>
+(function () {
+  var toast = document.getElementById('toast');
+  if (!toast) return;
+
+  function dismiss() {
+    toast.classList.add('leaving');
+    setTimeout(function () { toast.remove(); }, 320);
+  }
+
+  toast.querySelector('.toast-close').addEventListener('click', dismiss);
+  if (toast.dataset.kind === 'ok') setTimeout(dismiss, 4000);
+
+  // The message came in the address (?ok=… / ?err=…); take it out, so a
+  // reload or a bookmark does not announce the same save again.
+  try {
+    var url = new URL(window.location.href);
+    if (url.searchParams.has('ok') || url.searchParams.has('err')) {
+      url.searchParams.delete('ok');
+      url.searchParams.delete('err');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch (e) {}
+})();
+
+(function () {
+  // Every screen here posts and redirects, and the sites behind them take
+  // 10-20 seconds. Without this a click looks like nothing happened, and the
+  // obvious reaction is to click again.
+  var overlay = document.getElementById('working');
+  var title = document.getElementById('working-title');
+  var hint = document.getElementById('working-hint');
+  var defaultTitle = title ? title.textContent : '';
+  var defaultHint = hint ? hint.textContent : '';
+
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!form || form.dataset.noOverlay === '1') return;
+    // A long-running form says what it is actually doing; everything else
+    // keeps the stock message.
+    if (title) title.textContent = form.dataset.workingTitle || defaultTitle;
+    if (hint) hint.textContent = form.dataset.workingHint || defaultHint;
+    // Fires only after the browser's own validation passes, so a missing
+    // field still shows its message instead of a stuck overlay.
+    setTimeout(function () { if (overlay) overlay.hidden = false; }, 0);
+  });
+
+  document.addEventListener('click', function (event) {
+    var link = event.target.closest && event.target.closest('a[data-slow]');
+    if (link && overlay) overlay.hidden = false;
+  });
+
+  // Back/forward can restore this page from the bfcache with the overlay
+  // still up. Reset it when that happens.
+  window.addEventListener('pageshow', function (e) { if (overlay) overlay.hidden = true; });
+
+  // One clock everywhere: IST, DD-MM-YY HH:mm. The owner's ask — timestamps
+  // arrive in mixed zones (module UTC, sites +05:30) and every screen must
+  // agree.
+  var istFormat = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+
+  function ist(when) {
+    var parts = {};
+    istFormat.formatToParts(when).forEach(function (part) { parts[part.type] = part.value; });
+    return parts.day + '-' + parts.month + '-' + parts.year + ' ' + parts.hour + ':' + parts.minute + ' IST';
+  }
+
+  document.querySelectorAll('time[datetime]').forEach(function (el) {
+    var when = new Date(el.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var mins = Math.round((Date.now() - when) / 60000);
+    el.textContent = mins < 1 ? 'just now'
+      : mins < 60 ? mins + ' min ago'
+      : mins < 1440 ? Math.round(mins / 60) + ' h ago'
+      : ist(when);
+    el.title = ist(when);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Users</h1>
+<p class="lede">
+  Who can sign in to this console. Disabling keeps their history readable; there is no delete.
+  Signing in is not the same as being able to use a website:
+  {% if user.is_superadmin %}say which websites each person can use on
+  <a href="/console/settings/access">Website access</a>.
+  {% else %}the superadmin says which websites each person can use.{% endif %}
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Add someone</h2></div>
+  <div class="body">
+    <form method="post" action="/console/settings/users">
+      <div class="fields">
+        <div class="field">
+          <label for="u-name">Name</label>
+          <input id="u-name" name="name" placeholder="Rakesh">
+        </div>
+        <div class="field">
+          <label for="u-email">Email</label>
+          <input id="u-email" name="email" type="email" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="u-password">Password</label>
+        <input id="u-password" name="password" type="password" minlength="10" required>
+        <p class="hint">At least 10 characters. It is stored hashed.</p>
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="is_admin"> Administrator (can manage sites and users)</label>
+      </div>
+      <div class="actions"><button type="submit">Add user</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Accounts</h2></div>
+  <table>
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for row in users %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td class="small">{{ row.email }}</td>
+          <td>
+            {% if row.is_superadmin %}<span class="badge ok">superadmin</span>
+            {% elif row.is_admin %}<span class="badge ok">admin</span>
+            {% else %}<span class="badge mute">member</span>{% endif %}
+          </td>
+          <td>
+            {% if row.disabled_at %}<span class="badge bad">disabled</span>
+            {% else %}<span class="badge ok">active</span>{% endif %}
+          </td>
+          <td>
+            {#- An ordinary administrator is not offered these against the
+                superadmin: resetting that password or disabling that account
+                would hand them every website and every token. The routes
+                refuse it too -- this only keeps the screen honest. #}
+            {% if row.is_superadmin and not user.is_superadmin %}
+              <span class="small muted">Only the superadmin can change this account.</span>
+            {% else %}
+            <form method="post" action="/console/settings/users/{{ row.id }}/password"
+              style="margin:0 0 .4rem;display:flex;gap:.3rem">
+              <input type="password" name="password" minlength="10" placeholder="new password"
+                style="width:11rem;padding:.25rem .4rem" required>
+              <button class="ghost" type="submit" style="padding:.25rem .5rem">Set</button>
+            </form>
+            <form method="post" action="/console/settings/users/{{ row.id }}/disabled" style="margin:0">
+              <input type="hidden" name="disabled" value="{{ '0' if row.disabled_at else '1' }}">
+              <button class="{{ 'ghost' if row.disabled_at else 'danger' }}" type="submit">
+                {{ "Enable" if row.disabled_at else "Disable" }}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

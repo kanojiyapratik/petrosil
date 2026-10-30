@@ -1,0 +1,459 @@
+"""The price-update screens: stage a batch, review every row, commit.
+
+Split from routes.py because these are the biggest screens in the console and
+the two sets share nothing but the layout.
+"""
+
+from __future__ import annotations
+
+from urllib.parse import quote
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from ..db.store import Store, StoredSite
+from .access import make_site_guard
+from .routes import NEEDS_ATTENTION, VALUE_EDITABLE, label_for, tone_for
+from ..editorial.summary import write_summary
+from .site_client import SiteClient, SiteError
+
+
+def create_price_routes(
+    *,
+    store: Store,
+    templates: Jinja2Templates,
+    current_user,
+    client_factory=None,
+    driver=None,
+    default_model: str | None = None,
+    driver_for=None,
+    drafts=None,
+) -> APIRouter:
+    router = APIRouter()
+
+    def note_the_update(client, batch_id: int, site_slug: str | None = None) -> None:
+        """Write the note that goes above the site's price trends table.
+
+        Everything in here is best-effort. It runs after the prices are
+        already live, so a model that will not answer, a site that has not
+        got the endpoint yet, or a batch that cannot be read back must all
+        end in silence rather than in an error on a publish that worked.
+        """
+        if driver is None:
+            return
+
+        try:
+            payload = client.batch(batch_id)
+            items = payload.get("items") or []
+            source = (payload.get("batch") or {}).get("source") or "editorial"
+
+            chosen = driver_for(site_slug) if driver_for is not None else None
+            active = chosen or driver
+            model = None if chosen is not None else default_model
+
+            note = write_summary(active, model, items, source=source)
+
+            if note:
+                client.post_summary(note, source=source, batch_id=batch_id)
+        except Exception:  # noqa: BLE001 - see the docstring
+            return
+
+    def client_for(site: StoredSite) -> SiteClient:
+        if client_factory is not None:
+            return client_factory(site)
+
+        return SiteClient(base_url=site.api_url, token=site.token, name=site.name)
+
+    def locations_of(site: StoredSite) -> list[dict]:
+        """A site that cannot answer must not take the whole screen down with
+        it: without the list the bulk-edit form and the location fixer are
+        unusable, but the batch list and every other row still are."""
+        try:
+            return client_for(site).locations().get("data", [])
+        except SiteError:
+            return []
+
+    def flash_of(request: Request):
+        if request.query_params.get("ok"):
+            return {"kind": "ok", "text": request.query_params["ok"]}
+
+        if request.query_params.get("err"):
+            return {"kind": "bad", "text": request.query_params["err"]}
+
+        return None
+
+    def back(path: str, kind: str, text: str) -> RedirectResponse:
+        return RedirectResponse(f"{path}?{kind}={quote(text)}", status_code=303)
+
+    # Returns (user, site, a-response-to-send-instead). The one implementation
+    # lives in access.py, so a site the signed-in user has not been given
+    # answers the same 404 here as it does on every other screen.
+    guard = make_site_guard(store=store, templates=templates, current_user=current_user)
+
+    @router.get("/console/sites/{slug}/prices", response_class=HTMLResponse)
+    def prices(request: Request, slug: str):
+        """Forwards to the editorial screen — the one price screen since the
+        owner's ruling. This URL lives on in histories and bookmarks, and its
+        Excel-only upload form kept catching editors who wanted to upload a
+        report. The batch pages beneath it (/prices/{id}) stay."""
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        query = request.url.query
+
+        return RedirectResponse(
+            f"/console/sites/{site.slug}/editorial" + (f"?{query}" if query else ""),
+            status_code=303,
+        )
+
+    @router.get("/console/sites/{slug}/prices-manual", response_class=HTMLResponse)
+    def prices_manual(request: Request, slug: str):
+        """The old screen (exact file upload + bulk edit), kept reachable at a
+        deliberate address for the rare case the editorial flow is wrong for
+        the job -- an exact sheet of decided prices must not pass through a
+        model."""
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        try:
+            batches = client_for(site).batches().get("data", [])
+        except SiteError as error:
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "user": user,
+                    "flash": None,
+                    "site": site,
+                    "section": "prices",
+                    "crumbs": None,
+                    "tone_for": tone_for,
+                    "title": "Could not reach the site",
+                    "message": str(error),
+                },
+                status_code=502,
+            )
+
+        return templates.TemplateResponse(
+            request,
+            "prices.html",
+            {
+                "user": user,
+                "flash": flash_of(request),
+                "site": site,
+                "section": "prices",
+                "crumbs": [
+                    {"label": site.name, "href": f"/console/sites/{site.slug}"},
+                    {"label": "Manual price tools"},
+                ],
+                "tone_for": tone_for,
+                "title": f"Prices · {site.name}",
+                "batches": [{**batch, "tone": tone_for(batch.get("status"))} for batch in batches],
+                "locations": locations_of(site),
+            },
+        )
+
+    @router.post("/console/sites/{slug}/prices/upload")
+    async def upload(request: Request, slug: str):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        form = await request.form()
+        upload_file = form.get("file")
+        path = f"/console/sites/{site.slug}/prices-manual"
+
+        if upload_file is None or not getattr(upload_file, "filename", ""):
+            return back(path, "err", "Choose a file to upload.")
+
+        content = await upload_file.read()
+
+        if not content:
+            return back(path, "err", "That file is empty.")
+
+        try:
+            # Relayed to the site untouched: reading the sheet is its job,
+            # because it knows its own locations and date formats.
+            result = client_for(site).upload_batch(
+                upload_file.filename, content, str(form.get("pricedate") or "")
+            )
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        batch_id = result.get("batch", {}).get("id")
+        store.record(
+            user.email, "uploaded a price file", site.slug, f"{upload_file.filename} to batch #{batch_id}"
+        )
+
+        return back(
+            f"/console/sites/{site.slug}/prices/{batch_id}",
+            "ok",
+            f"Saved price update #{batch_id} from {upload_file.filename}. Nothing is on the website yet.",
+        )
+
+    @router.post("/console/sites/{slug}/prices/bulk")
+    async def bulk(request: Request, slug: str):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        form = await request.form()
+        path = f"/console/sites/{site.slug}/prices-manual"
+        location_ids = [int(value) for value in form.getlist("location_ids") if str(value).isdigit()]
+
+        if not location_ids:
+            return back(path, "err", "Pick at least one location.")
+
+        # Only fields that were actually filled in are forwarded. Each
+        # operation has its own required fields on the site, and sending empty
+        # strings for the ones this operation does not use would fail that
+        # validation for no reason.
+        params: dict = {"location_ids": location_ids}
+
+        for key in (
+            "operation",
+            "date_from",
+            "date_to",
+            "value",
+            "source_date",
+            "target_date_from",
+            "target_date_to",
+        ):
+            value = form.get(key)
+
+            if isinstance(value, str) and value.strip() != "":
+                params[key] = value
+
+        try:
+            result = client_for(site).bulk_batch(params)
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        batch_id = result.get("batch", {}).get("id")
+        store.record(
+            user.email,
+            "staged a bulk edit",
+            site.slug,
+            f"{params.get('operation', '?')} on {len(location_ids)} location(s) to batch #{batch_id}",
+        )
+
+        return back(
+            f"/console/sites/{site.slug}/prices/{batch_id}",
+            "ok",
+            f"Saved price update #{batch_id}. Nothing is on the website yet.",
+        )
+
+    @router.get("/console/sites/{slug}/prices/{batch_id}", response_class=HTMLResponse)
+    def batch(request: Request, slug: str, batch_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        try:
+            envelope = client_for(site).batch(batch_id)
+        except SiteError as error:
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "user": user,
+                    "flash": None,
+                    "site": site,
+                    "section": "prices",
+                    "crumbs": None,
+                    "tone_for": tone_for,
+                    "title": "Could not load the batch",
+                    "message": str(error),
+                },
+                status_code=502,
+            )
+
+        base = f"/console/sites/{site.slug}/prices"
+        items = envelope.get("items", [])
+        summary = envelope.get("summary") or {}
+
+        # A 500-row batch with three unmatched rows in it is otherwise a
+        # hunt. "blocking" is its own filter because that is the question an
+        # admin actually has: what is stopping me committing this.
+        chosen = request.query_params.get("status") or ""
+
+        if chosen == "blocking":
+            shown = [
+                item
+                for item in items
+                if item.get("status") in NEEDS_ATTENTION and item.get("is_included")
+            ]
+        elif chosen:
+            shown = [item for item in items if item.get("status") == chosen]
+        else:
+            shown = items
+
+        blocking = len(
+            [
+                item
+                for item in items
+                if item.get("status") in NEEDS_ATTENTION and item.get("is_included")
+            ]
+        )
+
+        filters = [{"key": "", "label": "All", "count": len(items)}]
+
+        if blocking:
+            filters.append({"key": "blocking", "label": "Blocking", "count": blocking})
+
+        filters += [
+            {"key": status, "label": label_for(status), "count": count}
+            for status, count in summary.items()
+            if count
+        ]
+
+        # The AI draft this update came from, if any -- so what the AI said
+        # can be set against what is about to go live. A lookup that fails
+        # costs the link, not the page.
+        ai_draft_id = None
+
+        if drafts is not None:
+            try:
+                ai_draft_id = drafts.ids_for_batches(site.slug, [int(batch_id)]).get(int(batch_id))
+            except Exception:  # noqa: BLE001 - a missing link is not a broken page
+                ai_draft_id = None
+
+        return templates.TemplateResponse(
+            request,
+            "batch.html",
+            {
+                "ai_draft_id": ai_draft_id,
+                "user": user,
+                "flash": flash_of(request),
+                "site": site,
+                "section": "prices",
+                "crumbs": [
+                    {"label": site.name, "href": f"/console/sites/{site.slug}"},
+                    {"label": "Price updates", "href": base},
+                    {"label": f"Update #{batch_id}"},
+                ],
+                "tone_for": tone_for,
+                "title": f"Update #{batch_id} · {site.name}",
+                "envelope": envelope,
+                "items": shown,
+                "filters": filters,
+                "chosen": chosen,
+                "total_items": len(items),
+                "summary_counts": [
+                    (status, count) for status, count in summary.items() if count
+                ],
+                "draft": envelope.get("batch", {}).get("status") == "draft",
+                "base": base,
+                "locations": locations_of(site),
+                "needs_attention": NEEDS_ATTENTION,
+                "value_editable": VALUE_EDITABLE,
+            },
+        )
+
+    @router.post("/console/sites/{slug}/prices/{batch_id}/items/{item_id}")
+    async def update_item(request: Request, slug: str, batch_id: int, item_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        form = await request.form()
+        path = f"/console/sites/{site.slug}/prices/{batch_id}"
+        patch: dict = {}
+
+        # Only what this form actually sent. The site re-diffs a row whenever
+        # a value changes, so forwarding a field that did not change would
+        # recompute its status for nothing.
+        if str(form.get("new_price") or "") != "":
+            patch["new_price"] = float(str(form.get("new_price")))
+
+        if str(form.get("location_id") or "") != "":
+            patch["location_id"] = int(str(form.get("location_id")))
+
+        if form.get("is_included") is not None:
+            patch["is_included"] = str(form.get("is_included")) == "1"
+
+        if not patch:
+            return back(path, "err", "Nothing to change.")
+
+        try:
+            client_for(site).update_item(item_id, patch)
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        return RedirectResponse(path, status_code=303)
+
+    @router.post("/console/sites/{slug}/prices/{batch_id}/commit")
+    def commit(request: Request, slug: str, batch_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        path = f"/console/sites/{site.slug}/prices/{batch_id}"
+        client = client_for(site)
+
+        try:
+            result = client.commit_batch(batch_id)
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        # The one action in this console that changes a live price, which is
+        # what the audit trail exists for.
+        committed = result.get("committed")
+        store.record(
+            user.email,
+            "COMMITTED a batch to live prices",
+            site.slug,
+            f"batch #{batch_id}" + (f" ({committed} rows)" if committed else ""),
+        )
+
+        # The prices are already live. This only writes the note that goes
+        # above the site's price trends table, and swallows its own failures.
+        note_the_update(client, batch_id, site.slug)
+
+        return back(path, "ok", f"Update #{batch_id} is now live on the website.")
+
+    @router.post("/console/sites/{slug}/prices/{batch_id}/rollback")
+    def rollback(request: Request, slug: str, batch_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        path = f"/console/sites/{site.slug}/prices/{batch_id}"
+
+        try:
+            client_for(site).rollback_batch(batch_id)
+        except SiteError as error:
+            return back(path, "err", str(error))
+
+        store.record(user.email, "ROLLED BACK a committed batch", site.slug, f"batch #{batch_id}")
+
+        return back(path, "ok", f"Update #{batch_id} undone — the website prices are back to what they were.")
+
+    @router.post("/console/sites/{slug}/prices/{batch_id}/discard")
+    def discard(request: Request, slug: str, batch_id: int):
+        user, site, response = guard(request, slug)
+
+        if response is not None:
+            return response
+
+        try:
+            client_for(site).discard_batch(batch_id)
+        except SiteError as error:
+            return back(f"/console/sites/{site.slug}/prices/{batch_id}", "err", str(error))
+
+        store.record(user.email, "discarded a draft batch", site.slug, f"batch #{batch_id}")
+
+        return back(f"/console/sites/{site.slug}/prices", "ok", f"Update #{batch_id} deleted. Nothing was saved.")
+
+    return router

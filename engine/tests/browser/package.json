@@ -1,0 +1,11 @@
+{
+  "name": "petrosil-module-browser-tests",
+  "private": true,
+  "description": "jsdom harness for the console screens whose behaviour lives in the browser. Driven by tests/test_rules_screen_in_a_browser.py; see README.md.",
+  "scripts": {
+    "drive": "node drive_rules.js"
+  },
+  "dependencies": {
+    "jsdom": "26.1.0"
+  }
+}

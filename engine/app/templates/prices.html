@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Manual price tools</h1>
+<p class="lede">
+  Upload an exact price sheet or bulk-edit prices, review every row, then publish. Nothing
+  reaches the website until you press Publish, and a published update can be undone.
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Upload a price file</h2></div>
+  <div class="body">
+    <form method="post" action="/console/sites/{{ site.slug }}/prices/upload" enctype="multipart/form-data">
+      <div class="fields">
+        <div class="field">
+          <label for="file">Spreadsheet</label>
+          <input id="file" type="file" name="file" accept=".csv,.xls,.xlsx" required>
+        </div>
+        <div class="field">
+          <label for="pricedate">Price date</label>
+          <input id="pricedate" type="date" name="pricedate">
+        </div>
+      </div>
+      <p class="hint">
+        Two layouts work: <strong>location, price</strong>, where the date above covers every row,
+        or <strong>location, date, price</strong>, where each row's own date wins. A header row is
+        skipped. Up to 5000 rows.
+      </p>
+      <div class="actions"><button type="submit">Upload and preview</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Bulk edit</h2></div>
+  <div class="body">
+    <form method="post" action="/console/sites/{{ site.slug }}/prices/bulk">
+      <div class="field">
+        <label for="location_ids">Locations</label>
+        <select id="location_ids" name="location_ids" multiple size="8" required>
+          {% for location in locations %}<option value="{{ location.id }}">{{ location.title }}</option>{% endfor %}
+        </select>
+        <p class="hint">Hold Ctrl (or Cmd) to pick several.</p>
+      </div>
+      <div class="field">
+        <label for="operation">Operation</label>
+        <select id="operation" name="operation" required>
+          <option value="set">Set an absolute price</option>
+          <option value="adjust">Adjust by an amount (+/-)</option>
+          <option value="copy">Copy one date's prices to other dates</option>
+        </select>
+      </div>
+      <div class="fields">
+        <div class="field"><label for="date_from">Date from <span class="muted">(set / adjust)</span></label>
+          <input id="date_from" type="date" name="date_from"></div>
+        <div class="field"><label for="date_to">Date to</label><input id="date_to" type="date" name="date_to"></div>
+        <div class="field"><label for="value">Value</label><input id="value" type="number" step="any" name="value"></div>
+      </div>
+      <div class="fields">
+        <div class="field"><label for="source_date">Source date <span class="muted">(copy)</span></label>
+          <input id="source_date" type="date" name="source_date"></div>
+        <div class="field"><label for="target_date_from">Target from</label>
+          <input id="target_date_from" type="date" name="target_date_from"></div>
+        <div class="field"><label for="target_date_to">Target to</label>
+          <input id="target_date_to" type="date" name="target_date_to"></div>
+      </div>
+      <div class="actions"><button type="submit">Preview changes</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Recent price updates</h2></div>
+  {% if batches %}
+    <table>
+      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th></tr></thead>
+      <tbody>
+        {% for batch in batches %}
+          <tr>
+            <td><a href="/console/sites/{{ site.slug }}/prices/{{ batch.id }}">#{{ batch.id }}</a></td>
+            <td>{{ label_for(batch.source) }}</td>
+            <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
+            <td><span class="badge {{ batch.tone }}">{{ label_for(batch.status) }}</span></td>
+            <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ datefmt(batch.created_at) }}</time>{% else %}—{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">No price updates yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

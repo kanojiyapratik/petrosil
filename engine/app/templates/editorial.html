@@ -1,0 +1,548 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>AI editorial update</h1>
+<p class="lede">
+  Upload market reports (Word, Excel, PDF or plain text — e.g. the weekly Lube Report). The AI
+  <strong>reads</strong> each report on its own; you <strong>check</strong> what it read on the
+  next screen and correct anything wrong; then the checked prices are <strong>used</strong> to
+  work out a price for every location {{ site.name }} tracks. Nothing reaches {{ site.name }}
+  until you press Save.
+</p>
+
+{% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+{% if waiting %}
+  <div class="flash ok">
+    A reading is waiting to be checked —
+    {{ waiting.files|length }} report{{ "" if waiting.files|length == 1 else "s" }} already read.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ waiting.id }}">Check what was read</a>
+  </div>
+{% endif %}
+{% if spent %}
+  <div class="flash ok">
+    The last reading was already used once &mdash;
+    {{ spent.files|length }} report{{ "" if spent.files|length == 1 else "s" }} read. If its
+    prices never reached {{ site.name }}, open it and use them again rather than uploading the
+    reports afresh.
+    <a href="/console/sites/{{ site.slug }}/reading/{{ spent.id }}">Open what was read</a>
+    {% if spent_draft_id %}
+      or <a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ spent_draft_id }}">view the AI draft it made</a>
+    {% endif %}
+  </div>
+{% endif %}
+{% if reuse %}
+  <div class="panel">
+    <div class="head"><h2>Use these prices again</h2></div>
+    <div class="body">
+      <p class="hint" style="margin-top:0">
+        These checked prices were used once already. If that run was lost — the page was closed,
+        or saving to {{ site.name }} failed — use them again here rather than uploading and
+        checking the reports a second time. It is another AI reading.
+      </p>
+      <form method="post" action="/console/sites/{{ site.slug }}/editorial/analyse"
+            data-working-title="Working out the prices&hellip;">
+        <input type="hidden" name="set_id" value="{{ reuse.set_id }}">
+        <input type="hidden" name="pricedate" value="{{ reuse.pricedate }}">
+        <input type="hidden" name="again" value="1">
+        {#- The used_at this button was drawn with. Using these prices moves it,
+            so a refresh or a back-forward re-POST of this same form arrives
+            holding a value that is no longer there and is refused rather than
+            buying a second draft. #}
+        <input type="hidden" name="used_at" value="{{ reuse.used_at }}">
+        <div class="actions"><button type="submit">Use these prices again</button></div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+{% if benchmark_note %}<div class="flash bad">The second reading of the report figures failed, so only the first reading was used: {{ benchmark_note }}</div>{% endif %}
+
+<div class="panel">
+  <div class="head"><h2>Upload market reports</h2></div>
+  <div class="body">
+    {#- Two separate forms, deliberately not nested (nesting a form inside a
+        form is invalid HTML): this one posts to /reading, the instructions
+        form below it posts to /console/sites/{slug}/editorial. Its submit
+        button is moved out to sit after the instructions form via the
+        form="reading-form" attribute, so the reading order on screen is
+        reports -> price date -> the instructions tick -> Read the reports,
+        while both forms keep exactly the fields and action they always had. #}
+    <form id="reading-form" method="post" action="/console/sites/{{ site.slug }}/reading" enctype="multipart/form-data"
+      data-working-title="Reading the reports&hellip;"
+      data-working-hint="The AI is reading each report on its own — this can take a few minutes. Please keep this page open. You'll check what it found on the next screen before anything is used.">
+      <div class="fields">
+        <div class="field">
+          <label for="documents">Reports (up to {{ max_documents }}, {{ max_document_mb }} MB each)</label>
+          {#- The one control that actually posts, with or without the script
+              below: a plain multiple-select file input works on its own, and
+              stays the source the form submits. Without the script this input
+              is exactly what "up to {{ max_documents }} files" already
+              promises -- a picker that cannot be reopened without replacing
+              the first choice. With it, #doc-trigger takes over as the one
+              thing on screen: it opens the same picker, and once a report is
+              in the list it relabels itself "Add another report" so there is
+              never a second, separate control for that. #}
+          <input id="documents" type="file" name="documents" accept=".docx,.xlsx,.pdf,.txt" multiple required
+            data-max-documents="{{ max_documents }}" data-max-bytes="{{ max_document_bytes }}">
+          <button type="button" id="doc-trigger" class="ghost" style="margin-top:.5rem" hidden>Choose files</button>
+          <ul id="doc-list" class="doc-list" style="list-style:none;margin:.5rem 0 0;padding:0" hidden></ul>
+          <p id="doc-note" class="hint" style="margin:.35rem 0 0" hidden></p>
+          <p id="doc-file-error" class="flash bad" style="margin:.5rem 0 0" hidden></p>
+        </div>
+        <div class="field">
+          <label for="pricedate">Price date</label>
+          <input id="pricedate" type="date" name="pricedate" value="{{ pricedate or today }}">
+        </div>
+      </div>
+      {# The rulebook used to ride along on every upload with nobody looking
+         at it, and afterwards nobody could say what a given run had been
+         told. So it is an explicit tick, recorded with the run.
+
+         There was briefly a second instructions box here as well, holding a
+         copy of the same text for a one-run change. Two pre-filled boxes of
+         the same 8,000-character rulebook, neither saying which one saved,
+         read as "deal with your instructions again" on every upload -- when
+         the whole point is that the rulebook is written once and sent by
+         default. One box now, in its own panel below, and here the text is
+         shown read-only so the tick is still a promise about something an
+         editor can see. #}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="use_instructions" value="on" checked
+                 id="use-instructions">
+          Send the saved instructions for {{ site.name }}
+        </label>
+        {% if instructions %}
+        <p class="hint">
+          On by default &mdash; there is nothing to do here for an ordinary report.
+          {{ "{:,}".format(instructions | length) }} characters, which the AI is told before it
+          reads anything. Untick to read without them; to change them, edit
+          <strong>Instructions for the AI</strong> below and save.
+        </p>
+        <details class="rulebook">
+          <summary>See exactly what will be sent</summary>
+          <pre>{{ instructions }}</pre>
+        </details>
+        {% else %}
+        <p class="hint">
+          Nothing saved for {{ site.name }} yet, so there is nothing to send. Write it once in
+          <strong>Instructions for the AI</strong> below and every future upload carries it.
+        </p>
+        {% endif %}
+      </div>
+      <p class="hint">
+        Nothing changes on the website from this step &mdash; you'll check what was read on the next
+        screen before choosing what to use.
+      </p>
+    </form>
+
+    <form method="post" action="/console/sites/{{ site.slug }}/editorial" data-no-overlay="1">
+      <div class="field">
+        <label for="instructions">Instructions for the AI</label>
+        <p class="hint" style="margin:.1rem 0 .4rem">
+          The rulebook for {{ site.name }}, written once and sent with every upload. Edit it when
+          a reading rule changes &mdash; not when a new report arrives.
+        </p>
+        {#
+          maxlength was 4,000, and bitumart's saved rulebook is over 8,000: a
+          browser renders the whole value but refuses every keystroke once the
+          field is longer than its own limit, so the editor could delete from
+          this box and never add to it. The column is TEXT and the route caps
+          nothing, so the limit was only ever a typo guard -- it is now set
+          well clear of a rulebook that has grown every week since September.
+          rows went 3 -> 14 for the same reason: this is no longer a one-line
+          "ignore the recap section" note.
+        #}
+        <textarea id="instructions" name="instructions" rows="14" maxlength="60000"
+          placeholder="e.g. The USA prices are inside the picture table. Ignore last week's recap section."
+          style="width:100%">{{ instructions or "" }}</textarea>
+        <p class="hint">Saved against {{ site.name }} and reused for every report from now on.
+          Clear the box to remove them.</p>
+      </div>
+      <div class="actions"><button type="submit">Save instructions</button></div>
+    </form>
+
+    <div class="actions"><button type="submit" id="reading-submit" form="reading-form">Read the reports</button></div>
+  </div>
+</div>
+
+<script>
+// A plain <input type=file multiple> only ever expresses "the files chosen
+// together in one dialog" -- reopen the picker and the second choice
+// replaces the first, so there was no way to add a second report to an
+// already-made selection. This turns "documents" into an accumulating list
+// while keeping that same input as the one thing that actually posts:
+// what the picker returns on each round is merged into a running list here,
+// then written straight back to the input via DataTransfer, so the POST
+// body is exactly what the list on screen shows.
+//
+// One control, not two: the real input is hidden once this runs and
+// #doc-trigger stands in for it -- same picker, opened via input.click(),
+// relabelled between "Choose files" and "Add another report" depending on
+// whether the list is empty. A hidden file input still submits normally and
+// still fires "change" from a script-triggered click, so nothing about the
+// POST changes.
+//
+// Progressive enhancement only: everything below stays hidden, and the
+// input behaves exactly as it always did -- visible, plain, multiple-select
+// -- until this runs.
+(function () {
+  var input = document.getElementById('documents');
+  var trigger = document.getElementById('doc-trigger');
+  var list = document.getElementById('doc-list');
+  var note = document.getElementById('doc-note');
+  var fileError = document.getElementById('doc-file-error');
+  var submitButton = document.getElementById('reading-submit');
+
+  if (!input || !trigger || !list || !submitButton || typeof DataTransfer === 'undefined') return;
+
+  var maxDocuments = parseInt(input.dataset.maxDocuments, 10) || 5;
+  var maxBytes = parseInt(input.dataset.maxBytes, 10) || 0;
+  var maxMb = Math.round(maxBytes / (1024 * 1024));
+  var chosen = [];
+
+  function sameFile(a, b) { return a.name === b.name && a.size === b.size; }
+
+  function formatSize(bytes) {
+    return bytes >= 1024 * 1024
+      ? (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  }
+
+  function render() {
+    list.innerHTML = '';
+    list.hidden = chosen.length === 0;
+
+    chosen.forEach(function (file, index) {
+      var row = document.createElement('li');
+      row.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.2rem 0';
+
+      var label = document.createElement('span');
+      label.className = 'small';
+      label.style.flex = '1';
+      label.textContent = file.name + ' (' + formatSize(file.size) + ')';
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ghost';
+      remove.style.cssText = 'padding:.15rem .55rem';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', function () {
+        chosen.splice(index, 1);
+        sync();
+      });
+
+      row.appendChild(label);
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+
+    var atLimit = chosen.length >= maxDocuments;
+
+    note.hidden = false;
+    note.textContent = atLimit
+      ? chosen.length + ' of ' + maxDocuments + ' reports selected — remove one to add another.'
+      : chosen.length + ' of ' + maxDocuments + ' reports selected.';
+
+    trigger.disabled = atLimit;
+    trigger.textContent = atLimit
+      ? 'Limit reached'
+      : (chosen.length === 0 ? 'Choose files' : 'Add another report');
+
+    submitButton.disabled = chosen.length === 0;
+  }
+
+  function sync() {
+    // The only way to make the browser accept a built-up-in-script file
+    // list: a DataTransfer's own files, assigned onto the real input.
+    var transfer = new DataTransfer();
+    chosen.forEach(function (file) { transfer.items.add(file); });
+    input.files = transfer.files;
+    render();
+  }
+
+  function merge(files) {
+    fileError.hidden = true;
+
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+
+      if (maxBytes && file.size > maxBytes) {
+        fileError.hidden = false;
+        fileError.textContent = file.name + ' is larger than ' + maxMb + ' MB and was not added.';
+        continue;
+      }
+
+      var existing = -1;
+
+      for (var j = 0; j < chosen.length; j++) {
+        if (sameFile(chosen[j], file)) { existing = j; break; }
+      }
+
+      if (existing >= 0) {
+        // Same name and size chosen again -- replaces its old copy rather
+        // than sitting next to it as a second entry of the same report.
+        chosen[existing] = file;
+      } else if (chosen.length < maxDocuments) {
+        chosen.push(file);
+      } else {
+        fileError.hidden = false;
+        fileError.textContent = 'Only ' + maxDocuments + ' reports can be read at a time — ' +
+          file.name + ' was not added.';
+      }
+    }
+
+    sync();
+  }
+
+  input.addEventListener('change', function () {
+    // input.files here is only what this one dialog just returned -- one
+    // file or several picked together -- never the running total. merge()
+    // folds it into `chosen`; sync() writes the result back onto the input.
+    if (input.files && input.files.length) merge(input.files);
+  });
+
+  trigger.addEventListener('click', function () {
+    if (!trigger.disabled) input.click();
+  });
+
+  // The swap that makes this one control: the real input drops out of view
+  // (it still submits, hidden or not) and #doc-trigger takes its place as
+  // the only thing on screen that opens the picker.
+  input.hidden = true;
+  trigger.hidden = false;
+
+  render();
+})();
+</script>
+
+{% if batches is not none %}
+<div class="panel">
+  <div class="head"><h2>Recent price updates</h2></div>
+  {% if batches %}
+    <table>
+      <thead><tr><th>#</th><th>Came from</th><th>Prices</th><th>Status</th><th>Created</th><th>AI draft</th></tr></thead>
+      <tbody>
+        {% for batch in batches %}
+          <tr>
+            <td><a href="/console/sites/{{ site.slug }}/prices/{{ batch.id }}">#{{ batch.id }}</a></td>
+            <td>{{ label_for(batch.source) }}</td>
+            <td>{{ batch.items_count if batch.items_count is not none else "—" }}</td>
+            <td><span class="badge {{ batch.tone }}">{{ label_for(batch.status) }}</span></td>
+            <td class="small muted">{% if batch.created_at %}<time datetime="{{ batch.created_at }}">{{ datefmt(batch.created_at) }}</time>{% else %}—{% endif %}</td>
+            <td>{% if batch.draft_id %}<a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ batch.draft_id }}">View draft</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">No price updates yet.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if benchmarks %}
+<div class="panel">
+  <div class="head"><h2>Report figures found</h2></div>
+  <div class="body">
+    <p class="hint" style="margin-top:0">
+      Benchmark figures read from the reports — your price rules calculate site prices from
+      these. They are not site prices themselves and are never saved to the site.
+    </p>
+    <table>
+      <thead><tr><th>Benchmark</th><th>Range</th><th>Figure</th><th>Basis</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for row in benchmarks %}
+          <tr>
+            <td>{{ row.location }}</td>
+            <td>{{ row.suggested_min }}&ndash;{{ row.suggested_max }}</td>
+            <td>
+              {% if row.status == "needs_rate" %}
+                <strong>{{ row.currency }} {{ row.suggested_price }}</strong>
+                <span class="badge warn">{{ label_for(row.status) }}</span>
+              {% else %}<strong>{{ row.suggested_price }}</strong>{% endif %}
+            </td>
+            <td class="small muted">{{ row.basis or "" }}</td>
+            <td class="small muted">{{ row.source or "" }}</td>
+          </tr>
+          {% if row.conversion or row.status == "needs_rate" %}
+          <tr><td></td><td colspan="4" class="small muted">{{ row.rationale }}</td></tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if rows is not none and findings %}
+{# What the sheet says about itself, above the sheet. A blocker is an
+   internal contradiction -- a derived price off its own rule, a figure
+   rounded against this location's setting, a price outside the range it
+   was quoted from -- so there is no reading of the settings under which it
+   is right. A warning is worth seeing and may well be waved through. #}
+<div class="panel">
+  <div class="head">
+    <h2>
+      Before you publish —
+      {% if blockers %}{{ blockers }} to fix{% else %}{{ findings | length }} to look at{% endif %}
+    </h2>
+  </div>
+  <div class="body">
+    {% if blockers %}
+    <p class="hint">
+      <strong>{{ blockers }} figure(s) on this draft contradict your own settings.</strong>
+      Each one is checked against the price rules and rounding you have
+      configured, not against anyone's opinion of the market.
+    </p>
+    {% endif %}
+    <table>
+      <thead>
+        <tr><th>Location</th><th>Check</th><th>What is wrong</th><th>Expected</th><th>On this sheet</th></tr>
+      </thead>
+      <tbody>
+        {% for finding in findings %}
+        <tr>
+          <td>{{ finding.location or '—' }}</td>
+          <td>
+            <span class="badge {{ 'bad' if finding.severity == 'blocker' else 'warn' }}">
+              {{ finding.check.replace('_', ' ') }}
+            </span>
+          </td>
+          <td>{{ finding.detail }}</td>
+          <td>{% if finding.expected is not none %}{{ finding.expected }}{% else %}—{% endif %}</td>
+          <td>{% if finding.actual is not none %}{{ finding.actual }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if rows is not none %}
+<div class="panel">
+  <div class="head"><h2>Fetched prices — {{ datefmt(pricedate) }}</h2></div>
+  <div class="body">
+    <p class="hint">
+      {{ summary.suggested }} of {{ summary.total_locations }} locations have a suggestion;
+      {% if summary.derived %}{{ summary.derived }} calculated from them by your price rules;{% endif %}
+      {% if summary.needs_rate %}{{ summary.needs_rate }} figure(s) in another currency could not be converted — no exchange rate for that date — and need manual review;{% endif %}
+      {% if summary.near_match %}{{ summary.near_match }} close match(es) need your confirmation;{% endif %}
+      {{ summary.no_evidence }} had no evidence in the reports;
+      {{ summary.flagged }} flagged for a manual check.
+      {% if analysis and analysis.model %} Model: {{ analysis.model }}.{% endif %}
+      {# What this run was told, recorded with the draft. Without it, "did
+         the model disobey or was it never told?" has no answer a week
+         later -- the saved rulebook is edited in place. #}
+      {% if instructions_used %}
+        Instructions: {{ instructions_used | length }} characters sent.
+      {% else %}
+        <strong>Instructions: none sent with this run.</strong>
+      {% endif %}
+      {% if analysis and analysis.error %} <strong>{{ analysis.error }}</strong>{% endif %}
+      Every suggested price starts at the middle of the AI's range — you can edit it before saving.
+    </p>
+    <form method="post" action="/console/sites/{{ site.slug }}/editorial/stage">
+      <input type="hidden" name="pricedate" value="{{ pricedate }}">
+      {% if draft_id %}<input type="hidden" name="draft_id" value="{{ draft_id }}">{% endif %}
+      <table>
+        <thead>
+          <tr>
+            {# A number per location, so this list can be counted off rather
+               than scrolled through twice. #}
+            <th>&#8470;</th>
+            <th>Keep</th><th>Location</th><th>Current</th><th>Suggested range</th>
+            <th>Price to save</th><th>Change</th><th>Confidence</th>
+            <th>Basis</th><th>Source</th>
+            {# The arithmetic, in the client's own terms. The rows queried in
+               every mismatch round were the ones whose figure is printed
+               nowhere in the report -- a midpoint, a rounded midpoint, a
+               rule on another row. See app/editorial/workings.py. #}
+            <th>Workings</th>
+            <th>Rationale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% set suggested = row.status == "suggested" %}
+            {% set near = row.status == "near_match" %}
+            {% set derived = row.status == "derived" %}
+            {% set priced = suggested or near or derived %}
+            <tr>
+              <td class="small muted" style="text-align:right">{{ loop.index }}</td>
+              <td>
+                <input type="hidden" name="loc_{{ loop.index0 }}" value="{{ row.location }}">
+                {% if derived %}
+                  <input type="hidden" name="calc_{{ loop.index0 }}" value="{{ row.rationale }}">
+                {% endif %}
+                <input type="checkbox" name="inc_{{ loop.index0 }}" value="1"
+                  {% if (suggested or derived) and not row.flag %}checked{% endif %}
+                  {% if not priced %}disabled{% endif %}>
+              </td>
+              <td>
+                {{ row.location }}
+                {% if near %}
+                  <div class="small muted">
+                    The report calls this &ldquo;{{ row.reported_as }}&rdquo; &mdash; close to
+                    this tracked location. Tick only if it is the same thing.
+                  </div>
+                {% endif %}
+              </td>
+              <td>{% if row.current_price is not none %}{{ row.money }}{{ row.current_price }}{% else %}—{% endif %}</td>
+              <td>
+                {% if priced %}
+                  {{ row.money }}{{ row.suggested_min }}&ndash;{{ row.suggested_max }}
+                  {% if near %}<span class="badge warn">close match?</span>{% endif %}
+                  {% if derived %}<span class="badge mute">derived</span>{% endif %}
+                {% else %}<span class="badge warn">{{ label_for(row.status) }}</span>
+                  {# A blank that was a price last week is a different thing
+                     from a blank that is blank every week on purpose, and
+                     the badge is the only place the difference shows before
+                     the editor reads the rationale. #}
+                  {% if row.went_missing %}<span class="badge warn">was priced last time</span>{% endif %}
+                {% endif %}
+              </td>
+              <td>
+                {% if priced %}
+                  <span class="muted">{{ row.money }}</span>
+                  <input type="number" step="any" name="price_{{ loop.index0 }}"
+                         value="{{ row.suggested_price }}" style="width:7rem">
+                {% endif %}
+              </td>
+              <td>
+                {% if row.change_pct is not none %}
+                  {{ "+" if row.change_pct > 0 else "" }}{{ row.change_pct }}%
+                  {% if row.flag %}<span class="badge warn">check</span>{% endif %}
+                {% endif %}
+              </td>
+              <td>{{ row.confidence or "" }}</td>
+              <td class="small muted">{{ row.basis or "" }}</td>
+              <td class="small muted">{{ row.source or "" }}</td>
+              <td class="small muted">{{ row.workings or "" }}</td>
+              <td class="small muted">{{ row.rationale or "" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="actions">
+        <button type="submit">Save ticked prices to {{ site.name }}</button>
+        {% if draft_id %}
+        {# The sheet that argues for itself. Send this instead of a column of
+           bare numbers: every figure carries the report, the range it printed
+           and the arithmetic in between. #}
+        <a href="/console/sites/{{ site.slug }}/editorial/drafts/{{ draft_id }}/workings.csv">
+          Download workings (CSV)
+        </a>
+        {% endif %}
+      </div>
+      <p class="hint">
+        Saving opens the review page, where you check everything once more and press
+        <strong>Save pricing to {{ site.name }}</strong>.
+      </p>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# The layout's shared "Working…" overlay covers every submit on this page,
+   the drafting form included — a second overlay here double-fired with it. #}
+{% endblock %}

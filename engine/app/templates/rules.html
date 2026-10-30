@@ -1,0 +1,836 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Price rules</h1>
+<p class="lede">
+  Most locations are never priced in the market reports. Their price is worked out from one that
+  is — for example <em>South Korea = Singapore − 10%</em>. Set those sums here. The system does
+  the arithmetic, not the AI, and every price it works out is shown for you to check before
+  anything is saved to the website.
+</p>
+
+<div class="panel">
+  <div class="head"><h2>Add or update a rule</h2></div>
+  <div class="body">
+    <form method="post" action="/console/sites/{{ site.slug }}/rules" id="rule-form">
+      <div class="fields">
+        <div class="field">
+          <label for="derived-button">This price&hellip;</label>
+          {# Both fields are the same control. The right-hand one also takes a
+             typed report figure, which is why this is not a <select>: a select
+             cannot hold a value that is not in its list, and cannot show the
+             rule under each name. #}
+          <div class="combo" data-combo="derived">
+            <input type="hidden" name="derived_location" value="">
+            <button type="button" class="combo-field" id="derived-button"
+                    aria-haspopup="listbox" aria-expanded="false">
+              <span class="combo-value empty">Pick a location…</span>
+              <span class="combo-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="combo-pop" hidden>
+              <input type="text" class="combo-search" placeholder="Type to search…"
+                     autocomplete="off" spellcheck="false" aria-label="Filter locations">
+              <div class="combo-list" role="listbox"></div>
+            </div>
+          </div>
+          <p class="rulenote" data-note="derived" hidden></p>
+        </div>
+        <div class="field">
+          <label for="reference-button">&hellip;is calculated from</label>
+          <div class="combo" data-combo="reference">
+            <input type="hidden" name="reference_location" value="">
+            <button type="button" class="combo-field" id="reference-button"
+                    aria-haspopup="listbox" aria-expanded="false">
+              <span class="combo-value empty">Pick a location, or a price from the reports…</span>
+              <span class="combo-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="combo-pop" hidden>
+              <input type="text" class="combo-search" placeholder="Type to search, or type a report price…"
+                     autocomplete="off" spellcheck="false" aria-label="Filter locations">
+              <div class="combo-list" role="listbox"></div>
+            </div>
+          </div>
+          <p class="rulenote" data-note="reference" hidden></p>
+        </div>
+        <div class="field">
+          <label for="adjustment_value">Less or more by</label>
+          <div class="pair">
+            <input id="adjustment_value" type="number" step="any" name="adjustment_value"
+                   placeholder="-10" required>
+            <select id="adjustment_kind" name="adjustment_kind" aria-label="Percent or a fixed amount">
+              <option value="percent" selected>%</option>
+              <option value="usd">US$</option>
+              <option value="eur">€</option>
+              <option value="inr">₹</option>
+            </select>
+          </div>
+          <p class="rulenote mute" id="adjustment-note">
+            <span class="mark">ⓘ</span>
+            <span id="adjustment-sum" data-adjustment-sum></span>
+          </p>
+        </div>
+      </div>
+      <ul class="hint steps">
+        <li>A name with <span class="mark">ⓘ</span> already has a rule. Pick it and the box
+          below tells you what that rule is.</li>
+        <li>Not in the list? If the price you want to work from is one that only appears in the
+          market reports, type its name and choose <strong>Use "Report: &hellip;"</strong>. The
+          AI then looks for it in the reports you upload.</li>
+      </ul>
+      <div class="actions"><button type="submit">Save rule</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Rules for {{ site.name }}</h2></div>
+  {% if rules %}
+    <table>
+      <thead><tr>
+        <th>This price</th><th>Calculated from</th><th class="num">Less or more by</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr data-rule-row="{{ rule.id }}" {% if not rule.enabled %}class="muted"{% endif %}>
+            <td>{{ rule.derived_location }}</td>
+            <td>{{ rule.reference_location }}</td>
+            <td class="num">{{ label(rule) }}</td>
+            <td>
+              <span class="badge {{ 'ok' if rule.enabled else 'mute' }}">
+                {{ "active" if rule.enabled else "off" }}
+              </span>
+            </td>
+            <td style="white-space:nowrap">
+              <button class="ghost" type="button" data-edit-rule="{{ rule.id }}">Edit</button>
+              <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/toggle"
+                    style="display:inline" data-no-overlay="1">
+                <input type="hidden" name="enabled" value="{{ '0' if rule.enabled else '1' }}">
+                <button class="ghost" type="submit">{{ "Turn off" if rule.enabled else "Turn on" }}</button>
+              </form>
+              <form method="post" action="/console/sites/{{ site.slug }}/rules/{{ rule.id }}/delete"
+                    style="display:inline" data-no-overlay="1"
+                    onsubmit="return confirm('Remove this rule?')">
+                <button class="ghost" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {# Edited in the row itself. The rule is stored against its derived
+             location -- one price, one formula -- so that side is shown
+             rather than offered: changing it here would quietly leave the
+             old rule behind and add a second one. Moving a rule to another
+             price is what the form at the top is for. #}
+          <tr data-rule-edit="{{ rule.id }}" class="row-editing" hidden>
+            <td colspan="5">
+              <form method="post" action="/console/sites/{{ site.slug }}/rules"
+                    data-no-overlay="1" class="row-edit">
+                <input type="hidden" name="derived_location" value="{{ rule.derived_location }}">
+                <div class="fields">
+                  <div class="field">
+                    <span class="label-like">This price</span>
+                    <p class="fixed-value">{{ rule.derived_location }}</p>
+                  </div>
+                  <div class="field">
+                    <label for="reference-button-{{ rule.id }}">&hellip;is calculated from</label>
+                    <div class="combo" data-combo="reference" data-value="{{ rule.reference_location }}">
+                      <input type="hidden" name="reference_location"
+                             value="{{ rule.reference_location }}">
+                      <button type="button" class="combo-field" id="reference-button-{{ rule.id }}"
+                              aria-haspopup="listbox" aria-expanded="false">
+                        <span class="combo-value">{{ rule.reference_location }}</span>
+                        <span class="combo-caret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="combo-pop" hidden>
+                        <input type="text" class="combo-search"
+                               placeholder="Type to search, or type a report price…"
+                               autocomplete="off" spellcheck="false" aria-label="Filter locations">
+                        <div class="combo-list" role="listbox"></div>
+                      </div>
+                    </div>
+                    <p class="rulenote" data-note="reference" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="adjustment-value-{{ rule.id }}">Less or more by</label>
+                    <div class="pair">
+                      <input id="adjustment-value-{{ rule.id }}" type="number" step="any"
+                             name="adjustment_value" required
+                             value="{{ plain_number(rule.adjustment_value) }}">
+                      <select name="adjustment_kind" aria-label="Percent or a fixed amount">
+                        {% for value, shown in [
+                          ('percent', '%'), ('usd', 'US$'), ('eur', '€'), ('inr', '₹')] %}
+                          <option value="{{ value }}"
+                                  {% if rule.adjustment_kind == value %}selected{% endif %}>{{ shown }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <p class="rulenote mute">
+                      <span class="mark">ⓘ</span>
+                      <span data-adjustment-sum></span>
+                    </p>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button type="submit">Save</button>
+                  <button class="ghost" type="button" data-cancel-rule="{{ rule.id }}">Cancel</button>
+                </div>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">No rules yet. Add the first one above.</div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Rounding</h2></div>
+  <div class="body">
+    <p class="hint" style="margin-top:0">
+      Every price offered to you on the editorial screen — read straight from a report, converted
+      from another currency, or worked out above — rounds to this step before you see it. Leave it
+      blank for no rounding.
+    </p>
+    <form method="post" action="/console/sites/{{ site.slug }}/rounding" data-no-overlay="1">
+      <div class="field">
+        <label for="round_to_nearest">Round every price to a multiple of</label>
+        <input id="round_to_nearest" type="number" step="any" min="0" name="round_to_nearest"
+               placeholder="5" value="{{ plain_number(round_to_nearest) }}"
+               style="width:8rem">
+        <p class="hint">In each price's own currency: 5 means $5 on a dollar price, €5 on a euro
+          price and ₹5 on a rupee price.</p>
+      </div>
+      <div class="field">
+        <span class="label-like">Which way</span>
+        {% for value, title, example in [
+          ('nearest', 'Nearest', '97 → 95, 98 → 100'),
+          ('up', 'Always up', '97 → 100'),
+          ('down', 'Always down', '97 → 95')] %}
+          <label class="check">
+            <input type="radio" name="direction" value="{{ value }}"
+                   {% if round_direction == value %}checked{% endif %}>
+            {{ title }} <span class="hint" style="display:inline">— at a step of 5, {{ example }}</span>
+          </label>
+        {% endfor %}
+        <p class="hint">A price already on the step never moves, whichever way this is set.</p>
+      </div>
+      <div class="actions"><button type="submit">Save</button></div>
+    </form>
+
+    <h3 style="margin-top:1.5rem">Locations that round differently</h3>
+    <p class="hint">For the handful that don't follow the site default — for example a
+      local-currency price that rounds to 10 instead of 5, a price that must go out
+      exactly as the report prints it, or one whose printed figure is already the price
+      and must never be put through an exchange rate.</p>
+    <form method="post" action="/console/sites/{{ site.slug }}/rounding/override" data-no-overlay="1">
+      <div class="fields">
+        <div class="field">
+          <label for="rounding-location">Location</label>
+          <select id="rounding-location" name="location">
+            {% for name in locations %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="rounding-step">Round to a multiple of</label>
+          <div class="pair">
+            <span id="rounding-unit" aria-live="polite"></span>
+            <input id="rounding-step" type="number" step="any" min="0" name="round_to_nearest"
+                   placeholder="10" required style="width:8rem">
+          </div>
+        </div>
+        <div class="field">
+          <span class="label-like">Which way</span>
+          {% for value, title in [
+            ('nearest', 'Nearest'), ('up', 'Always up'), ('down', 'Always down')] %}
+            <label class="check">
+              <input type="radio" name="direction" value="{{ value }}" class="rounding-direction"
+                     {% if value == 'nearest' %}checked{% endif %}>
+              {{ title }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      <label class="check" style="margin-top:.5rem">
+        <input type="checkbox" id="rounding-exact" name="exact" value="1">
+        Don't round this location — use its price exactly as it is
+      </label>
+      {# UK South: Argus marks the row £/t, and the editor's published euro
+         price is that same number unconverted. No wording in the AI's
+         instructions can produce that -- the model reports the currency the
+         figure is printed in, correctly -- so the judgement is made here and
+         the exchange rate is simply not applied. #}
+      <label class="check" style="margin-top:.25rem">
+        <input type="checkbox" id="rounding-as-printed" name="as_printed" value="1">
+        Take the figure as printed — never convert it, whatever currency the report marks it in
+      </label>
+      <div class="actions"><button type="submit">Save override</button></div>
+    </form>
+
+    {% if rounding_overrides %}
+      <table style="margin-top:1rem">
+        <thead><tr><th>Location</th><th class="num">Rounds</th><th></th></tr></thead>
+        <tbody>
+          {% for override in rounding_overrides %}
+            <tr data-rounding-row="{{ override.id }}">
+              <td>{{ override.location }}</td>
+              <td class="num">{% if override.round_to_nearest %}{{ direction_labels[override.direction] }} {{ step_label(override.round_to_nearest, currencies.get(override.location)) }}{% else %}Never rounded — used exactly as it is{% endif %}{% if override.as_printed %}<br><span class="hint">figure taken as printed, never converted</span>{% endif %}</td>
+              <td style="white-space:nowrap">
+                <button class="ghost" type="button" data-edit-rounding="{{ override.id }}">Edit</button>
+                <form method="post"
+                      action="/console/sites/{{ site.slug }}/rounding/override/{{ override.id }}/delete"
+                      style="display:inline" data-no-overlay="1"
+                      onsubmit="return confirm('Remove this override?')">
+                  <button class="ghost" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+            {# Editing happens in the row itself: the list is at the bottom of
+               a long screen, and sending the editor back up to the form above
+               loses sight of the line being changed. Saving posts to the same
+               route, which upserts on (site, location) -- so a save over this
+               row IS the edit, exactly as it was before. #}
+            <tr data-rounding-edit="{{ override.id }}" class="row-editing" hidden>
+              <td colspan="3">
+                <form method="post" action="/console/sites/{{ site.slug }}/rounding/override"
+                      data-no-overlay="1" class="row-edit">
+                  <input type="hidden" name="location" value="{{ override.location }}">
+                  <div class="fields">
+                    <div class="field">
+                      <label for="rounding-step-{{ override.id }}">Round to a multiple of</label>
+                      <div class="pair">
+                        <span>{{ step_label(None, currencies.get(override.location)) }}</span>
+                        <input id="rounding-step-{{ override.id }}" type="number" step="any" min="0"
+                               name="round_to_nearest" required style="width:8rem"
+                               value="{% if override.round_to_nearest %}{{ plain_number(override.round_to_nearest) }}{% endif %}"
+                               {% if not override.round_to_nearest %}disabled{% endif %}>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <span class="label-like">Which way</span>
+                      {% for value, title in [
+                        ('nearest', 'Nearest'), ('up', 'Always up'), ('down', 'Always down')] %}
+                        <label class="check">
+                          <input type="radio" name="direction" value="{{ value }}"
+                                 {% if override.direction == value %}checked{% endif %}>
+                          {{ title }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+                  <label class="check" style="margin-top:.5rem">
+                    <input type="checkbox" name="exact" value="1" data-row-exact
+                           {% if not override.round_to_nearest %}checked{% endif %}>
+                    Don't round this location — use its price exactly as it is
+                  </label>
+                  <label class="check" style="margin-top:.25rem">
+                    <input type="checkbox" name="as_printed" value="1" data-row-as-printed
+                           {% if override.as_printed %}checked{% endif %}>
+                    Take the figure as printed — never convert it, whatever currency the report
+                    marks it in
+                  </label>
+                  <div class="actions">
+                    <button type="submit">Save</button>
+                    <button class="ghost" type="button" data-cancel-rounding="{{ override.id }}">Cancel</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+// One dropdown, built twice. Each row shows the location and, under it, what
+// the rulebook already does with that name -- which is the whole point of the
+// screen and is exactly what a native <select> cannot render. The right-hand
+// field additionally accepts a report figure that is not a site location, so
+// neither field can be a <select> and both must be the same control.
+(function () {
+  var NOTES = {{ rule_notes | tojson }};
+  var LOCATIONS = {{ locations | tojson }};
+  var BENCHMARKS = {{ benchmarks | tojson }};
+  var form = document.getElementById('rule-form');
+
+  // Nobody needs "a fixed amount in US dollars" explained to them in words.
+  // They need the sum, with the real price of the location they just picked:
+  // "Singapore SN 150 is 1560 today, so this price would be 1535."
+  var PRICES = {{ prices | tojson }};
+  // The currency each location is priced in, when the site says. A fixed
+  // amount is in the price's own currency: five euros on Brussels, rupees on
+  // a refinery price.
+  var CURRENCIES = {{ currencies | tojson }};
+  var KIND_FOR = { USD: 'usd', EUR: 'eur', INR: 'inr' };
+  var SYMBOL = { usd: '$', eur: '€', inr: '₹' };
+
+  // Every one of these lives in a form -- the one at the top, or the one a
+  // row opens in place -- and each must read and write its OWN fields. A
+  // lookup by id would have the row's Save rewriting the example under the
+  // form at the top, or worse, saving the amount typed there.
+  function example(scope) {
+    var kind = scope.querySelector('[name="adjustment_kind"]');
+    var amount = scope.querySelector('[name="adjustment_value"]');
+    var sum = scope.querySelector('[data-adjustment-sum]');
+    var from = scope.querySelector('[name="reference_location"]').value;
+    var to = scope.querySelector('[name="derived_location"]').value;
+    var typed = parseFloat(amount.value);
+    var fixed = kind.value !== 'percent';
+    var sign = fixed ? SYMBOL[kind.value] : '';
+
+    amount.placeholder = fixed ? '-25' : '-10';
+
+    if (isNaN(typed)) {
+      sum.textContent = fixed
+        ? 'Example: ' + sign + '1,000 − ' + sign + '25 = ' + sign +
+          '975. The amount is the same whatever the price is.'
+        : 'Example: 1,000 − 10% = 900.';
+      return;
+    }
+
+    var unit = fixed ? '' : '%';
+    var base = PRICES[from];
+
+    if (base === undefined) {
+      var shown = 1000;
+      sum.textContent = 'Example: ' + sign + money(shown) + ' ' + word(typed) + ' ' +
+        sign + money(Math.abs(typed)) + unit + ' = ' + sign +
+        money(work(shown, typed, fixed)) + '.';
+      return;
+    }
+
+    sum.textContent = from + ' is ' + sign + money(base) + ' today, so ' +
+      (to ? to : 'this price') + ' would be ' + sign + money(work(base, typed, fixed)) + '.';
+  }
+
+  // Picking a price that is in euros or rupees while a fixed amount is chosen
+  // moves the unit to that currency: the save refuses a mismatch anyway, and
+  // it is kinder to get it right before than to explain it after.
+  function matchUnit(scope, name) {
+    var kind = scope.querySelector('[name="adjustment_kind"]');
+    var own = KIND_FOR[(CURRENCIES[name] || '').toUpperCase()];
+
+    if (own && kind.value !== 'percent' && kind.value !== own) {
+      kind.value = own;
+    }
+  }
+
+  function work(base, typed, fixed) {
+    return Math.round(fixed ? base + typed : base * (1 + typed / 100));
+  }
+
+  function word(typed) {
+    return typed < 0 ? '−' : '+';
+  }
+
+  function money(value) {
+    return Math.round(value).toLocaleString('en-US');
+  }
+
+  function noteFor(name, side) {
+    var found = NOTES[name];
+    if (found) return found[side];
+    // A name typed into the second field that the rulebook has never seen.
+    if (name.slice(0, 7).toLowerCase() === 'report:') {
+      return {
+        tone: 'info', title: 'A price from the market reports',
+        detail: 'This is not a location on the website. The AI will look for “' +
+          name.slice(7).trim() + '” in the reports you upload, and the rule uses what it finds.',
+      };
+    }
+    return {
+      tone: 'mute', title: 'No location has this name',
+      detail: 'Nothing on ' + '{{ site.name }}' + ' is called this. If it is a price that only ' +
+        'appears in the market reports, start the name with "Report:".',
+    };
+  }
+
+  function combo(root) {
+    var side = root.dataset.combo;
+    var scope = root.closest('form');
+    var hidden = root.querySelector('input[type=hidden]');
+    var button = root.querySelector('.combo-field');
+    var value = root.querySelector('.combo-value');
+    var pop = root.querySelector('.combo-pop');
+    var search = root.querySelector('.combo-search');
+    var list = root.querySelector('.combo-list');
+    var note = scope.querySelector('[data-note="' + side + '"]');
+    var rows = [];
+    var active = -1;
+
+    function choose(name) {
+      hidden.value = name;
+      value.textContent = name;
+      value.classList.remove('empty');
+      var shown = noteFor(name, side);
+      note.className = 'rulenote ' + shown.tone;
+      note.innerHTML = '';
+      var mark = document.createElement('span');
+      mark.className = 'mark';
+      mark.textContent = 'ⓘ';
+      var body = document.createElement('span');
+      var title = document.createElement('b');
+      title.textContent = shown.title;
+      var detail = document.createElement('span');
+      detail.textContent = shown.detail;
+      body.appendChild(title);
+      body.appendChild(detail);
+      note.appendChild(mark);
+      note.appendChild(body);
+      note.hidden = false;
+      root.classList.remove('missing');
+      close();
+      if (side === 'derived') {
+        matchUnit(scope, name);
+      }
+
+      // The worked example names both locations and uses the price of the
+      // one on the right, so it is rewritten whenever either changes.
+      example(scope);
+    }
+
+    function row(name, label) {
+      var option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'combo-opt';
+      option.setAttribute('role', 'option');
+      var head = document.createElement('b');
+      head.textContent = label || name;
+      option.appendChild(head);
+      var summary = NOTES[name] && NOTES[name].summary;
+      if (summary) {
+        var under = document.createElement('small');
+        under.innerHTML = '<span class="mark">ⓘ</span> ';
+        under.appendChild(document.createTextNode(summary));
+        option.appendChild(under);
+      }
+      option.addEventListener('click', function () { choose(name); });
+      return option;
+    }
+
+    function group(text) {
+      var head = document.createElement('div');
+      head.className = 'combo-group';
+      head.textContent = text;
+      return head;
+    }
+
+    function matches(name, needle) {
+      return name.toLowerCase().indexOf(needle) !== -1;
+    }
+
+    function render() {
+      var needle = search.value.trim().toLowerCase();
+      var typed = search.value.trim();
+      list.innerHTML = '';
+      rows = [];
+      active = -1;
+
+      function section(title, names) {
+        var hits = names.filter(function (name) { return matches(name, needle); });
+        if (!hits.length) return;
+        list.appendChild(group(title));
+        hits.forEach(function (name) {
+          var option = row(name);
+          list.appendChild(option);
+          rows.push(option);
+        });
+      }
+
+      var marked = LOCATIONS.filter(function (name) { return NOTES[name] && NOTES[name].flag; });
+      var plain = LOCATIONS.filter(function (name) { return !NOTES[name] || !NOTES[name].flag; });
+
+      section('Already has a rule', marked);
+      section('No rule yet', plain);
+
+      if (side === 'reference') {
+        // A reference is matched by exact name, so one that is neither a
+        // location nor a "Report:" figure matches nothing and the rules under
+        // it never run. Listing it as a report figure would hide that.
+        section('Prices from the market reports', BENCHMARKS.filter(function (name) {
+          return !(NOTES[name] && NOTES[name].orphan);
+        }));
+        section('⚠ Name not found — these rules do nothing', BENCHMARKS.filter(function (name) {
+          return NOTES[name] && NOTES[name].orphan;
+        }));
+      }
+
+      // The second field may name a figure the rulebook has never seen. Offer
+      // it back rather than making the editor guess the wording.
+      if (side === 'reference' && typed) {
+        var known = LOCATIONS.concat(BENCHMARKS).some(function (name) {
+          return name.toLowerCase() === typed.toLowerCase();
+        });
+        if (!known) {
+          list.appendChild(group('Not in the list'));
+          if (typed.slice(0, 7).toLowerCase() !== 'report:') {
+            var asReport = row('Report: ' + typed, 'Use “Report: ' + typed + '”');
+            list.appendChild(asReport);
+            rows.push(asReport);
+          }
+          var asIs = row(typed, 'Use “' + typed + '”');
+          list.appendChild(asIs);
+          rows.push(asIs);
+        }
+      }
+
+      if (!rows.length) {
+        var empty = document.createElement('div');
+        empty.className = 'combo-empty';
+        empty.textContent = 'Nothing matches “' + search.value.trim() + '”.';
+        list.appendChild(empty);
+      }
+    }
+
+    function highlight(next) {
+      if (!rows.length) return;
+      if (active >= 0) rows[active].classList.remove('on');
+      active = (next + rows.length) % rows.length;
+      rows[active].classList.add('on');
+      rows[active].scrollIntoView({block: 'nearest'});
+    }
+
+    // The popup is fixed to the viewport, so it has to be told where the
+    // field is -- and told again whenever anything scrolls under it. It opens
+    // upwards when the field sits too low for the list to fit below.
+    function place() {
+      var box = button.getBoundingClientRect();
+      var below = window.innerHeight - box.bottom - 16;
+      var above = box.top - 16;
+      var up = below < 200 && above > below;
+      var room = Math.max(140, Math.min(340, up ? above : below));
+
+      pop.style.left = box.left + 'px';
+      pop.style.width = box.width + 'px';
+      pop.style.top = up ? '' : (box.bottom + 6) + 'px';
+      pop.style.bottom = up ? (window.innerHeight - box.top + 6) + 'px' : '';
+      list.style.maxHeight = (room - 52) + 'px';
+    }
+
+    function open() {
+      pop.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      search.value = '';
+      render();
+      place();
+      search.focus();
+    }
+
+    function close() {
+      pop.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+    }
+
+    function follow() {
+      if (!pop.hidden) place();
+    }
+
+    // Capture, so scrolling inside the content pane counts too, not only the
+    // window.
+    document.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+
+    button.addEventListener('click', function () {
+      if (pop.hidden) open(); else close();
+    });
+
+    search.addEventListener('input', function () { render(); place(); });
+
+    search.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); highlight(active + 1); }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); highlight(active - 1); }
+      else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (active >= 0) rows[active].click();
+        else if (rows.length === 1) rows[0].click();
+      } else if (event.key === 'Escape') { close(); button.focus(); }
+    });
+
+    document.addEventListener('click', function (event) {
+      if (!root.contains(event.target)) close();
+    });
+
+    return {
+      root: root,
+      value: function () { return hidden.value; },
+      flag: function () { root.classList.add('missing'); button.focus(); },
+      // Picks a name as if it had been clicked -- what Edit on a row uses.
+      set: function (name) { choose(name); },
+    };
+  }
+
+  // The two at the top are kept by name, because the submit guard below has
+  // to flag whichever was left empty. A row's own combo needs no handle: it
+  // opens already filled in with the rule's reference.
+  var combos = {};
+  document.querySelectorAll('[data-combo]').forEach(function (root) {
+    var made = combo(root);
+
+    if (root.closest('#rule-form')) {
+      combos[root.dataset.combo] = made;
+    }
+  });
+
+  // The rounding step is in the picked location's own currency, so the sign
+  // in front of the box follows the location: ₹ for a refinery price.
+  var roundingPlace = document.getElementById('rounding-location');
+  var roundingUnit = document.getElementById('rounding-unit');
+
+  function roundingSign() {
+    var code = (CURRENCIES[roundingPlace.value] || '').toUpperCase();
+    roundingUnit.textContent = SYMBOL[KIND_FOR[code]] || '';
+  }
+
+  if (roundingPlace && roundingUnit) {
+    roundingPlace.addEventListener('change', roundingSign);
+    roundingSign();
+  }
+
+  // "Use the price exactly as it is" makes the step box moot: grey it out
+  // and stop the browser demanding a number that will be ignored.
+  var roundingExact = document.getElementById('rounding-exact');
+  var roundingStepBox = document.getElementById('rounding-step');
+
+  function exactToggled() {
+    roundingStepBox.disabled = roundingExact.checked;
+    roundingStepBox.required = !roundingExact.checked;
+  }
+
+  if (roundingExact && roundingStepBox) {
+    roundingExact.addEventListener('change', exactToggled);
+    exactToggled();
+  }
+
+  // A rule, like a rounding step, is edited in its own row rather than in
+  // the form at the top: both lists sit at the bottom of a long screen, and
+  // scrolling the editor back up takes the line they are changing off it.
+  // The row's form posts to the same route, which upserts on (site, derived
+  // location) -- so a save over the row IS the edit, as it always was.
+  function openInPlace(rowKey, editKey) {
+    function all(name) {
+      return document.querySelectorAll('[' + name + ']');
+    }
+
+    function closeAll() {
+      all(editKey).forEach(function (row) { row.hidden = true; });
+      all(rowKey).forEach(function (row) { row.hidden = false; });
+    }
+
+    return { closeAll: closeAll, open: function (id) {
+      var shown = document.querySelector('[' + rowKey + '="' + id + '"]');
+      var editor = document.querySelector('[' + editKey + '="' + id + '"]');
+
+      if (!editor) {
+        return null;
+      }
+
+      // One at a time: a second editor open further up the list invites
+      // saving the one that is no longer on the screen.
+      var wasOpen = !editor.hidden;
+      closeAll();
+
+      if (wasOpen) {
+        return null;
+      }
+
+      shown.hidden = true;
+      editor.hidden = false;
+
+      return editor;
+    } };
+  }
+
+  var ruleRows = openInPlace('data-rule-row', 'data-rule-edit');
+
+  document.querySelectorAll('[data-edit-rule]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var editor = ruleRows.open(button.dataset.editRule);
+
+      if (!editor) {
+        return;
+      }
+
+      var amount = editor.querySelector('[name="adjustment_value"]');
+
+      // The worked example is only written when something changes, so a
+      // freshly opened editor has to ask for it once.
+      example(editor.querySelector('form'));
+      amount.focus();
+      amount.select();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-rule]').forEach(function (button) {
+    button.addEventListener('click', ruleRows.closeAll);
+  });
+
+  // Each form's own amount and unit drive its own example.
+  document.querySelectorAll('form').forEach(function (scope) {
+    if (!scope.querySelector('[data-adjustment-sum]')) {
+      return;
+    }
+
+    ['[name="adjustment_kind"]', '[name="adjustment_value"]'].forEach(function (selector) {
+      var field = scope.querySelector(selector);
+      var event = selector.indexOf('kind') === -1 ? 'input' : 'change';
+
+      if (field) {
+        field.addEventListener(event, function () { example(scope); });
+      }
+    });
+  });
+
+  // A rounding step opens in its row the same way, through the same helper.
+  var roundingRows = openInPlace('data-rounding-row', 'data-rounding-edit');
+
+  document.querySelectorAll('[data-edit-rounding]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var editor = roundingRows.open(button.dataset.editRounding);
+
+      if (!editor) {
+        return;
+      }
+
+      var step = editor.querySelector('input[name="round_to_nearest"]');
+
+      if (step && !step.disabled) {
+        step.focus();
+        step.select();
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-rounding]').forEach(function (button) {
+    button.addEventListener('click', roundingRows.closeAll);
+  });
+
+  // Same rule as the form above: "use it exactly as it is" makes the step
+  // box moot, so it greys out rather than sending a number that is ignored.
+  document.querySelectorAll('[data-row-exact]').forEach(function (box) {
+    var step = box.closest('form').querySelector('input[name="round_to_nearest"]');
+
+    box.addEventListener('change', function () {
+      step.disabled = box.checked;
+      step.required = !box.checked;
+    });
+  });
+
+  example(form);
+
+  // A hidden input is exempt from the browser's own "please fill this in", so
+  // the check has to be made here -- otherwise the first thing an editor sees
+  // is a round trip that comes back saying "Pick both locations".
+  form.addEventListener('submit', function (event) {
+    var empty = ['derived', 'reference'].filter(function (side) {
+      return !combos[side].value();
+    });
+    if (empty.length) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      combos[empty[0]].flag();
+    }
+  }, true);
+})();
+</script>
+{% endblock %}

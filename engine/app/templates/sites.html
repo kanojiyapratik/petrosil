@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Sites</h1>
+<p class="lede">Pick the site you want to work on. Prices and crawlers for all of them live here.</p>
+{% if sites %}
+  <div class="tiles">
+    {% for entry in sites %}
+      <a class="tile" href="/console/sites/{{ entry.slug }}">
+        <strong>{{ entry.name }}</strong>
+        <span class="wrap">{{ entry.api_url }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="panel"><div class="body empty">
+    {% if user.is_superadmin %}No sites yet. <a href="/console/settings/sites">Add the first one</a>.
+    {% else %}No websites yet. Ask the superadmin for the ones you should be using.{% endif %}
+  </div></div>
+{% endif %}
+{% endblock %}

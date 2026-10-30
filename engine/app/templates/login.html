@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block shell %}
+<div class="login-wrap">
+  <div class="login">
+    <div class="brand">
+      <strong>Petrosil price console</strong>
+      <span>Prices and crawlers, for every site</span>
+    </div>
+    <div class="panel"><div class="body">
+      {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+      <form method="post" action="/console/login">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <div style="position:relative">
+            <input id="password" name="password" type="password" autocomplete="current-password"
+                   required style="width:100%; padding-right:2.4rem">
+            <button type="button" id="toggle-password" aria-label="Show password"
+                    style="position:absolute; right:.35rem; top:50%; transform:translateY(-50%);
+                           background:none; border:none; padding:.25rem; cursor:pointer;
+                           font-size:1rem; line-height:1; color:inherit">&#128065;</button>
+          </div>
+        </div>
+        <button type="submit" style="width:100%">Sign in</button>
+      </form>
+      <script>
+        (function () {
+          var input = document.getElementById("password");
+          var toggle = document.getElementById("toggle-password");
+          toggle.addEventListener("click", function () {
+            var showing = input.type === "text";
+            input.type = showing ? "password" : "text";
+            toggle.textContent = showing ? "👁" : "🙈";
+            toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+            input.focus();
+          });
+        })();
+      </script>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

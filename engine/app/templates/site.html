@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ site.name }}</h1>
+<p class="lede wrap">{{ site.api_url }}</p>
+<div class="tiles">
+  <a class="tile" href="/console/sites/{{ site.slug }}/prices">
+    <strong>Update prices</strong>
+    <span>Upload a sheet, bulk edit, review and commit a batch.</span>
+  </a>
+  <a class="tile" href="/console/sites/{{ site.slug }}/crawler">
+    <strong>Crawler</strong>
+    <span>Watched URLs, and what changed on them.</span>
+  </a>
+</div>
+<div class="panel" style="margin-top:1.2rem">
+  <div class="head"><h2>Recent activity on this site</h2></div>
+  {% if recent %}
+    <table><tbody>
+      {% for entry in recent %}
+        <tr>
+          <td>{{ entry.action }}{% if entry.detail %} <span class="muted">— {{ entry.detail }}</span>{% endif %}</td>
+          <td class="small muted">{{ entry.user_email }}</td>
+          <td class="small muted"><time datetime="{{ entry.created_at }}">{{ datefmt(entry.created_at) }}</time></td>
+        </tr>
+      {% endfor %}
+    </tbody></table>
+  {% else %}
+    <div class="body empty">Nothing yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

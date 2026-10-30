@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Crawler</h1>
+<p class="lede">
+  Each URL is checked every {{ interval_minutes }} minutes and read with AI. Nothing is saved to the site:
+  findings appear below and you can save them as a price update like any other.
+</p>
+
+<div class="panel">
+  <div class="head">
+    <h2>Watched URLs</h2><span class="spacer"></span>
+    <span class="badge mute">{{ urls | selectattr("enabled") | list | length }} watched</span>
+  </div>
+  <div class="body">
+    <form id="watch-form" data-no-overlay="1" method="post" action="/console/sites/{{ site.slug }}/crawler/urls">
+      <textarea name="text" spellcheck="false" placeholder="https://example.com/base-oil-prices">
+{%- for entry in urls %}{% if entry.enabled %}{{ entry.url }}
+{% endif %}{% endfor %}</textarea>
+      <p class="hint">One per line. Removing a line stops the watch — its history is kept, not deleted.
+        Changes are saved on their own as you type.</p>
+      <div class="field" style="margin-top:.8rem">
+        <label for="crawl-instructions">Extra instructions for the AI (optional)</label>
+        <textarea id="crawl-instructions" name="instructions" rows="3" maxlength="4000"
+          spellcheck="false"
+          placeholder="e.g. The bottom table on the page is last year's — read only the top one.">{{ instructions or "" }}</textarea>
+        <p class="hint">Anything you want the AI to know when it reads these pages. Used on every
+          check, the automatic ones included &mdash; clear the box to remove them.</p>
+      </div>
+    </form>
+    <form id="crawl-now-form" method="post" action="/console/sites/{{ site.slug }}/crawler/check"
+      data-working-title="Crawling&hellip;"
+      data-working-hint="Fetching each watched page and reading it with the AI — this can take a minute or two. Please keep this page open.">
+      <div class="actions" style="align-items:center;gap:.8rem">
+        <button type="submit">Crawl now</button>
+        <span id="watch-saved" class="hint" style="margin:0" aria-live="polite"></span>
+      </div>
+    </form>
+
+<script>
+// The URL list and the AI instructions save themselves: a pause in typing or
+// leaving the box is enough. "Crawl now" saves anything unsaved first, so it
+// always crawls what is on the screen.
+(function () {
+  var form = document.getElementById('watch-form');
+  var note = document.getElementById('watch-saved');
+  var timer = null;
+  var dirty = false;
+  var saving = null;
+
+  function save() {
+    dirty = false;
+    note.textContent = 'Saving…';
+    saving = fetch(form.action, {
+      method: 'POST',
+      body: new URLSearchParams(new FormData(form)),
+      credentials: 'same-origin',
+    }).then(function (response) {
+      if (!response.ok) throw new Error('save failed');
+      if (!dirty) note.textContent = 'Saved.';
+    }).catch(function () {
+      dirty = true;
+      note.textContent = 'Could not save — check the connection and edit again.';
+    }).finally(function () { saving = null; });
+    return saving;
+  }
+
+  function changed() {
+    dirty = true;
+    note.textContent = '';
+    clearTimeout(timer);
+    timer = setTimeout(save, 1200);
+  }
+
+  form.querySelectorAll('textarea').forEach(function (box) {
+    box.addEventListener('input', changed);
+    box.addEventListener('change', function () {
+      if (dirty) { clearTimeout(timer); save(); }
+    });
+  });
+
+  form.addEventListener('submit', function (event) { event.preventDefault(); save(); });
+
+  document.getElementById('crawl-now-form').addEventListener('submit', function (event) {
+    if (!dirty && !saving) return;
+    event.preventDefault();
+    clearTimeout(timer);
+    var pending = saving || save();
+    pending.then(function () {
+      if (!dirty) event.target.submit();
+    });
+  });
+})();
+</script>
+  </div>
+  {% if urls %}
+    <table>
+      <thead><tr><th>URL</th><th>Last check</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for entry in urls %}
+          <tr>
+            <td class="wrap">
+              {{ entry.url }}
+              {% if not entry.enabled %}<span class="badge mute">stopped</span>{% endif %}
+              {% if entry.last_notes %}<div class="quote">“{{ entry.last_notes }}”</div>{% endif %}
+              {% if entry.last_error %}
+                <div class="err">{{ entry.last_error[:200] }}{% if entry.last_error | length > 200 %}…{% endif %}</div>
+              {% endif %}
+            </td>
+            <td class="small muted">{% if entry.last_checked_at %}<time datetime="{{ entry.last_checked_at }}">{{ datefmt(entry.last_checked_at) }}</time>{% else %}not checked yet{% endif %}</td>
+            <td><span class="badge {{ entry.tone }}">{{ entry.last_status_text }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="head">
+    <h2>Price changes found</h2><span class="spacer"></span>
+    {% if activity %}<span class="badge ok">{{ activity | length }}</span>{% endif %}
+    {# Shown whether or not there are findings: it also resets each page's
+       stored hash, which is how you force a fresh read of everything. #}
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/clear" style="margin:0"
+      onsubmit="return confirm('Forget every finding below and read all the pages afresh next time? No price is affected.')">
+      <button class="ghost" type="submit"
+        title="Removes the findings listed here and forgets each page's stored hash, so every page is read again on the next check">
+        Clear &amp; re-read
+      </button>
+    </form>
+  </div>
+  {% if activity %}
+    <form method="post" action="/console/sites/{{ site.slug }}/crawler/stage">
+      <table>
+        <thead><tr>
+          <th></th><th>Location</th><th>Price date</th>
+          <th class="num">Fetched price</th><th class="num">{{ site.name }} holds</th>
+          <th class="num">Move</th><th>Seen</th>
+        </tr></thead>
+        <tbody>
+          {% for row in activity %}
+            <tr>
+              <td>
+                {% if row.location_id %}
+                  <input type="checkbox" name="activity_ids" value="{{ row.id }}"
+                    {% if row.differs_from_site %}checked{% endif %}>
+                {% else %}
+                  <input type="checkbox" name="manual_{{ row.id }}" value="1"
+                         title="Tick to save this price under the location you pick">
+                {% endif %}
+              </td>
+              <td>
+                {{ row.location }}
+                {% if not row.location_id %}
+                  {% if row.ai_match %}
+                    <span class="badge warn">confirm match</span>
+                  {% else %}
+                    <span class="badge mute">not a site location</span>
+                  {% endif %}
+                  {% if locations %}
+                    <div style="margin-top:.3rem">
+                      <select name="manual_loc_{{ row.id }}" style="max-width:16rem">
+                        <option value="">Belongs to which location?</option>
+                        {% for title in locations %}
+                          <option value="{{ title }}" {% if title == row.ai_match %}selected{% endif %}>{{ title }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    {% if row.ai_match %}
+                      <div class="quote">AI suggests: {{ row.ai_match }}</div>
+                    {% endif %}
+                    {% if row.ai_caution %}
+                      <div class="err">{{ row.ai_caution }}</div>
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+                {% if row.host %}<div class="quote">{{ row.host }}</div>{% endif %}
+              </td>
+              <td>{{ datefmt(row.price_date) }}</td>
+              <td class="num"><strong>{{ row.price }}</strong></td>
+              <td class="num">
+                {% if row.site_price is not none %}
+                  {{ row.site_price }}
+                {% elif row.ai_match and row.ai_site_price is not none %}
+                  {{ row.ai_site_price }}
+                  <div class="quote">held for the AI-suggested location</div>
+                {% else %}
+                  <span class="muted">none</span>
+                {% endif %}
+              </td>
+              <td class="num">
+                {% if row.change_type == "new" %}<span class="badge mute">first seen</span>
+                {% elif row.change_pct is none %}<span class="badge warn">changed</span>
+                {% else %}<span class="badge {{ 'ok' if row.change_pct >= 0 else 'bad' }}">{{ '+' if row.change_pct >= 0 else '' }}{{ row.change_pct }}%</span>
+                {% endif %}
+              </td>
+              <td class="small muted">{% if row.detected_at %}<time datetime="{{ row.detected_at }}">{{ datefmt(row.detected_at) }}</time>{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="body">
+        <p class="hint" style="margin-top:0">
+          Every price the pages published is listed, under the wording the page used. Rows marked
+          <strong>not a site location</strong> carry a picker: the AI suggests which of your
+          locations the price belongs to (with a warning if the currency or unit differs), and
+          you confirm — tick the row and it saves under the location you picked. Of the rest,
+          those that differ from what the site holds are ticked for you, and nothing reaches the
+          website until you press Save pricing on the review page.
+        </p>
+        <div class="actions"><button type="submit">Save selected as a price update</button></div>
+      </div>
+    </form>
+  {% else %}
+    <div class="body empty">
+      No price changes yet. Only movement is recorded, so this stays empty until a watched page
+      actually moves a price.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

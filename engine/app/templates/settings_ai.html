@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">
+  <h1>AI<span class="info-tip" tabindex="0" role="button" aria-label="About this page">&#9432;<span class="info-pop" role="tooltip">
+    <p>Which model reads pages for the crawler and narrates a price batch. Add a key here rather
+      than in a deployment setting, and pick a different one per site if you want to.</p>
+    <p>The model list for a saved key is the list that key can actually use — it is asked of the
+      provider each time this page opens, so a model added to your account shows up here on its
+      own. A bigger model costs more for every page read and every price update; what has been
+      used so far is at the bottom of this page.</p>
+  </span></span></h1>
+  <button type="button" id="add-provider-open">Add provider</button>
+</div>
+
+{# Closed until "Add provider" is clicked: adding a key is rare, and the
+   form sat above the providers list on every visit. #}
+<div class="panel" id="add-provider" hidden>
+  <div class="head"><h2>Add a provider</h2></div>
+  <div class="body">
+    <form method="post" action="/console/settings/ai">
+      {# No name field: a new provider is named after itself ("OpenAI"),
+         and can still be renamed on its row below. #}
+      <div class="field">
+        <label for="provider">Provider</label>
+        <select id="provider" name="provider" required>
+          {% for key, meta in catalogue.items() %}
+            <option value="{{ key }}">{{ meta.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="api_key">API key</label>
+        <input id="api_key" name="api_key" type="password" required autocomplete="off">
+        <p class="hint" id="key-hint">
+          {% for key, meta in catalogue.items() %}<span data-provider="{{ key }}">{{ meta.key_hint }}</span>{% endfor %}
+        </p>
+        <p class="hint">It starts on this provider's usual model; change the model on its row below once added.</p>
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="make_default" checked> Use this one by default</label>
+      </div>
+      <div class="actions">
+        <button type="submit">Add provider</button>
+        <button type="button" class="ghost" id="add-provider-close">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head"><h2>Providers</h2></div>
+  {% if providers %}
+    <table>
+      <thead><tr><th>Name</th><th>Provider</th><th>Model</th><th>Key</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for p in providers %}
+          <tr>
+            <td>
+              {# The name is edited in the row's own form, beside the model and
+                 the key, so one Save covers everything about this provider. #}
+              <input form="provider-{{ p.id }}" name="name" value="{{ p.name }}"
+                style="width:8rem;padding:.25rem .4rem;font-weight:600">
+            </td>
+            <td class="small">{{ catalogue.get(p.provider, {}).get("label", p.provider) }}</td>
+            <td class="small">
+              <form method="post" action="/console/settings/ai/{{ p.id }}" id="provider-{{ p.id }}"
+                style="margin:0;display:flex;gap:.3rem">
+                <input type="hidden" name="enabled" value="{{ '1' if p.enabled else '0' }}">
+                <select name="model" style="min-width:11rem;padding:.25rem .4rem">
+                  {# What this key can actually run, asked of the provider itself. #}
+                  {% for m in offered.get(p.id, [p.model]) %}
+                    <option value="{{ m }}" {% if m == p.model %}selected{% endif %}>{{ m }}</option>
+                  {% endfor %}
+                </select>
+                {# Left blank the stored key is kept, so this row can be saved
+                   to change only the name or the model. Paste here to replace
+                   the key without removing and re-adding the provider. #}
+                <input type="text" name="api_key" placeholder="paste a new key to replace it"
+                  style="width:15rem;padding:.25rem .4rem" autocomplete="off" spellcheck="false">
+                <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
+              </form>
+            </td>
+            <td class="small muted">
+              {# Masked as rendered; the full key only ever arrives from a
+                 deliberate click, and that click is written to the audit
+                 trail. It exists because two keys that differ in the middle
+                 look identical masked. #}
+              <span class="key-shown" data-id="{{ p.id }}">{{ p.masked_key }}</span>
+              <button type="button" class="ghost key-eye" data-id="{{ p.id }}"
+                title="Show the whole key" aria-label="Show the whole key"
+                style="padding:.1rem .35rem;margin-left:.25rem">&#128065;</button>
+            </td>
+            <td>
+              {% if p.is_default %}<span class="badge ok">default</span>
+              {% elif p.enabled %}<span class="badge mute">enabled</span>
+              {% else %}<span class="badge bad">off</span>{% endif %}
+            </td>
+            <td>
+              <div style="display:flex;gap:.3rem">
+                <form method="post" action="/console/settings/ai/{{ p.id }}/test" style="margin:0">
+                  <button class="ghost" type="submit" style="padding:.25rem .5rem">Test</button>
+                </form>
+                {% if not p.is_default %}
+                  <form method="post" action="/console/settings/ai/{{ p.id }}/default" style="margin:0">
+                    <button class="ghost" type="submit" style="padding:.25rem .5rem">Make default</button>
+                  </form>
+                  <form method="post" action="/console/settings/ai/{{ p.id }}/delete" style="margin:0"
+                    onsubmit="return confirm('Remove this provider? Sites using it fall back to the default.')">
+                    <button class="danger" type="submit" style="padding:.25rem .5rem">Remove</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="body empty">
+      None yet. Without one, the crawler and the price review fall back to the key in the
+      deployment's environment — or do nothing if there is none.
+    </div>
+  {% endif %}
+</div>
+
+{% if sites %}
+  <div class="panel">
+    <div class="head"><h2>Which site uses which</h2></div>
+    <table>
+      <thead><tr><th>Site</th><th>Provider and model</th></tr></thead>
+      <tbody>
+        {% for site_row in sites %}
+          {% set mine = assignments.get(site_row.slug) %}
+          {% set own_model = site_models.get(site_row.slug) %}
+          <tr>
+            <td><strong>{{ site_row.name }}</strong></td>
+            <td>
+              <form method="post" action="/console/settings/ai/site/{{ site_row.slug }}"
+                class="site-ai" style="margin:0;display:flex;gap:.3rem">
+                <select name="provider_id" style="min-width:14rem;padding:.25rem .4rem">
+                  <option value="">Use the default</option>
+                  {% for p in providers %}
+                    <option value="{{ p.id }}" {% if mine == p.id %}selected{% endif %}>{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+                {# A model of the site's own, from what the chosen key can run.
+                   Only with a provider picked here: the default can change
+                   under the site, and a model belongs to one key. #}
+                <select name="model" style="min-width:12rem;padding:.25rem .4rem">
+                  <option value="" data-provider="">Default model</option>
+                  {% for p in providers %}
+                    <option value="" data-provider="{{ p.id }}"
+                      {% if mine == p.id and not own_model %}selected{% endif %}>{{ p.model }}</option>
+                    {% for m in offered.get(p.id, []) if m != p.model %}
+                      <option value="{{ m }}" data-provider="{{ p.id }}"
+                        {% if mine == p.id and own_model == m %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                  {% endfor %}
+                </select>
+                <button class="ghost" type="submit" style="padding:.25rem .5rem">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="body">
+      <p class="hint" style="margin:0">
+        A site on its own provider can run a different model of it — a cheaper one for a simple
+        site, a stronger one for hard reports. Everything the AI does for that site uses it.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+<script>
+(function () {
+  var card = document.getElementById('add-provider');
+  var open = document.getElementById('add-provider-open');
+
+  // The panel has no display rule of its own, so [hidden] works on it; the
+  // button's inline-block would beat [hidden], so it toggles instead.
+  open.addEventListener('click', function () {
+    card.hidden = !card.hidden;
+    if (!card.hidden) document.getElementById('provider').focus();
+  });
+  document.getElementById('add-provider-close').addEventListener('click', function () {
+    card.hidden = true;
+  });
+})();
+
+// Each site's model list shows only the models of the provider picked beside
+// it, and falls back to that provider's own model when the provider changes.
+document.querySelectorAll('form.site-ai').forEach(function (form) {
+  var provider = form.querySelector('select[name="provider_id"]');
+  var model = form.querySelector('select[name="model"]');
+
+  function match(reset) {
+    var first = null;
+    Array.prototype.forEach.call(model.options, function (option) {
+      var mine = option.dataset.provider === provider.value;
+      option.hidden = !mine;
+      option.disabled = !mine;
+      if (mine && first === null) first = option;
+    });
+    if (reset || model.selectedOptions[0].hidden) first.selected = true;
+  }
+
+  provider.addEventListener('change', function () { match(true); });
+  match(false);
+});
+
+// The key hint follows the chosen provider. The model is not picked here: the
+// provider starts on its usual model and is changed on its row once added.
+(function () {
+  var providerSelect = document.getElementById('provider');
+
+  function showHint() {
+    document.querySelectorAll('#key-hint span').forEach(function (span) {
+      span.hidden = span.dataset.provider !== providerSelect.value;
+    });
+  }
+
+  providerSelect.addEventListener('change', showHint);
+  showHint();
+})();
+</script>
+
+<div class="panel">
+  <div class="head"><h2>Usage — last 14 days</h2></div>
+  {% if usage_days %}
+    <table>
+      <thead><tr>
+        <th>Day</th><th>Provider</th><th>Model</th>
+        <th class="num">Calls</th><th class="num">Tokens sent</th><th class="num">Tokens received</th>
+      </tr></thead>
+      <tbody>
+        {% for row in usage_days %}
+          <tr>
+            <td class="small">{{ row.day }}</td>
+            <td>{{ row.provider }}</td>
+            <td class="small muted">{{ row.model }}</td>
+            <td class="num">{{ row.calls }}</td>
+            <td class="num">{{ "{:,}".format(row.prompt_tokens) }}</td>
+            <td class="num">{{ "{:,}".format(row.completion_tokens) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="body">
+      <p class="hint" style="margin:0">
+        Every AI call the console and its API make is counted here — price drafts, reviews and
+        key tests — with the exact tokens each one used. The providers offer no "balance" check,
+        so this ledger is the record of what has been spent.
+      </p>
+    </div>
+  {% else %}
+    <div class="body empty">No AI calls recorded yet — usage appears here from now on.</div>
+  {% endif %}
+</div>
+
+<script>
+// Showing a key is a request, never something the page already holds: the
+// rendered HTML only ever carries the mask, so a screenshot of this screen
+// leaks nothing until someone deliberately asks.
+document.querySelectorAll('.key-eye').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var id = button.getAttribute('data-id');
+    var cell = document.querySelector('.key-shown[data-id="' + id + '"]');
+
+    if (!cell) return;
+
+    // A second click puts the mask back, so a key is never left on screen.
+    if (cell.dataset.revealed === '1') {
+      cell.textContent = cell.dataset.masked;
+      cell.dataset.revealed = '';
+      button.title = 'Show the whole key';
+      return;
+    }
+
+    cell.dataset.masked = cell.dataset.masked || cell.textContent.trim();
+    button.disabled = true;
+
+    fetch('/console/settings/ai/' + id + '/reveal', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { cell.textContent = 'Could not be shown.'; return; }
+
+        cell.textContent = data.api_key;
+        cell.dataset.revealed = '1';
+        button.title = 'Hide the key again';
+      })
+      .catch(function () { cell.textContent = 'Could not be shown.'; })
+      .finally(function () { button.disabled = false; });
+  });
+});
+</script>
+{% endblock %}
