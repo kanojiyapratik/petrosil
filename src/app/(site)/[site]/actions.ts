@@ -22,6 +22,9 @@ import { spendToken } from "@/domain/accounts/tokens";
 import { changePassword, updateProfile } from "@/domain/accounts/profile";
 import { placeOrder, settleOrder, type Checkout, type OrderView } from "@/domain/billing/orders";
 import { requestTrial } from "@/domain/billing/trials";
+import { submitEnquiry } from "@/domain/enquiries/submit";
+import { postOffer, withdrawMyOffer } from "@/domain/offers/member";
+import { revalidatePath } from "next/cache";
 
 export type FormState = { error?: string; field?: string; done?: string } | null;
 
@@ -292,5 +295,68 @@ export async function settleBrandOrder(
     const said = failed(error, "brand settle");
 
     return { ok: false, error: said?.error ?? "Something went wrong." };
+  }
+}
+
+/* ------------------------------------------------- the directory and offers */
+
+/** Writing to a listed company or replying to an offer; the domain decides whether this reader may. */
+export async function sendEnquiry(_state: FormState, form: FormData): Promise<FormState> {
+  const identity = await signedIn();
+
+  if (!identity) {
+    return { error: "Sign in to send a message." };
+  }
+
+  try {
+    const brand = await brandFrom(form);
+
+    await submitEnquiry(identity, brand.slug, {
+      kind: text(form, "kind"),
+      to: Number(text(form, "to")),
+      subject: form.get("subject"),
+      message: form.get("message"),
+    });
+
+    return { done: "Sent. You will hear back by email." };
+  } catch (error) {
+    return failed(error, "brand enquiry");
+  }
+}
+
+export async function postBrandOffer(_state: FormState, form: FormData): Promise<FormState> {
+  const identity = await signedIn();
+
+  if (!identity) {
+    return { error: "Sign in to post an offer." };
+  }
+
+  let site: string;
+
+  try {
+    const brand = await brandFrom(form);
+    const fields = ["subject", "offer_type", "keywords", "description", "offer_value", "company_name", "country", "city", "contact_person", "contact_email", "contact_phone"];
+
+    site = brand.slug;
+    await postOffer(
+      identity.user.id,
+      brand.id,
+      Object.fromEntries(fields.map((name) => [name, form.get(name) ?? undefined])),
+      { ip: callerIp(await caller()) },
+    );
+  } catch (error) {
+    return failed(error, "brand offer post");
+  }
+
+  redirect(`/${site}/offers/mine?posted=1`);
+}
+
+export async function withdrawBrandOffer(form: FormData): Promise<void> {
+  const identity = await signedIn();
+  const brand = await liveBrandBySlug(text(form, "site"));
+
+  if (identity && brand) {
+    await withdrawMyOffer(identity.user.id, brand.id, Number(text(form, "id")), { ip: callerIp(await caller()) });
+    revalidatePath(`/${brand.slug}/offers/mine`);
   }
 }

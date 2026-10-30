@@ -99,7 +99,18 @@ const ASKS: Record<string, { say: string; cta: string; href: (site: string) => s
 };
 
 /** What a reader who cannot see figures is told, and where they can go. Nothing for one who can. */
-export function Gate({ site, entitlement, what = "the figures" }: { site: string; entitlement: Entitlement; what?: string }) {
+export function Gate({
+  site,
+  entitlement,
+  what = "the figures",
+  lead,
+}: {
+  site: string;
+  entitlement: Entitlement;
+  what?: string;
+  /** The whole sentence, for a page that is not about prices. */
+  lead?: string;
+}) {
   if (entitlement.entitled) {
     return null;
   }
@@ -109,7 +120,7 @@ export function Gate({ site, entitlement, what = "the figures" }: { site: string
   return (
     <div className="bs-gate">
       <span>
-        {ask.say} Movements and market names are free; {what} are for paying readers.
+        {lead ?? `${ask.say} Movements and market names are free; ${what} are for paying readers.`}
       </span>
       <Link className="btn" href={ask.href(site)}>
         {ask.cta}
@@ -184,4 +195,39 @@ export function pageParam(value: string | string[] | undefined): number {
   const n = Number(Array.isArray(value) ? value[0] : value);
 
   return Number.isInteger(n) && n > 0 ? Math.min(n, 10_000) : 1;
+}
+
+type Downloadable = { allowed: boolean; reason: "sign_in" | "subscribe" | "renew" | "no_file" | null; url: string | null };
+
+const DOWNLOAD_ASKS = {
+  sign_in: { say: "Sign in to download this.", cta: "Sign in", path: "sign-in" },
+  subscribe: { say: "This is for subscribers.", cta: "See the plans", path: "subscription" },
+  renew: { say: "Your subscription has ended.", cta: "Renew", path: "subscription" },
+} as const;
+
+/** The download button, or why there is none and what to do about it. */
+export function Download({ site, download, back, what = "Download" }: { site: string; download: Downloadable; back: string; what?: string }) {
+  if (download.allowed && download.url) {
+    return (
+      <a className="btn" href={download.url}>
+        {what}
+      </a>
+    );
+  }
+
+  if (!download.reason || download.reason === "no_file") {
+    return <p className="muted">The file is not available yet. <Link href={`/${site}/contact-us`}>Ask us for it</Link>.</p>;
+  }
+
+  const ask = DOWNLOAD_ASKS[download.reason];
+  const href = ask.path === "sign-in" ? `/${site}/sign-in?next=${encodeURIComponent(back)}` : `/${site}/${ask.path}`;
+
+  return (
+    <div className="bs-gate">
+      <span>{ask.say}</span>
+      <Link className="btn" href={href}>
+        {ask.cta}
+      </Link>
+    </div>
+  );
 }

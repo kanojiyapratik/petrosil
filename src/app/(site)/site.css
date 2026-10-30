@@ -929,3 +929,180 @@
 .bs td.nowrap {
   white-space: nowrap;
 }
+
+/* ---- reports, impex, directory, offers ---- */
+.bs-row .t .d {
+  display: block;
+  font: 400 13px var(--font-b);
+  color: var(--ink-2);
+  margin-top: 3px;
+}
+
+.bs-row .bs-tag {
+  margin-left: 0;
+}
+
+.bs-row .t .bs-tag {
+  margin-left: 6px;
+}
+
+.bs-doc img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  background: var(--surface);
+}
+
+.bs-docbody {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.bs-docbody:not(:has(.bs-cover)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bs-cover {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+@media (max-width: 620px) {
+  .bs-docbody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bs-cover {
+    max-width: 200px;
+  }
+}
+
+.bs-docact {
+  margin-top: 20px;
+}
+
+.bs-head .more {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.bs-letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: -4px 0 14px;
+}
+
+.bs-letters a {
+  min-width: 28px;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font: 600 13px var(--font-b);
+  text-decoration: none;
+  color: var(--ink-2);
+}
+
+.bs-letters a:hover {
+  background: var(--soft);
+}
+
+.bs-letters a[aria-current="true"] {
+  background: var(--brand);
+  color: #fff;
+}
+
+.bs-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 24px;
+  margin: 18px 0;
+}
+
+.bs-facts dt {
+  font: 700 11px var(--font-b);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.bs-facts dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.bs-kind {
+  display: inline-block;
+  font: 700 10.5px var(--font-b);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.bs-kind.sell {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.bs-kind.buy {
+  background: var(--soft);
+  color: var(--brand);
+}
+
+.bs-offer-img {
+  max-width: min(100%, 480px);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.bs-message {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  max-width: 640px;
+}
+
+.bs-message h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.bs-choice {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bs-choice legend {
+  font: 600 13px var(--font-b);
+  color: var(--ink-2);
+  float: left;
+  margin-right: 6px;
+}
+
+.bs-choice label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.bs-choice input {
+  accent-color: var(--brand);
+}
+
+.bs .btn.small {
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
