@@ -34,7 +34,7 @@ from .auth import (
     verify_password,
 )
 from .config import ConsoleConfigError, normalise_site_input
-from .crawl_now import crawl_site_now, describe
+from .crawl_now import crawl_site_now, describe, propose_matches
 from .site_client import SiteClient, SiteError
 
 # The site's own statuses, mirrored so the screen tells the truth about what
@@ -329,51 +329,27 @@ def create_console(
                 location_titles = []
 
         if unmatched and location_titles and (driver is not None or driver_for is not None):
-            from ..editorial.match import build_match_prompt, parse_match_answer
-
             chosen = driver_for(site.slug) if driver_for is not None else None
             active = chosen or driver
             model = getattr(chosen, "model", default_model) if chosen else default_model
+            proposals = propose_matches(
+                unmatched, location_titles,
+                active=active, chosen=chosen, model=model, usage=usage, site_slug=site.slug,
+            )
 
-            try:
-                prompt = build_match_prompt(
-                    [{"id": r["id"], "location": r.get("location"), "price": r.get("price")} for r in unmatched],
-                    location_titles,
-                )
-                completion = (
-                    active.generate(prompt) if chosen is not None else active.generate(model, prompt)
-                )
+            for row in found:
+                proposal = proposals.get(row.get("id"))
 
-                if usage is not None:
-                    usage.record(
-                        kind="crawler_match",
-                        provider=getattr(active, "provider_key", "gemini"),
-                        model=model,
-                        status=completion.status,
-                        prompt_tokens=completion.prompt_tokens,
-                        completion_tokens=completion.completion_tokens,
-                        site_slug=site.slug,
+                if proposal:
+                    row["ai_match"] = proposal["match"]
+                    row["ai_caution"] = proposal["caution"] or None
+                    # What the site currently holds for the proposed
+                    # location, so the reader can compare before agreeing.
+                    row["ai_site_price"] = (
+                        location_prices.get(proposal["match"])
+                        if proposal["match"]
+                        else None
                     )
-
-                proposals = parse_match_answer(
-                    completion.text, {r["id"] for r in unmatched}, location_titles
-                )
-
-                for row in found:
-                    proposal = proposals.get(row.get("id"))
-
-                    if proposal:
-                        row["ai_match"] = proposal["match"]
-                        row["ai_caution"] = proposal["caution"] or None
-                        # What the site currently holds for the proposed
-                        # location, so the reader can compare before agreeing.
-                        row["ai_site_price"] = (
-                            location_prices.get(proposal["match"])
-                            if proposal["match"]
-                            else None
-                        )
-            except Exception:  # noqa: BLE001 - proposals are a convenience, never a blocker
-                pass
 
         return page(
             "crawler.html",

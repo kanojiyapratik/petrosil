@@ -112,6 +112,195 @@ def assign_site_model(
     return f"{site.name} now uses {chosen}."
 
 
+def providers_view(*, providers: ProviderStore) -> dict:
+    """Every provider as the settings screen lists it: the key masked,
+    what the key can run, and which sites chose it. Never the key itself."""
+    assignments = providers.assignments()
+
+    return {
+        "catalogue": {
+            key: {"label": entry["label"], "key_hint": entry.get("key_hint", "")}
+            for key, entry in PROVIDERS.items()
+        },
+        "providers": [
+            {
+                "id": row.id,
+                "name": row.name,
+                "provider": row.provider,
+                "label": PROVIDERS.get(row.provider, {}).get("label", row.provider),
+                "model": row.model,
+                "masked_key": row.masked_key,
+                "enabled": row.enabled,
+                "is_default": row.is_default,
+                "models": models_offered(row),
+                "sites": sorted(slug for slug, pid in assignments.items() if pid == row.id),
+            }
+            for row in providers.all()
+        ],
+    }
+
+
+def models_for_new_key(provider: str, raw_key) -> list[str]:
+    """What a key being typed in can run. The key is never saved, logged or
+    echoed: available_models never raises and never carries it in what it
+    returns, so a failure is always the same clean "not accepted"."""
+    provider = str(provider or "").lower()
+    api_key = clean_key(raw_key)
+
+    if provider not in PROVIDERS or api_key == "":
+        raise FlowError("That key was not accepted.", 422)
+
+    # Short: a person is waiting on this form to fill in.
+    live = available_models(provider, api_key, timeout_seconds=6)
+
+    if not live:
+        raise FlowError("That key was not accepted.", 422)
+
+    return live
+
+
+def add_provider(
+    actor: str, *, providers: ProviderStore, store, provider: str, raw_key, name: str = "",
+    model: str = "", make_default: bool = False,
+) -> str:
+    provider = str(provider or "").lower()
+    api_key = clean_key(raw_key)
+    model = str(model or "").strip()
+
+    if provider not in PROVIDERS:
+        raise FlowError("Pick one of the providers offered.", 422)
+
+    if api_key == "":
+        raise FlowError("A provider needs an API key.", 422)
+
+    # The key being added is the authority on what it can run; the
+    # catalogue is only consulted when the provider cannot be asked.
+    allowed = available_models(provider, api_key) or PROVIDERS[provider]["models"]
+
+    # The add form no longer asks for a model -- it is changed on the
+    # provider's row afterwards. Start on the provider's usual model when
+    # this key can run it, else on the first one the key offers.
+    if model == "":
+        usual = [m for m in PROVIDERS[provider]["models"] if m in allowed]
+        model = usual[0] if usual else allowed[0]
+
+    if model not in allowed:
+        raise FlowError(f"{model or 'That model'} is not one {PROVIDERS[provider]['label']} offers.", 422)
+
+    created = providers.create(
+        name=str(name or "").strip() or PROVIDERS[provider]["label"],
+        provider=provider,
+        api_key=api_key,
+        model=model,
+        make_default=make_default or not providers.all(),
+    )
+
+    # The key itself is never recorded, only that one was added.
+    store.record(actor, "added an AI provider", None, f"{created.name} ({model})")
+
+    return f"{created.name} added."
+
+
+def update_provider(
+    actor: str, provider_id: int, *, providers: ProviderStore, store, name: str = "", model: str = "",
+    raw_key=None, enabled: bool = True,
+) -> str:
+    existing = providers.get(provider_id)
+
+    if existing is None:
+        raise FlowError("No such provider.", 404)
+
+    model = str(model or existing.model)
+    allowed = (
+        available_models(existing.provider, clean_key(raw_key) or existing.api_key)
+        or PROVIDERS.get(existing.provider, {}).get("models", [])
+        or [model]
+    )
+
+    if model != existing.model and model not in allowed:
+        raise FlowError("That model is not one this provider offers.", 422)
+
+    providers.update(
+        provider_id,
+        name=str(name or existing.name),
+        model=model,
+        # Blank means keep the stored key: the screen only ever shows a
+        # masked version, so submitting the form must not overwrite the
+        # real key with dots.
+        api_key=clean_key(raw_key),
+        enabled=enabled,
+    )
+    store.record(actor, "updated an AI provider", None, existing.name)
+
+    return f"{existing.name} saved."
+
+
+def make_default_provider(actor: str, provider_id: int, *, providers: ProviderStore, store) -> str:
+    existing = providers.get(provider_id)
+
+    if existing is None:
+        raise FlowError("No such provider.", 404)
+
+    providers.make_default(provider_id)
+    store.record(actor, "changed the default AI provider", None, existing.name)
+
+    return f"{existing.name} is now the default."
+
+
+def remove_provider(actor: str, provider_id: int, *, providers: ProviderStore, store) -> str:
+    existing = providers.get(provider_id)
+
+    if existing is None:
+        raise FlowError("No such provider.", 404)
+
+    if existing.is_default:
+        raise FlowError("That is the default — make another one the default first.", 409)
+
+    providers.delete(provider_id)
+    store.record(actor, "removed an AI provider", None, existing.name)
+
+    return f"{existing.name} removed. Sites using it fall back to the default."
+
+
+def test_provider(provider_id: int, *, providers: ProviderStore, usage=None) -> str:
+    """Ask the model something trivial and report what came back.
+
+    Worth its own button: a wrong key, a wrong model name and an exhausted
+    quota all look identical from the crawler screen hours later, and this
+    answers in a second for the price of one tiny call.
+    """
+    existing = providers.get(provider_id)
+
+    if existing is None:
+        raise FlowError("No such provider.", 404)
+
+    def note(status, completion=None):
+        if usage is not None:
+            usage.record(
+                kind="provider_test",
+                provider=existing.provider,
+                model=existing.model,
+                status=status,
+                prompt_tokens=completion.prompt_tokens if completion else None,
+                completion_tokens=completion.completion_tokens if completion else None,
+            )
+
+    try:
+        completion = create_driver(existing.provider, existing.api_key, existing.model).generate(
+            "Reply with the single word: ready"
+        )
+        note(completion.status, completion)
+    except (AiQuotaExhausted, AiProviderError) as error:
+        note("failed")
+
+        raise FlowError(f"{existing.name}: {error}", 502) from error
+
+    if completion.status != "complete":
+        raise FlowError(f"{existing.name} answered but declined: {completion.error}", 502)
+
+    return f'{existing.name} works — {existing.model} replied "{(completion.text or "").strip()[:40]}".'
+
+
 def create_ai_routes(
     *,
     store: Store,
@@ -207,83 +396,42 @@ def create_ai_routes(
     @router.post("/console/settings/ai/check-key")
     async def check_key(request: Request):
         """What a key being typed into the add-a-key form can actually run.
-
-        Before this, the add-a-key form could only offer the hardcoded
-        catalogue, because there was no saved key yet to ask -- the live list
-        only appeared after the row existed. This lets the form ask the key
-        itself, the same way a saved row already does.
-
-        The key here is never saved, never logged and never echoed back:
-        available_models never raises and never carries the key in what it
-        returns, so a failure here is always the same clean "not accepted",
-        not a provider's own error text.
-        """
+        See models_for_new_key: the key is never saved, logged or echoed."""
         user, response = guard(request)
 
         if response is not None:
             return response
 
         form = await request.form()
-        provider = str(form.get("provider") or "").lower()
-        api_key = clean_key(form.get("api_key"))
 
-        if provider not in PROVIDERS or api_key == "":
-            return JSONResponse({"ok": False, "error": "That key was not accepted."})
-
-        # Short: a person is waiting on this form to fill in.
-        live = available_models(provider, api_key, timeout_seconds=6)
-
-        if not live:
-            return JSONResponse({"ok": False, "error": "That key was not accepted."})
-
-        return JSONResponse({"ok": True, "models": live})
+        try:
+            return JSONResponse({"ok": True, "models": models_for_new_key(form.get("provider"), form.get("api_key"))})
+        except FlowError as refused:
+            return JSONResponse({"ok": False, "error": refused.message})
 
     @router.post("/console/settings/ai")
-    async def add_provider(request: Request):
+    async def add_provider_route(request: Request):
         user, response = guard(request)
 
         if response is not None:
             return response
 
         form = await request.form()
-        provider = str(form.get("provider") or "").lower()
-        api_key = clean_key(form.get("api_key"))
-        model = str(form.get("model") or "").strip()
 
-        if provider not in PROVIDERS:
-            return back("err", "Pick one of the providers offered.")
-
-        if api_key == "":
-            return back("err", "A provider needs an API key.")
-
-        # The key being added is the authority on what it can run; the
-        # catalogue is only consulted when the provider cannot be asked.
-        allowed = available_models(provider, api_key) or PROVIDERS[provider]["models"]
-
-        # The add form no longer asks for a model -- it is changed on the
-        # provider's row afterwards. Start on the provider's usual model when
-        # this key can run it, else on the first one the key offers.
-        if model == "":
-            usual = [m for m in PROVIDERS[provider]["models"] if m in allowed]
-            model = usual[0] if usual else allowed[0]
-
-        if model not in allowed:
+        try:
             return back(
-                "err", f"{model or 'That model'} is not one {PROVIDERS[provider]['label']} offers."
+                "ok",
+                add_provider(
+                    user.email, providers=providers, store=store,
+                    provider=str(form.get("provider") or ""),
+                    raw_key=form.get("api_key"),
+                    name=str(form.get("name") or ""),
+                    model=str(form.get("model") or ""),
+                    make_default=form.get("make_default") in ("on", "1"),
+                ),
             )
-
-        created = providers.create(
-            name=str(form.get("name") or "").strip() or PROVIDERS[provider]["label"],
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            make_default=form.get("make_default") in ("on", "1") or not providers.all(),
-        )
-
-        # The key itself is never recorded, only that one was added.
-        store.record(user.email, "added an AI provider", None, f"{created.name} ({model})")
-
-        return back("ok", f"{created.name} added.")
+        except FlowError as refused:
+            return back("err", refused.message)
 
     @router.post("/console/settings/ai/{provider_id}/reveal")
     def reveal_key(request: Request, provider_id: int):
@@ -298,7 +446,8 @@ def create_ai_routes(
 
         So: never in the page as rendered, only on a deliberate request, only
         for an administrator, and always written to the audit trail. Someone
-        reading the trail can see who looked and when.
+        reading the trail can see who looked and when. Console only: the app's
+        screens never receive a key.
         """
         user, response = guard(request)
 
@@ -316,42 +465,30 @@ def create_ai_routes(
 
         return JSONResponse({"ok": True, "api_key": existing.api_key})
 
+    def run(step) -> RedirectResponse:
+        try:
+            return back("ok", step())
+        except FlowError as refused:
+            return back("err", refused.message)
+
     @router.post("/console/settings/ai/{provider_id}")
-    async def update_provider(request: Request, provider_id: int):
+    async def update_provider_route(request: Request, provider_id: int):
         user, response = guard(request)
 
         if response is not None:
             return response
 
         form = await request.form()
-        existing = providers.get(provider_id)
 
-        if existing is None:
-            return back("err", "No such provider.")
-
-        model = str(form.get("model") or existing.model)
-        allowed = (
-            available_models(existing.provider, clean_key(form.get("api_key")) or existing.api_key)
-            or PROVIDERS.get(existing.provider, {}).get("models", [])
-            or [model]
+        return run(
+            lambda: update_provider(
+                user.email, provider_id, providers=providers, store=store,
+                name=str(form.get("name") or ""),
+                model=str(form.get("model") or ""),
+                raw_key=form.get("api_key"),
+                enabled=str(form.get("enabled") or "1") == "1",
+            )
         )
-
-        if model != existing.model and model not in allowed:
-            return back("err", "That model is not one this provider offers.")
-
-        providers.update(
-            provider_id,
-            name=str(form.get("name") or existing.name),
-            model=model,
-            # Blank means keep the stored key: the screen only ever shows a
-            # masked version, so submitting the form must not overwrite the
-            # real key with dots.
-            api_key=clean_key(form.get("api_key")),
-            enabled=str(form.get("enabled") or "1") == "1",
-        )
-        store.record(user.email, "updated an AI provider", None, existing.name)
-
-        return back("ok", f"{existing.name} saved.")
 
     @router.post("/console/settings/ai/{provider_id}/default")
     def set_default(request: Request, provider_id: int):
@@ -360,15 +497,7 @@ def create_ai_routes(
         if response is not None:
             return response
 
-        existing = providers.get(provider_id)
-
-        if existing is None:
-            return back("err", "No such provider.")
-
-        providers.make_default(provider_id)
-        store.record(user.email, "changed the default AI provider", None, existing.name)
-
-        return back("ok", f"{existing.name} is now the default.")
+        return run(lambda: make_default_provider(user.email, provider_id, providers=providers, store=store))
 
     @router.post("/console/settings/ai/{provider_id}/delete")
     def delete_provider(request: Request, provider_id: int):
@@ -377,70 +506,16 @@ def create_ai_routes(
         if response is not None:
             return response
 
-        existing = providers.get(provider_id)
-
-        if existing is None:
-            return back("err", "No such provider.")
-
-        if existing.is_default:
-            return back("err", "That is the default — make another one the default first.")
-
-        providers.delete(provider_id)
-        store.record(user.email, "removed an AI provider", None, existing.name)
-
-        return back("ok", f"{existing.name} removed. Sites using it fall back to the default.")
+        return run(lambda: remove_provider(user.email, provider_id, providers=providers, store=store))
 
     @router.post("/console/settings/ai/{provider_id}/test")
-    def test_provider(request: Request, provider_id: int):
-        """Ask the model something trivial and report what came back.
-
-        Worth its own button: a wrong key, a wrong model name and an exhausted
-        quota all look identical from the crawler screen hours later, and this
-        answers in a second for the price of one tiny call.
-        """
+    def test_provider_route(request: Request, provider_id: int):
         user, response = guard(request)
 
         if response is not None:
             return response
 
-        existing = providers.get(provider_id)
-
-        if existing is None:
-            return back("err", "No such provider.")
-
-        def note(status, completion=None):
-            if usage is not None:
-                usage.record(
-                    kind="provider_test",
-                    provider=existing.provider,
-                    model=existing.model,
-                    status=status,
-                    prompt_tokens=completion.prompt_tokens if completion else None,
-                    completion_tokens=completion.completion_tokens if completion else None,
-                )
-
-        try:
-            completion = create_driver(
-                existing.provider, existing.api_key, existing.model
-            ).generate("Reply with the single word: ready")
-            note(completion.status, completion)
-        except AiQuotaExhausted as error:
-            note("failed")
-
-            return back("err", f"{existing.name}: {error}")
-        except AiProviderError as error:
-            note("failed")
-
-            return back("err", f"{existing.name}: {error}")
-
-        if completion.status != "complete":
-            return back("err", f"{existing.name} answered but declined: {completion.error}")
-
-        return back(
-            "ok",
-            f"{existing.name} works — {existing.model} replied "
-            f'"{(completion.text or "").strip()[:40]}".',
-        )
+        return run(lambda: test_provider(provider_id, providers=providers, usage=usage))
 
     @router.post("/console/settings/ai/site/{slug}")
     async def assign_to_site(request: Request, slug: str):

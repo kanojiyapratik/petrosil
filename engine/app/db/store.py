@@ -661,6 +661,33 @@ class UsageStore:
             for row in rows
         ]
 
+    def by_site(self, days: int = 30) -> list[dict]:
+        """Totals per site and per kind of work (reading, drafting, crawling,
+        the price note...), and how many calls failed -- which brand the
+        spending went on, and on what."""
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT coalesce(site_slug, ''), kind, COUNT(*), "
+                "       COUNT(*) FILTER (WHERE status = 'failed'), "
+                "       COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0) "
+                "FROM console_ai_usage "
+                "WHERE created_at >= now() - make_interval(days => %s) "
+                "GROUP BY 1, 2 ORDER BY 1, 3 DESC",
+                (days,),
+            ).fetchall()
+
+        return [
+            {
+                "site": row[0] or None,
+                "kind": row[1],
+                "calls": int(row[2]),
+                "failed": int(row[3]),
+                "prompt_tokens": int(row[4]),
+                "completion_tokens": int(row[5]),
+            }
+            for row in rows
+        ]
+
 
 class RulesStore:
     """The derived-price rulebook, per site. See app/editorial/rules.py for

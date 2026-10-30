@@ -71,19 +71,22 @@ describe("the three groups", () => {
       "/dashboard/global/ad-slots",
       "/dashboard/global/categories",
       "/dashboard/currencies",
+      "/dashboard/global/ai-providers",
     ]);
   });
 
-  it("stays at twenty-two entries for the nine real brands", () => {
+  it("stays at twenty-three entries for the nine real brands", () => {
     // The number is the point: the rail must fit on one screen without
-    // scrolling, which is what forty entries did not.
+    // scrolling, which is what forty entries did not. It was 22; the AI
+    // providers and their usage came in as one entry, not two, when the price
+    // console moved into the admin.
     const nine = Array.from({ length: 9 }, (_, at) => ({
       slug: `brand${at}`,
       name: `Brand ${at}`,
       freshness: "fresh" as const,
     }));
 
-    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(22);
+    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(23);
   });
 
   it("never nests: no entry carries children of its own", () => {

@@ -89,6 +89,8 @@ export function navFor(brands: NavBrand[]): NavSection[] {
       { label: "Ad slots", href: "/dashboard/global/ad-slots" },
       { label: "Categories", href: "/dashboard/global/categories" },
       { label: "Currencies", href: "/dashboard/currencies" },
+      // One entry for both: the AI accounts, and what they have been used for.
+      { label: "AI", href: "/dashboard/global/ai-providers" },
     ],
   });
 

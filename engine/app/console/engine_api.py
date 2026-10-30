@@ -42,7 +42,18 @@ from .flows import (
     workings_sheet,
     write_update_note,
 )
-from .routes_ai import assign_site_model, site_ai_view
+from .crawl_now import crawl_site_now, describe, propose_matches
+from .routes_ai import (
+    add_provider,
+    assign_site_model,
+    make_default_provider,
+    models_for_new_key,
+    providers_view,
+    remove_provider,
+    site_ai_view,
+    test_provider,
+    update_provider,
+)
 from .routes_rules import (
     remove_location_rounding,
     remove_rule,
@@ -581,4 +592,146 @@ def create_engine_api(
             },
         )
 
-    return router
+    # --------------------------------------------------------------- crawling
+
+    @router.post("/crawl")
+    def crawl(slug: str, actor: str = Depends(caller)):
+        """One pass over the site's watched pages now, rather than at the next
+        fifteen-minute tick. Runs while the caller waits -- seconds when the
+        pages have not changed -- and answers in a sentence."""
+        site = site_or_404(slug)
+
+        try:
+            outcomes = crawl_site_now(site, providers=providers)
+        except Exception as error:  # noqa: BLE001 - said, never a 500
+            return JSONResponse({"error": str(error)}, status_code=502)
+
+        store.record(actor, "ran a crawl by hand", site.slug, f"{len(outcomes)} URL(s)")
+
+        return {
+            "message": describe(outcomes),
+            "outcomes": [
+                {"url": o.url, "status": o.status, "rows": o.row_count, "used_ai": o.used_ai} for o in outcomes
+            ],
+        }
+
+    @router.post("/crawl/matches")
+    async def crawl_matches(slug: str, request: Request, actor: str = Depends(caller)):
+        """{findings: [{id, location, price}]}: for crawled prices the site has
+        no location for, which of its locations each probably is, and why to
+        be careful. A proposal only; the person picks."""
+        site = site_or_404(slug)
+        body = await request.json()
+        findings = [
+            {"id": int(row["id"]), "location": row.get("location"), "price": row.get("price")}
+            for row in body.get("findings") or []
+            if isinstance(row, dict) and str(row.get("id", "")).isdigit()
+        ]
+
+        try:
+            titles = [str(e.get("title")) for e in client_for(site).locations().get("data", []) if e.get("title")]
+        except Exception:  # noqa: BLE001 - no titles, no proposals
+            titles = []
+
+        active, chosen, model, _ = engine.model_for(site.slug)
+        proposals = propose_matches(
+            findings, titles, active=active, chosen=chosen, model=model, usage=usage, site_slug=site.slug
+        )
+
+        return {"proposals": {str(key): value for key, value in proposals.items()}}
+
+    # -------------------------------------------- the estate: providers, usage
+
+    estate = APIRouter(prefix="/api/engine")
+
+    def needs_providers():
+        if providers is None:
+            raise HTTPException(status_code=404, detail="AI settings are not available here.")
+
+    @estate.get("/providers")
+    def provider_list(actor: str = Depends(caller)):
+        """Every provider, its key masked, what it can run, who uses it."""
+        needs_providers()
+
+        return providers_view(providers=providers)
+
+    @estate.post("/providers/check-key")
+    async def provider_check_key(request: Request, actor: str = Depends(caller)):
+        """{provider, api_key}: what a key being typed in can run. Never kept."""
+        needs_providers()
+        body = await request.json()
+
+        try:
+            return {"models": models_for_new_key(body.get("provider"), body.get("api_key"))}
+        except FlowError as refused:
+            return refusal(refused)
+
+    @estate.post("/providers")
+    async def provider_add(request: Request, actor: str = Depends(caller)):
+        """{provider, api_key, name?, make_default?}"""
+        needs_providers()
+        body = await request.json()
+
+        return said(
+            lambda: add_provider(
+                actor, providers=providers, store=store,
+                provider=str(body.get("provider") or ""),
+                raw_key=body.get("api_key"),
+                name=str(body.get("name") or ""),
+                make_default=bool(body.get("make_default")),
+            ),
+            201,
+        )
+
+    @estate.patch("/providers/{provider_id}")
+    async def provider_update(provider_id: int, request: Request, actor: str = Depends(caller)):
+        """{name?, model?, api_key? (blank keeps the stored one), enabled}"""
+        needs_providers()
+        body = await request.json()
+
+        return said(
+            lambda: update_provider(
+                actor, provider_id, providers=providers, store=store,
+                name=str(body.get("name") or ""),
+                model=str(body.get("model") or ""),
+                raw_key=body.get("api_key"),
+                enabled=body.get("enabled", True) is not False,
+            )
+        )
+
+    @estate.post("/providers/{provider_id}/default")
+    def provider_default(provider_id: int, actor: str = Depends(caller)):
+        needs_providers()
+
+        return said(lambda: make_default_provider(actor, provider_id, providers=providers, store=store))
+
+    @estate.delete("/providers/{provider_id}")
+    def provider_remove(provider_id: int, actor: str = Depends(caller)):
+        needs_providers()
+
+        return said(lambda: remove_provider(actor, provider_id, providers=providers, store=store))
+
+    @estate.post("/providers/{provider_id}/test")
+    def provider_test(provider_id: int, actor: str = Depends(caller)):
+        """One tiny call, to tell a wrong key, a wrong model and an empty
+        quota apart before they surface in a price update."""
+        needs_providers()
+
+        return said(lambda: test_provider(provider_id, providers=providers, usage=usage))
+
+    @estate.get("/usage")
+    def usage_report(days: int = 30, actor: str = Depends(caller)):
+        """Model calls and tokens: per day and model, and per site and kind
+        of work, over the last `days` (1-365)."""
+        span = max(1, min(int(days), 365))
+
+        if usage is None:
+            return {"days": span, "by_day": [], "by_site": []}
+
+        return {"days": span, "by_day": jsonable(usage.by_day(span)), "by_site": usage.by_site(span)}
+
+    combined = APIRouter()
+    combined.include_router(router)
+    combined.include_router(estate)
+
+    return combined

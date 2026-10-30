@@ -15,6 +15,9 @@ import { brandsFor } from "@/domain/dashboard/brands";
 import { listWatchedUrls } from "@/domain/dashboard/catalogue";
 import { crawlSettings, watchedUrls } from "@/domain/crawl/urls";
 import { WatchListForm } from "./form";
+import { CrawlNow, Findings } from "./desk";
+import { findings } from "@/domain/crawl/desk";
+import { locationsWithLatestPrice } from "@/domain/price/locations";
 import {
   Empty,
   Heading,
@@ -78,6 +81,11 @@ export default async function CrawlPage({
       }
     : null;
 
+  // What the crawler found, and the markets a finding can be matched to.
+  const [found, markets] = chosen
+    ? await Promise.all([findings(viewer, chosen.slug), locationsWithLatestPrice(chosen.id)])
+    : [[], []];
+
   const watching = rows.filter((row) => row.enabled).length;
   const failing = rows.filter(
     (row) => row.enabled && ["gone", "failed", "blocked", "disallowed"].includes(row.last_status ?? ""),
@@ -89,6 +97,7 @@ export default async function CrawlPage({
         title="Watched pages"
         sub="Pages the crawler reads for prices. Removing one disables it; its findings stay."
       >
+        {editing ? <CrawlNow slug={editing.brand.slug} /> : null}
         {editing ? (
           <Popup label="Edit the watch list" title={`What ${editing.brand.name} watches`}>
             <WatchListForm
@@ -167,7 +176,7 @@ export default async function CrawlPage({
               <tr>
                 <td colSpan={5}>
                   <Empty>
-                    No URLs on the watch list. The price module&rsquo;s console sets these per brand.
+                    No pages on the watch list yet. Add them with &ldquo;Edit the watch list&rdquo;.
                   </Empty>
                 </td>
               </tr>
@@ -175,6 +184,20 @@ export default async function CrawlPage({
           </tbody>
         </table>
       </Panel>
+
+      {chosen ? (
+        <Panel
+          title={found.length ? `What the crawler found — ${count(found.length)}` : "What the crawler found"}
+          hint="Newest first. Prices are only proposals until they are staged and committed."
+          flush={false}
+        >
+          {found.length ? (
+            <Findings slug={chosen.slug} rows={found} markets={markets.map((row) => row.title)} />
+          ) : (
+            <Empty>Nothing found yet. Press &ldquo;Check now&rdquo;, or wait for the next pass.</Empty>
+          )}
+        </Panel>
+      ) : null}
     </>
   );
 }

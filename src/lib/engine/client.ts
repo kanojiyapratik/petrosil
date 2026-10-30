@@ -90,9 +90,10 @@ function send(
   });
 }
 
-async function raw(slug: string, path: string, call: Call): Promise<{ status: number; type: string; body: Buffer }> {
+/** `slug` null addresses the estate (providers, usage); otherwise one brand. */
+async function raw(slug: string | null, path: string, call: Call): Promise<{ status: number; type: string; body: Buffer }> {
   const { base, token } = config();
-  const url = new URL(`api/engine/sites/${encodeURIComponent(slug)}/${path}`, base);
+  const url = new URL(slug === null ? `api/engine/${path}` : `api/engine/sites/${encodeURIComponent(slug)}/${path}`, base);
   const { body, type } = await encode(call);
   const headers: Record<string, string> = {
     authorization: `Bearer ${token}`,
@@ -124,8 +125,11 @@ async function raw(slug: string, path: string, call: Call): Promise<{ status: nu
   }
 }
 
-/** One JSON call to the engine for one brand. Refusals arrive as EngineError with the engine's own words. */
-export async function engine<T>(slug: string, path: string, call: Call): Promise<T> {
+/**
+ * One JSON call to the engine for one brand — or, with a null slug, for the
+ * whole estate. Refusals arrive as EngineError with the engine's own words.
+ */
+export async function engine<T>(slug: string | null, path: string, call: Call): Promise<T> {
   const answer = await raw(slug, path, call);
   const text = answer.body.toString("utf8");
   let parsed: unknown = null;

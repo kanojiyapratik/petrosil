@@ -133,3 +133,43 @@ def describe(outcomes: list, used_rules: bool = False) -> str:
         parts.append(f"{len(trouble)} could not be read — see the list below.")
 
     return prefix + " ".join(parts)
+
+
+def propose_matches(
+    unmatched: list[dict], location_titles: list[str], *, active, chosen, model, usage=None,
+    site_slug: str | None = None,
+) -> dict:
+    """Which tracked location each crawled finding the site could not place
+    probably is, with a caution when something is off (a different
+    currency, per-litre pricing). The person confirms in a picker; a model
+    failure just means no proposals.
+
+    `unmatched` rows are {"id", "location", "price"}. Answers
+    {finding id: {"match", "caution"}}.
+    """
+    from ..editorial.match import build_match_prompt, parse_match_answer
+
+    if not unmatched or not location_titles or active is None:
+        return {}
+
+    try:
+        prompt = build_match_prompt(
+            [{"id": r["id"], "location": r.get("location"), "price": r.get("price")} for r in unmatched],
+            location_titles,
+        )
+        completion = active.generate(prompt) if chosen is not None else active.generate(model, prompt)
+
+        if usage is not None:
+            usage.record(
+                kind="crawler_match",
+                provider=getattr(active, "provider_key", "gemini"),
+                model=model,
+                status=completion.status,
+                prompt_tokens=completion.prompt_tokens,
+                completion_tokens=completion.completion_tokens,
+                site_slug=site_slug,
+            )
+
+        return parse_match_answer(completion.text, {r["id"] for r in unmatched}, location_titles)
+    except Exception:  # noqa: BLE001 - proposals are a convenience, never a blocker
+        return {}

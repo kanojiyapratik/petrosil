@@ -23,6 +23,10 @@ import { currentViewer } from "@/lib/auth/server";
 import { refusal, requirePermission } from "@/domain/staff/permissions";
 import { InvalidUrls, replaceWatchedUrls } from "@/domain/crawl/urls";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
+import { AccessError } from "@/lib/auth/guard";
+import { EngineError } from "@/lib/engine/client";
+import { AccountError } from "@/domain/accounts/register";
+import { clearFindings, crawlNow, stageFindings, suggestMarkets, type Proposal } from "@/domain/crawl/desk";
 
 export type WatchResult = { error?: string; saved?: string } | null;
 
@@ -86,5 +90,83 @@ export async function saveWatchedUrls(_state: unknown, form: FormData): Promise<
     console.error("could not replace the watch list", { slug, error });
 
     return { error: "Something went wrong. Nothing was saved." };
+  }
+}
+
+/* --------------------------------------------- crawl now, and the findings */
+
+export type DeskSaid = { error?: string; saved?: string } | null;
+
+async function desk(what: string, work: () => Promise<string>, slug: string): Promise<DeskSaid> {
+  try {
+    const saved = await work();
+
+    revalidatePath(`/dashboard/sites/${slug}/crawl`);
+
+    return { saved };
+  } catch (error) {
+    if (error instanceof EngineError || error instanceof AccessError || error instanceof AccountError) {
+      return { error: error.message };
+    }
+
+    console.error(`could not ${what}`, { slug, error });
+
+    return { error: "Something went wrong. Nothing was changed." };
+  }
+}
+
+async function staffOnly() {
+  const viewer = await currentViewer();
+
+  if (!viewer) {
+    throw new Error("not staff");
+  }
+
+  return viewer;
+}
+
+export async function crawlNowAction(_state: DeskSaid, form: FormData): Promise<DeskSaid> {
+  const viewer = await staffOnly();
+  const slug = String(form.get("site") ?? "");
+
+  return desk("run a crawl", () => crawlNow(viewer, slug), slug);
+}
+
+export async function clearFindingsAction(_state: DeskSaid, form: FormData): Promise<DeskSaid> {
+  const viewer = await staffOnly();
+  const slug = String(form.get("site") ?? "");
+
+  return desk("clear the findings", async () => clearFindings(viewer, slug, { ip: await callerIp() }), slug);
+}
+
+export async function stageFindingsAction(input: {
+  slug: string;
+  ids: number[];
+  matched: { id: number; location: string }[];
+}): Promise<DeskSaid> {
+  const viewer = await staffOnly();
+
+  return desk(
+    "stage findings",
+    async () => stageFindings(viewer, input.slug, { ids: input.ids, matched: input.matched }, { ip: await callerIp() }),
+    input.slug,
+  );
+}
+
+export async function suggestMarketsAction(
+  slug: string,
+): Promise<{ ok: true; proposals: Record<string, Proposal> } | { ok: false; error: string }> {
+  const viewer = await staffOnly();
+
+  try {
+    return { ok: true, proposals: await suggestMarkets(viewer, slug) };
+  } catch (error) {
+    if (error instanceof EngineError || error instanceof AccessError || error instanceof AccountError) {
+      return { ok: false, error: error.message };
+    }
+
+    console.error("could not suggest markets", { slug, error });
+
+    return { ok: false, error: "The AI could not be asked just now." };
   }
 }
