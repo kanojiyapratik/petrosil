@@ -97,6 +97,8 @@ npm run import:files -- --site <slug> --from <old file_manager dir>   # carry a 
 
 ### The AI engine
 
+Deploying it: see [docs/deploying-the-ai-engine.md](docs/deploying-the-ai-engine.md).
+
 `engine/` is the Python price module — report reading, drafting, rules,
 rounding, currency conversion, the crawler — brought in with its history
 (`git subtree`). It stays Python and does not draw the admin's screens; the

@@ -219,11 +219,14 @@ def _mount_console(app: FastAPI, *, driver, default_model: str, driver_for) -> N
 
         users = store.users()
 
+        # Behind the Petrosil app nobody signs in here -- the app's people use
+        # the engine's API -- so an empty user list is said, not fatal. The
+        # standalone console still wants one, and the warning says how.
         if not users:
-            logger.error(
-                "The console has no users. Seed one with CONSOLE_USERS — otherwise nobody can sign in."
+            logger.warning(
+                "The console has no users, so nobody can sign in to it. The JSON API "
+                "works regardless; seed a console user with CONSOLE_USERS if one is wanted."
             )
-            sys.exit(1)
 
         secure_cookies = os.environ.get("CONSOLE_INSECURE_COOKIES", "") != "1"
         usage = UsageStore(pool)
