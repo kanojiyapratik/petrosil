@@ -297,23 +297,25 @@ export function VisibilityTable({
           <div className="head">
             <h2>{section.title}</h2>
           </div>
-          <table className="tight">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Now</th>
-                <th>Free readers see it</th>
-                <th>Paying readers see it</th>
-                <th>Shown at all</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {section.rows.map((row) => (
-                <FieldRow key={row.key} form={section.form} row={row} chosen={chosen} />
-              ))}
-            </tbody>
-          </table>
+          <div className="body flush">
+            <table className="tight">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Now</th>
+                  <th>Free readers see it</th>
+                  <th>Paying readers see it</th>
+                  <th>Shown at all</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {section.rows.map((row) => (
+                  <FieldRow key={row.key} form={section.form} row={row} chosen={chosen} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
     </>

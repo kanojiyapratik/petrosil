@@ -41,7 +41,7 @@ export function CrawlNow({ slug }: { slug: string }) {
   return (
     <form action={action}>
       <input type="hidden" name="site" value={slug} />
-      <button type="submit" disabled={pending}>
+      <button type="submit" className="small" disabled={pending}>
         {pending ? "Checking the pages…" : "Check now"}
       </button>
       {pending ? <div className="small muted">Reading every watched page; usually under a minute.</div> : null}

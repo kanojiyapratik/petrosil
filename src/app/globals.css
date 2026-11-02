@@ -142,6 +142,20 @@ h2 {
   opacity: 0.7;
 }
 
+/* Only on a narrow screen (see "narrow" below). */
+.rail-toggle {
+  display: none;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--rail-line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--rail-ink-strong);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
 .rail-group {
   padding: 0.95rem 1.15rem 0.3rem;
   font-size: 0.68rem;
@@ -252,6 +266,10 @@ h2 {
 
 .panel > .body {
   padding: 1rem;
+  /* The panel clips for its rounded corners, so a table wider than a phone
+   * lost its right-hand columns with no way to reach them. The body scrolls
+   * sideways instead, and the panel's heading stays where it is. */
+  overflow-x: auto;
 }
 
 .panel > .body.flush {
@@ -423,6 +441,31 @@ button.ghost,
   border-color: var(--line-strong);
 }
 
+/* The file picker's own button, drawn like a ghost button rather than the
+ * browser's grey default beside the app's styled controls. */
+input[type="file"] {
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--muted);
+  max-width: 100%;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button:hover {
+  border-color: var(--brand);
+}
+
 .field {
   margin-bottom: 0.9rem;
 }
@@ -475,6 +518,29 @@ button.ghost,
   .rail {
     position: static;
     height: auto;
+    padding-bottom: 0;
+  }
+
+  /* On a phone the rail stood above every screen: thirty entries to scroll
+   * past before the page itself. Closed, it is one bar with a Menu button. */
+  .rail-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .rail-toggle {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .rail-links {
+    display: none;
+    padding-bottom: 1rem;
+  }
+
+  .rail.open .rail-links {
+    display: block;
   }
 
   .content {

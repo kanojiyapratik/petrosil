@@ -21,6 +21,10 @@
 
   color-scheme: light;
   min-height: 100vh;
+  /* A short page kept a band of background under its footer; the main
+   * column now takes up the slack, so the footer sits at the bottom. */
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-b);
@@ -203,6 +207,7 @@
 
 .bs-main {
   padding-block: 26px 10px;
+  flex: 1 0 auto;
 }
 
 .bs-card {
@@ -284,6 +289,18 @@
 
 .bs-scroll {
   overflow-x: auto;
+}
+
+/* A figure or a date reads as one piece: "1,935 USD" broke after the number
+ * and "15 Aug 2026" before the year. On a phone the first column keeps room
+ * for a market's name (it went one word to a line) and the table scrolls. */
+.bs td.num {
+  white-space: nowrap;
+}
+
+.bs-scroll td:first-child,
+.bs-scroll th:first-child {
+  min-width: 11rem;
 }
 
 .bs table {

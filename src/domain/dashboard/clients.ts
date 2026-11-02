@@ -155,8 +155,11 @@ export async function listClients(
       .groupBy(users.id, users.name)
       .having(having);
 
+  // By name, as the old Directory was — but a name that does not start with
+  // a letter or digit ("#danudah", "***", ".......": junk sign-ups) goes last,
+  // or the list opened on them. Case is ignored, so "aaron" sits by "Abel".
   const found = await people()
-    .orderBy(asc(users.name))
+    .orderBy(sql`${users.name} !~ '^[[:alnum:]]'`, sql`lower(${users.name})`, asc(users.id))
     .limit(perPage)
     .offset((page - 1) * perPage);
 

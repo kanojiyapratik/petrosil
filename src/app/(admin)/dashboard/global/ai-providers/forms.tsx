@@ -53,7 +53,7 @@ export function ProviderCard({ provider }: { provider: Provider }) {
 
       <Flash state={pressed ?? saved} />
 
-      <form action={save}>
+      <form action={save} id={`save-${provider.id}`}>
         <input type="hidden" name="id" value={provider.id} />
         <div className="cols">
           <div className="field">
@@ -81,26 +81,29 @@ export function ProviderCard({ provider }: { provider: Provider }) {
             </label>
           </div>
         </div>
-        <div className="actions">
-          <button type="submit" className="small" disabled={busy}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
       </form>
 
-      <form action={press} className="actions" style={{ marginTop: 8 }}>
+      {/* Two forms, one row of buttons: each button names its form, so Save
+          and Test it sit side by side instead of on two lines. */}
+      <form action={press} id={`press-${provider.id}`}>
         <input type="hidden" name="id" value={provider.id} />
-        <button type="submit" name="intent" value="test" className="ghost small" disabled={busy}>
+      </form>
+      <div className="actions">
+        <button type="submit" form={`save-${provider.id}`} className="small" disabled={busy}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button type="submit" form={`press-${provider.id}`} name="intent" value="test" className="ghost small" disabled={busy}>
           {pressing ? "Working…" : "Test it"}
         </button>
         {!provider.is_default ? (
-          <button type="submit" name="intent" value="default" className="ghost small" disabled={busy}>
+          <button type="submit" form={`press-${provider.id}`} name="intent" value="default" className="ghost small" disabled={busy}>
             Make it the default
           </button>
         ) : null}
         {!provider.is_default ? (
           <button
             type="submit"
+            form={`press-${provider.id}`}
             name="intent"
             value="remove"
             className="ghost small"
@@ -114,7 +117,7 @@ export function ProviderCard({ provider }: { provider: Provider }) {
             Remove
           </button>
         ) : null}
-      </form>
+      </div>
     </div>
   );
 }

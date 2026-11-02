@@ -15,8 +15,9 @@
  * rail lights up that brand rather than nothing at all.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { PEOPLE_TABS, navFor, type Freshness, type NavBrand } from "./nav";
 
@@ -66,59 +67,80 @@ export function Rail({ brands }: { brands: NavBrand[] }) {
   const path = usePathname();
   const params = useSearchParams();
   const current = currentHref(path, params.get("site"), brands);
+  // Only a phone ever sees it closed: the toggle and the hiding are both in
+  // the narrow-screen CSS. Opening a screen closes it again.
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [path]);
 
   return (
-    <nav className="rail" aria-label="Admin">
+    <nav className={open ? "rail open" : "rail"} aria-label="Admin">
       <div className="rail-head">
-        <strong>Petrosil</strong>
-        <span>
-          one admin, {brands.length} brand{brands.length === 1 ? "" : "s"}
-        </span>
+        <div>
+          <strong>Petrosil</strong>
+          <span>
+            one admin, {brands.length} brand{brands.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="rail-toggle"
+          aria-expanded={open}
+          aria-controls="rail-links"
+          onClick={() => setOpen((was) => !was)}
+        >
+          {open ? "Close" : "Menu"}
+        </button>
       </div>
 
-      {navFor(brands).map((group) => (
-        <div key={group.group}>
-          {group.group === "Sites" ? (
-            // The dots mean nothing without this, and an unexplained colour is
-            // worse than no colour. It sits beside the heading, where the eye
-            // already is when it reads the list below.
-            <div className="rail-group with-legend">
-              <span>{group.group}</span>
-              <span className="rail-legend">
-                <span>
-                  <i className="freshdot ok" /> up to date
+      <div className="rail-links" id="rail-links">
+        {navFor(brands).map((group) => (
+          <div key={group.group}>
+            {group.group === "Sites" ? (
+              // The dots mean nothing without this, and an unexplained colour is
+              // worse than no colour. It sits beside the heading, where the eye
+              // already is when it reads the list below.
+              <div className="rail-group with-legend">
+                <span>{group.group}</span>
+                <span className="rail-legend">
+                  <span>
+                    <i className="freshdot ok" /> up to date
+                  </span>
+                  <span>
+                    <i className="freshdot warn" /> due
+                  </span>
+                  <span>
+                    <i className="freshdot bad" /> overdue
+                  </span>
                 </span>
-                <span>
-                  <i className="freshdot warn" /> due
-                </span>
-                <span>
-                  <i className="freshdot bad" /> overdue
-                </span>
-              </span>
-            </div>
-          ) : (
-            <div className="rail-group">{group.group}</div>
-          )}
+              </div>
+            ) : (
+              <div className="rail-group">{group.group}</div>
+            )}
 
-          {group.items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={item.href === current ? "on" : undefined}
-            >
-              <span className="rail-label">{item.label}</span>
-              {item.freshness ? (
-                <span
-                  className={`freshdot ${DOT[item.freshness]}`}
-                  title={SAYS[item.freshness]}
-                  aria-label={SAYS[item.freshness]}
-                />
-              ) : null}
-            </Link>
-          ))}
+            {group.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={item.href === current ? "on" : undefined}
+                onClick={() => setOpen(false)}
+              >
+                <span className="rail-label">{item.label}</span>
+                {item.freshness ? (
+                  <span
+                    className={`freshdot ${DOT[item.freshness]}`}
+                    title={SAYS[item.freshness]}
+                    aria-label={SAYS[item.freshness]}
+                  />
+                ) : null}
+              </Link>
+            ))}
 
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
     </nav>
   );
 }

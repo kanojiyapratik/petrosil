@@ -3,7 +3,7 @@
  * articles and reports, and the ad slots where the old sites had them.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { priceTrends } from "@/domain/public/prices";
@@ -34,6 +34,11 @@ export default async function BrandHome({ params }: { params: Promise<{ site: st
     publishedArticles(brand.id, { limit: 6 }),
     publishedReports(brand.id, { limit: 4 }),
   ]);
+  // The front page shows markets that have a price. Listed in title order,
+  // baseoil's twelve slots went half to markets never priced, a column of
+  // "no price yet" under "Prices this week"; the full list is one click on.
+  const priced = trends.rows.filter((row) => row.price_date !== null);
+  const front = priced.length > 0 ? priced : trends.rows;
 
   return (
     <>
@@ -63,7 +68,7 @@ export default async function BrandHome({ params }: { params: Promise<{ site: st
             </Link>
           </div>
           {trends.rows.length > 0 ? (
-            <PriceTable site={site} rows={trends.rows.slice(0, SHOWN)} />
+            <PriceTable site={site} rows={front.slice(0, SHOWN)} />
           ) : (
             <div className="bs-empty">No prices published yet.</div>
           )}

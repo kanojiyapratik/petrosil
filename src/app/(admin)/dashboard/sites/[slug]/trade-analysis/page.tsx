@@ -8,7 +8,7 @@
  * matrix.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { notFound } from "next/navigation";
 
@@ -125,7 +125,7 @@ export default async function TradeAnalysisPage({
 
       {series.length > 1 ? (
         <Panel
-          title={`${kind}s over time`}
+          title={`${{ import: "Imports", export: "Exports", qty: "Quantities" }[kind]} over time`}
           flush={false}
           hint={`${count(series.length)} dates, oldest left.`}
         >
