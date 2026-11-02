@@ -9,7 +9,7 @@
  * presses Show, and every look is in the audit trail.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { EngineError } from "@/lib/engine/client";

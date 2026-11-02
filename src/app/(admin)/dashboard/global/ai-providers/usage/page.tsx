@@ -4,7 +4,7 @@
  * by; a run of failed calls is a key or a quota to look at.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { EngineError } from "@/lib/engine/client";

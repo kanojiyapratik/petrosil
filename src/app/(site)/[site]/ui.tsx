@@ -4,7 +4,7 @@
  * the browser.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import type { PublicTrendRow } from "@/domain/public/prices";
 import type { Entitlement } from "@/domain/public/paywall";

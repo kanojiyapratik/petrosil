@@ -12,11 +12,11 @@
  * dashboard called it overdue would be worse than either being wrong.
  */
 
-import { and, asc, inArray, isNull, sql } from "drizzle-orm";
+import { asc, inArray } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { prices, sites } from "@/db/schema";
-import { freshnessFor } from "./overview";
+import { sites } from "@/db/schema";
+import { freshnessFor, latestPriceDates } from "./overview";
 import type { NavBrand } from "@/app/(admin)/nav";
 
 /** Empty `siteIds` means superadmin: every brand. */
@@ -35,19 +35,10 @@ export async function railBrands(
     return [];
   }
 
-  const latest = await database
-    .select({ siteId: prices.siteId, latest: sql<string>`max(${prices.priceDate})` })
-    .from(prices)
-    .where(
-      and(
-        inArray(
-          prices.siteId,
-          brands.map((brand) => brand.id),
-        ),
-        isNull(prices.deletedAt),
-      ),
-    )
-    .groupBy(prices.siteId);
+  const latest = await latestPriceDates(
+    brands.map((brand) => brand.id),
+    database,
+  );
 
   const byBrand = new Map(latest.map((row) => [row.siteId, row.latest]));
   const midnight = new Date(now);

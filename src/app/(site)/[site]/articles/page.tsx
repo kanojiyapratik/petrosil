@@ -1,6 +1,6 @@
 /** The brand's articles, newest first, by category and by search. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { publishedArticles } from "@/domain/content/articles";

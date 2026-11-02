@@ -6,7 +6,7 @@
  * means the brands already agree and "6 versions" means they drifted.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { globalEmails } from "@/domain/global/estate";

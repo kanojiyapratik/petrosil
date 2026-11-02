@@ -4,7 +4,7 @@
  * company follows the brand's field rules (`visibleDirectoryFields`).
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { directory } from "@/domain/public/directory";

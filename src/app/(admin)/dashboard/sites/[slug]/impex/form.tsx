@@ -3,7 +3,7 @@
 /** An impex sheet: its title and description, who may read it, and the spreadsheet behind it. */
 
 import { useActionState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { Attachment } from "@/app/(admin)/attachment";
 import type { ImpexForEdit } from "@/domain/impex/editor";

@@ -8,7 +8,7 @@
  * decision a script should make.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { listStaff } from "@/domain/dashboard/catalogue";

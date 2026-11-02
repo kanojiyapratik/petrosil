@@ -7,7 +7,7 @@
  * screen that put the two together.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";

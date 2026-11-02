@@ -9,7 +9,7 @@
  * browser saying "paid" grants nothing.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 

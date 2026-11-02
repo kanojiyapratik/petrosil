@@ -3,7 +3,7 @@
  * names; the figures come with a subscription, which is the next page.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 

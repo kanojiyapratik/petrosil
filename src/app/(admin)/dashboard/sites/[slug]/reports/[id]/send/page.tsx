@@ -1,6 +1,6 @@
 /** Send one report, with its PDF attached, to the brand's paying readers. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

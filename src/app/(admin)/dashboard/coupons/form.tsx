@@ -3,7 +3,7 @@
 /** A discount code: what it takes off, where, how often and when. */
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import type { Brand } from "@/domain/dashboard/brands";
 import type { CouponForEdit } from "@/domain/billing/coupons";

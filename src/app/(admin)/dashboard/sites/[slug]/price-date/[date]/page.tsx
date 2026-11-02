@@ -1,6 +1,6 @@
 /** One date's published prices: withdraw the wrong ones, put a withdrawal back. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

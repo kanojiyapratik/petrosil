@@ -1,6 +1,6 @@
 /** A member's own offers on this brand, with how often each was opened, and a way to take one down. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 

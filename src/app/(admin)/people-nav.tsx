@@ -5,7 +5,7 @@
  * and none of them linked to the others.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { PEOPLE_TABS } from "./nav";
 import { SubTabs } from "./subtabs";

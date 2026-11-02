@@ -2,7 +2,7 @@
 
 /** The brand's menu. Client-side only to know which section is open. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { usePathname } from "next/navigation";
 
 const SECTIONS = [

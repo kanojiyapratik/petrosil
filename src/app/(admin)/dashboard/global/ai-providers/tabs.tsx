@@ -1,6 +1,6 @@
 /** The two halves of the AI entry under Global settings. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 export function AiTabs({ on }: { on: "providers" | "usage" }) {
   return (

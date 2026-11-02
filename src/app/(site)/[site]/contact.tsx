@@ -6,7 +6,7 @@
  * `submitEnquiry` when it arrives.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { sendEnquiry } from "./actions";
 import { Field, ReaderForm } from "./forms";

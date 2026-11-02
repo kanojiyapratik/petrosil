@@ -1,6 +1,6 @@
 /** The brand's reports, newest first. Listed for everyone; the PDF is for subscribers. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { publishedReports } from "@/domain/public/reports";

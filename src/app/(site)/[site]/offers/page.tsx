@@ -3,7 +3,7 @@
  * posted it and how to reach them follows the brand's field rules.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { publishedOffers } from "@/domain/public/offers";

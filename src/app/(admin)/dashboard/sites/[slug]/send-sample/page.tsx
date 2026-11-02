@@ -3,7 +3,7 @@
  * The old screen could only send the two latest; here any of them can go.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { findReaders, sendableReports } from "@/domain/reports/sending";

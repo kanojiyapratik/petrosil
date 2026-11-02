@@ -7,7 +7,7 @@
  * place, which are exactly the rows that become a client's mismatch email.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";

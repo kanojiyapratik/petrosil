@@ -1,6 +1,6 @@
 /** One send: what it said, and each recipient's mail — queued, sent or failed (and why), and opened. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

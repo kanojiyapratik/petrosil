@@ -1,6 +1,6 @@
 /** One offer, counted as one view, with a reply box for readers the brand lets reply. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

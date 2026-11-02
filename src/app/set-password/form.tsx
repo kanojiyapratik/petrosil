@@ -2,7 +2,7 @@
 
 /** Choose a password from an invitation link. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { useActionState } from "react";
 
 import { setPasswordAction, type SetPasswordResult } from "./actions";

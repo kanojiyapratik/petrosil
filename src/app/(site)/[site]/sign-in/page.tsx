@@ -3,7 +3,7 @@
  * this is the same sign-in as the others; only the page around it differs.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 

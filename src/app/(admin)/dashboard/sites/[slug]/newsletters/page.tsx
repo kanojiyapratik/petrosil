@@ -7,7 +7,7 @@
  * them.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { listNewsletters, listTemplates } from "@/domain/dashboard/promotion";

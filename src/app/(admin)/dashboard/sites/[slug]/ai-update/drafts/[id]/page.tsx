@@ -5,7 +5,7 @@
  * price update. A saved draft stays readable, beside what was saved.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

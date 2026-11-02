@@ -4,7 +4,7 @@
  * everyone else.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 

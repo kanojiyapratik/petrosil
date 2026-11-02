@@ -11,7 +11,7 @@
  */
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import type { Brand } from "@/domain/dashboard/brands";
 import type { PlanForEdit } from "@/domain/billing/plans";

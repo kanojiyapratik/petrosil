@@ -6,7 +6,7 @@
  * sent issue is read-only and can be copied into a new draft.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

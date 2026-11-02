@@ -59,6 +59,41 @@ export type Overview = {
  * brand. Two places disagreeing about whether baseoil is overdue would be
  * worse than either of them being wrong.
  */
+/**
+ * Each brand's newest live price date, one index lookup per brand.
+ *
+ * `max(price_date) … group by site_id` reads every price row (80,000 and
+ * growing) and the rail asks it on every admin page; walking
+ * `prices_site_date_idx` backwards to the first live row is the same answer.
+ * A brand with no prices is left out, as the grouped form left it out.
+ */
+export async function latestPriceDates(
+  siteIds: number[],
+  database: Database = db(),
+): Promise<{ siteId: number; latest: string }[]> {
+  if (siteIds.length === 0) {
+    return [];
+  }
+
+  const rows = await database
+    .select({
+      siteId: sites.id,
+      // Spelled out: in a one-table select drizzle writes columns without
+      // their table, so `${prices.siteId} = ${sites.id}` came out as
+      // `"site_id" = "id"` — prices compared with themselves, every brand null.
+      latest: sql<string | null>`(
+        select p.price_date from prices p
+        where p.site_id = "sites"."id" and p.deleted_at is null
+        order by p.price_date desc
+        limit 1
+      )`,
+    })
+    .from(sites)
+    .where(inArray(sites.id, siteIds));
+
+  return rows.filter((row): row is { siteId: number; latest: string } => row.latest !== null);
+}
+
 export function freshnessFor(cadence: string | null, days: number | null): SiteCard["freshness"] {
   if (days === null) {
     return "none";
@@ -120,11 +155,7 @@ export async function estateOverview(
         .where(and(inArray(locations.siteId, ids), isNull(locations.deletedAt)))
         .groupBy(locations.siteId),
 
-      database
-        .select({ siteId: prices.siteId, latest: sql<string>`max(${prices.priceDate})` })
-        .from(prices)
-        .where(and(inArray(prices.siteId, ids), isNull(prices.deletedAt)))
-        .groupBy(prices.siteId),
+      latestPriceDates(ids, database),
 
       // Counted with expiry in mind, not by tier alone. A membership whose
       // `expires_at` has passed is lapsed however it is labelled — the client

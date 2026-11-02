@@ -122,3 +122,34 @@ class TestTheFallbackList:
     def test_every_provider_still_has_one_for_when_the_key_cannot_be_asked(self):
         for name, meta in PROVIDERS.items():
             assert meta["models"], name
+
+
+class TestModelCache:
+    def test_an_answer_is_kept_and_a_failure_is_asked_again(self, monkeypatch):
+        from app.ai import providers
+
+        providers._MODEL_CACHE.clear()
+        calls = []
+
+        def fake_ask(provider, api_key, session=None, timeout_seconds=10):
+            calls.append(api_key)
+            return [] if api_key == "sk-down" else ["gpt-4.1"]
+
+        monkeypatch.setattr(providers, "_ask_models", fake_ask)
+
+        assert providers.available_models("openai", "sk-x") == ["gpt-4.1"]
+        assert providers.available_models("openai", "sk-x") == ["gpt-4.1"]
+        assert calls == ["sk-x"]
+
+        # Nothing to keep: the next load asks again.
+        assert providers.available_models("openai", "sk-down") == []
+        assert providers.available_models("openai", "sk-down") == []
+        assert calls == ["sk-x", "sk-down", "sk-down"]
+
+        # Older than ten minutes: asked again.
+        key = next(k for k in providers._MODEL_CACHE if k[0] == "openai")
+        when, found = providers._MODEL_CACHE[key]
+        providers._MODEL_CACHE[key] = (when - providers.MODEL_CACHE_SECONDS - 1, found)
+        providers.available_models("openai", "sk-x")
+        assert calls == ["sk-x", "sk-down", "sk-down", "sk-x"]
+        providers._MODEL_CACHE.clear()

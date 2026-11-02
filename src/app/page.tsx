@@ -9,7 +9,7 @@
 
 import "./(site)/site.css";
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import type { Metadata } from "next";
 import { and, eq, isNull, max } from "drizzle-orm";
 

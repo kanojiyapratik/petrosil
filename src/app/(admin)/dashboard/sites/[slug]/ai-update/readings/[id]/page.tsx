@@ -7,7 +7,7 @@
  * left ticked here, so a wrong number caught now never reaches the prices.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";

@@ -1,6 +1,6 @@
 /** One import/export sheet: its description for everyone, the spreadsheet for subscribers. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

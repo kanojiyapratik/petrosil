@@ -2,7 +2,7 @@
 
 /** The forms on one date's screen: withdraw ticked prices, and put a withdrawal back. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { useActionState, useState } from "react";
 
 import type { DatePrice } from "@/domain/price/date-corrections";

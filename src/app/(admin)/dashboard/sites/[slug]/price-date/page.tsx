@@ -4,7 +4,7 @@
  * `domain/price/date-corrections.ts`.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { PER_PAGE, priceDates } from "@/domain/price/date-corrections";

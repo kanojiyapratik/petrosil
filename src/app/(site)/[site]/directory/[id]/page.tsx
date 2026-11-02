@@ -1,6 +1,6 @@
 /** One listed company, showing what this reader may see, and a way to write to it. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

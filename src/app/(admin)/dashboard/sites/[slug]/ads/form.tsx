@@ -6,7 +6,7 @@
  */
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { Attachment } from "@/app/(admin)/attachment";
 import type { AdForEdit } from "@/domain/ads/editor";

@@ -11,7 +11,7 @@
  * that asks which website first.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";

@@ -10,7 +10,7 @@
  * old sites that was invisible until a reader clicked a dead link.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { db } from "@/db";

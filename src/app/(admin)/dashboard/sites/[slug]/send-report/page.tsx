@@ -1,6 +1,6 @@
 /** Choose which report to send: the brand's reports that have their PDF in the store. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
 import { sendableReports } from "@/domain/reports/sending";

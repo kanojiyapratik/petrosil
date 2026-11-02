@@ -11,7 +11,7 @@
  * Settings.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { usePathname } from "next/navigation";
 
 export type SubTab = { label: string; href: string };

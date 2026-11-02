@@ -2,7 +2,7 @@
 
 /** The price-entry grid: a box per market for one date. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { useActionState, useState } from "react";
 
 import type { EntryRow } from "@/domain/price/entry";

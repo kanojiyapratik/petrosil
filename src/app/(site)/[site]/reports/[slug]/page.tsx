@@ -1,6 +1,6 @@
 /** One report: what it covers for everyone, the download for those who may have it. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

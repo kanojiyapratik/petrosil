@@ -11,7 +11,7 @@
  * path is a prefix of every other — only wins on an exact match.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { usePathname } from "next/navigation";
 
 import { siteTabs } from "../../../nav";

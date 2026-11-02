@@ -14,6 +14,7 @@ this module's.
 from __future__ import annotations
 
 import base64
+import hashlib
 import re
 import time
 from dataclasses import dataclass
@@ -138,7 +139,37 @@ def _newest_first(models: list[str]) -> list[str]:
     return sorted(ordered, key=lambda name: 0 if name.lower().startswith(("gpt", "claude")) else 1)
 
 
+#: Model lists by (provider, key fingerprint): (when asked, the answer). The
+#: settings screens ask on every load and the providers take 1-6 s to answer
+#: a question whose answer changes a few times a year. Only an answer is kept;
+#: "could not ask" is asked again next time, so a fixed key shows at once.
+_MODEL_CACHE: dict[tuple[str, str], tuple[float, list[str]]] = {}
+MODEL_CACHE_SECONDS = 600
+
+
 def available_models(provider: str, api_key: str, session=None, timeout_seconds: int = 10) -> list[str]:
+    """What this key can use, remembered for ten minutes.
+
+    A caller with its own session (the tests) always asks.
+    """
+    if session is not None:
+        return _ask_models(provider, api_key, session=session, timeout_seconds=timeout_seconds)
+
+    cache_key = (provider.lower(), hashlib.sha256(api_key.encode("utf-8")).hexdigest())
+    kept = _MODEL_CACHE.get(cache_key)
+
+    if kept and time.monotonic() - kept[0] < MODEL_CACHE_SECONDS:
+        return list(kept[1])
+
+    found = _ask_models(provider, api_key, timeout_seconds=timeout_seconds)
+
+    if found:
+        _MODEL_CACHE[cache_key] = (time.monotonic(), found)
+
+    return found
+
+
+def _ask_models(provider: str, api_key: str, session=None, timeout_seconds: int = 10) -> list[str]:
     """What this key can actually use, asked of the provider itself.
 
     The hardcoded list above was written in August and had the console still

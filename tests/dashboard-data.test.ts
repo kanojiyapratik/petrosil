@@ -15,7 +15,7 @@ import { GET as clientRoute } from "@/app/api/dashboard/clients/[id]/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 
 import { db } from "@/db";
-import { auditLog, locations, memberships, users } from "@/db/schema";
+import { auditLog, locations, memberships, prices, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
 import { commitBatch, stageRows } from "@/domain/price/batches";
 import { estateOverview } from "@/domain/dashboard/overview";
@@ -509,6 +509,30 @@ describe("the brands in the rail", () => {
     for (const card of cards.sites) {
       expect(byRail.get(card.slug)).toBe(card.freshness);
     }
+  });
+
+  it("dates each brand by its own newest live price, ignoring a withdrawn one", async () => {
+    const baseoil = await makeBrand("dated-one");
+    const bitumart = await makeBrand("dated-two");
+
+    await publishPrice(baseoil, "Singapore SN 150 FOB", 1500, "2026-08-15");
+    await publishPrice(baseoil, "UAE SN 500", 1600, "2026-08-29");
+    await publishPrice(bitumart, "Singapore SN 150 FOB", 400, "2026-08-16");
+    const withdrawn = await publishPrice(bitumart, "UAE SN 500", 410, "2026-09-01");
+
+    await db().update(prices).set({ deletedAt: new Date() }).where(eq(prices.id, withdrawn));
+
+    const cards = await estateOverview([]);
+    const dated = new Map(cards.sites.map((card) => [card.slug, card.latest_pricedate]));
+
+    expect(dated.get("dated-one")).toBe("2026-08-29");
+    expect(dated.get("dated-two")).toBe("2026-08-16");
+
+    // A brand with prices is never "none" in the rail.
+    const rail = new Map((await railBrands([])).map((brand) => [brand.slug, brand.freshness]));
+
+    expect(rail.get("dated-one")).not.toBe("none");
+    expect(rail.get("dated-two")).not.toBe("none");
   });
 
   it("shows a brand with no prices as having none, not as overdue", async () => {

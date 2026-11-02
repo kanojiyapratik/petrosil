@@ -10,7 +10,7 @@
  */
 
 import { useActionState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import type { Brand } from "@/domain/dashboard/brands";
 import type { ArticleForEdit } from "@/domain/content/articles";

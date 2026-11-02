@@ -7,7 +7,7 @@
  */
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import type { TemplateForEdit } from "@/domain/content/newsletter-templates";
 import { deleteTemplateAction, saveTemplateAction, type TemplateFormResult } from "./actions";

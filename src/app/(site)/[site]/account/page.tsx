@@ -3,7 +3,7 @@
  * invoices, their details and their password.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 

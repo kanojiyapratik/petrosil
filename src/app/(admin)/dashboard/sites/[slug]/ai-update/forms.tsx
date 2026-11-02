@@ -10,7 +10,7 @@
  */
 
 import { useActionState, useMemo, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { useRouter } from "next/navigation";
 
 import { Popup } from "@/app/(admin)/popup";

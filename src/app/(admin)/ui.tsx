@@ -7,7 +7,7 @@
  * of its replacements do not.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { brandContext } from "./nav";
 

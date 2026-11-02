@@ -1,6 +1,6 @@
 /** One article. A subscribers-only one shows its opening to everyone and the rest to readers who pay. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

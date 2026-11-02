@@ -8,7 +8,7 @@
  * worst, never charge it.
  */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";

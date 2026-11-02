@@ -1,6 +1,6 @@
 /** Where the emailed reset link lands. The link is only spent when the new password is accepted. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 

@@ -9,7 +9,7 @@
  */
 
 import { useActionState } from "react";
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 
 import { Attachment } from "@/app/(admin)/attachment";
 import type { OfferForEdit } from "@/domain/offers/editor";

@@ -1,6 +1,6 @@
 /** One system email across the brands: its versions, and one to apply to the brands ticked. */
 
-import Link from "next/link";
+import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
