@@ -13,6 +13,7 @@ import { notFound } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { enabledCurrencies, locationDetail, locationForEdit } from "@/domain/dashboard/locations";
 import { LocationForm } from "../form";
+import { RetireMarket } from "../retire";
 import { toggleLocation } from "@/app/(admin)/dashboard/actions";
 import { Change, Chart, Empty, Heading, Panel, count, money } from "@/app/(admin)/ui";
 
@@ -50,6 +51,7 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
             {location.visible ? "Hold it" : "Publish it"}
           </button>
         </form>
+        {editable ? <RetireMarket slug={slug} id={location.id} title={location.title} prices={location.price_rows} /> : null}
       </Heading>
 
       {editable ? (

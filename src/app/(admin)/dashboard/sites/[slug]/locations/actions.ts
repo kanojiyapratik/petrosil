@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 import { currentViewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { saveLocation } from "@/domain/dashboard/locations";
+import { retireLocation, saveLocation } from "@/domain/dashboard/locations";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type LocationResult = { error?: string; field?: string; saved?: string } | null;
@@ -67,4 +67,19 @@ export async function saveLocationAction(_state: unknown, form: FormData): Promi
   }
 
   return { saved: "Saved." };
+}
+
+/** Retire a market (the old delete); back to the list, which says so. */
+export async function retireLocationAction(form: FormData): Promise<void> {
+  const viewer = await currentViewer();
+
+  if (!viewer) {
+    throw new Error("not staff");
+  }
+
+  const slug = text(form, "site");
+  const retired = await retireLocation(viewer, Number(form.get("id")), { ip: await callerIp() });
+
+  revalidatePath(`/dashboard/sites/${slug}`, "layout");
+  redirect(`/dashboard/sites/${slug}/locations${retired ? `?retired=${encodeURIComponent(retired.title)}` : ""}`);
 }

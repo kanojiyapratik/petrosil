@@ -12,12 +12,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { auditLog, currencies, locations, memberships, rolePermissions, roles, users } from "@/db/schema";
+import { auditLog, currencies, locations, memberships, prices, rolePermissions, roles, users } from "@/db/schema";
 import { AccessError } from "@/lib/auth/guard";
-import { saveLocation } from "@/domain/dashboard/locations";
+import { listLocations, retireLocation, saveLocation } from "@/domain/dashboard/locations";
 import { saveCurrency } from "@/domain/billing/currencies";
 import { LocationResolver } from "@/domain/price/locations";
-import { makeBrand, resetDatabase, type Brand } from "./helpers";
+import { makeBrand, publishPrice, resetDatabase, type Brand } from "./helpers";
 
 let baseoil: Brand;
 let bitumart: Brand;
@@ -109,6 +109,44 @@ describe("a price location", () => {
     await expect(
       saveLocation(guard([baseoil.siteId]), { site: "baseoil", title: "New", currency: "USD", visible: true }),
     ).rejects.toBeInstanceOf(AccessError);
+  });
+});
+
+describe("retiring a price location", () => {
+  it("takes it off every list but keeps its prices and says so in the trail", async () => {
+    const id = baseoil.locationIds["Singapore SN 150 FOB"]!;
+
+    await publishPrice(baseoil, "Singapore SN 150 FOB", 1500, "2026-08-15");
+    await publishPrice(baseoil, "Singapore SN 150 FOB", 1520, "2026-08-22");
+
+    expect(await retireLocation(guard([]), id)).toMatchObject({ title: "Singapore SN 150 FOB", prices: 2 });
+
+    const [row] = await db().select().from(locations).where(eq(locations.id, id));
+    expect(row!.deletedAt).not.toBeNull();
+    expect((await listLocations([], { site: "baseoil" })).map((r) => r.id)).not.toContain(id);
+    expect(await db().select().from(prices).where(eq(prices.locationId, id))).toHaveLength(2);
+
+    const resolver = await LocationResolver.forSite(baseoil.siteId);
+    expect(resolver.resolve("Singapore SN 150 FOB")).not.toMatchObject({ status: "matched" });
+
+    const [entry] = await db().select().from(auditLog).where(eq(auditLog.action, "location.retire"));
+    expect(entry).toMatchObject({ entityId: id, detail: { title: "Singapore SN 150 FOB", prices_kept: 2 } });
+
+    // Already gone: nothing to retire twice.
+    expect(await retireLocation(guard([]), id)).toBeNull();
+  });
+
+  it("is not another brand's staff's, nor a role's without location-delete", async () => {
+    const id = baseoil.locationIds["Singapore SN 150 FOB"]!;
+
+    expect(await retireLocation(guard([bitumart.siteId]), id)).toBeNull();
+
+    const [role] = await db().insert(roles).values({ name: "Editor" }).returning();
+
+    await db().insert(rolePermissions).values({ roleId: role!.id, permission: "location-edit" });
+    await db().insert(memberships).values({ userId: staff, siteId: baseoil.siteId, role: "staff", roleId: role!.id });
+
+    await expect(retireLocation(guard([baseoil.siteId]), id)).rejects.toBeInstanceOf(AccessError);
   });
 });
 

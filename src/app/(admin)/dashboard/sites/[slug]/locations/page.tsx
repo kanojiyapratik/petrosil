@@ -76,6 +76,12 @@ export default async function LocationsPage({
         </Popup>
       </Heading>
 
+      {typeof search.retired === "string" ? (
+        <p className="flash" role="status">
+          Retired &ldquo;{search.retired}&rdquo;. Its prices are kept in the history.
+        </p>
+      ) : null}
+
       <ListBar action={`/dashboard/sites/${slug}/locations`} q={q} placeholder="Search markets" keep={{ shown }}>
         <Chips
           base={`/dashboard/sites/${slug}/locations`}

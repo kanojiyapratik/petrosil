@@ -380,6 +380,50 @@ export async function saveLocation(
 }
 
 /** The fields the location form edits, scoped like every dashboard read. */
+/**
+ * Retire a location: the old admin's delete. It leaves every list — the
+ * markets screen, the brand site, the price module and the crawler — but
+ * stays in the table with its prices, so history and the audit trail still
+ * name it. Null when it is not there or is another brand's.
+ */
+export async function retireLocation(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ siteId: number; title: string; prices: number } | null> {
+  const [found] = await database
+    .select()
+    .from(locations)
+    .where(and(eq(locations.id, id), isNull(locations.deletedAt)))
+    .limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return null;
+  }
+
+  await requirePermission(guard, found.siteId, "location-delete", database);
+
+  const [held] = await database
+    .select({ n: count() })
+    .from(prices)
+    .where(and(eq(prices.locationId, id), isNull(prices.deletedAt)));
+
+  await database.update(locations).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(locations.id, id));
+
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "location.retire",
+    entity: "location",
+    entityId: id,
+    detail: { title: found.title, prices_kept: Number(held?.n ?? 0) },
+    ip: context.ip ?? null,
+  });
+
+  return { siteId: found.siteId, title: found.title, prices: Number(held?.n ?? 0) };
+}
+
 export async function locationForEdit(siteIds: number[], id: number, database: Database = db()) {
   const [row] = await database
     .select()
