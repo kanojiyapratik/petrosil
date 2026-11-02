@@ -59,6 +59,12 @@ export default async function Home() {
       <header className="bs-mast">
         <div className="wrap bs-mast-in">
           <span className="bs-logo">Petrosil</span>
+          {/* In plain sight: the footer link alone was too easy to miss. */}
+          <div className="bs-acct">
+            <Link href="/sign-in" className="bs-cta">
+              Staff sign in
+            </Link>
+          </div>
         </div>
       </header>
 
