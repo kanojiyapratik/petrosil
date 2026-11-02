@@ -12,6 +12,7 @@
  */
 
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
 
 import { db, type Database } from "@/db";
 import { sites, tradeLocations, tradeQuantities, type TradeKind } from "@/db/schema";
@@ -44,23 +45,41 @@ export async function tradePlaces(
   database: Database = db(),
 ): Promise<TradePlace[]> {
   const only = await siteScope(siteIds, query.site, database);
+  const ofKind = and(
+    eq(tradeQuantities.kind, kind),
+    only ? inArray(tradeQuantities.siteId, only) : undefined,
+  );
 
-  const counted = sql<number>`(
-    select count(*) from ${tradeQuantities}
-    where ${tradeQuantities.kind} = ${kind}
-      and (${tradeQuantities.fromLocationId} = ${tradeLocations.id}
-        or ${tradeQuantities.toLocationId} = ${tradeLocations.id})
-  )`;
+  // Every flow's two ends, counted once per place in one pass. A count per
+  // place with `from = id or to = id` cannot use an index and ran once for
+  // each of baseoil's ~145 places: 5.6 s, twice per page. A flow from a
+  // place to itself is still one flow, so its far end is left out.
+  const ends = unionAll(
+    database
+      .select({ locationId: sql<number>`${tradeQuantities.fromLocationId}`.as("location_id") })
+      .from(tradeQuantities)
+      .where(ofKind),
+    database
+      .select({ locationId: sql<number>`${tradeQuantities.toLocationId}`.as("location_id") })
+      .from(tradeQuantities)
+      .where(and(ofKind, sql`${tradeQuantities.toLocationId} is distinct from ${tradeQuantities.fromLocationId}`)),
+  ).as("ends");
+
+  const counted = database
+    .select({ locationId: ends.locationId, flows: sql<number>`count(*)`.as("flows") })
+    .from(ends)
+    .groupBy(ends.locationId)
+    .as("counted");
 
   const rows = await database
-    .select({ place: tradeLocations, slug: sites.slug, name: sites.name, flows: counted })
+    .select({ place: tradeLocations, slug: sites.slug, name: sites.name, flows: counted.flows })
     .from(tradeLocations)
     .innerJoin(sites, eq(sites.id, tradeLocations.siteId))
+    .innerJoin(counted, eq(counted.locationId, tradeLocations.id))
     .where(
       and(
         isNull(tradeLocations.deletedAt),
         only ? inArray(tradeLocations.siteId, only) : undefined,
-        sql`${counted} > 0`,
       ),
     )
     .orderBy(asc(sites.slug), asc(tradeLocations.title));

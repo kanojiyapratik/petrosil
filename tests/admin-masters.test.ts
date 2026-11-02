@@ -190,6 +190,32 @@ describe("trade flows", () => {
     ]);
     expect(await tradePlaces([], "export")).toEqual([]);
   });
+
+  test("a place is counted once per flow, whichever end it is at", async () => {
+    const brand = await makeBrand("baseoil", []);
+
+    const [india, korea, singapore] = await db()
+      .insert(tradeLocations)
+      .values([
+        { siteId: brand.siteId, title: "India" },
+        { siteId: brand.siteId, title: "Korea" },
+        { siteId: brand.siteId, title: "Singapore" },
+      ])
+      .returning();
+
+    await db().insert(tradeQuantities).values([
+      { siteId: brand.siteId, kind: "import", fromLocationId: korea!.id, toLocationId: india!.id, qty: "1", qtyDate: "2026-09-30" },
+      { siteId: brand.siteId, kind: "import", fromLocationId: india!.id, toLocationId: singapore!.id, qty: "1", qtyDate: "2026-09-30" },
+      // From a place to itself: one flow, not two.
+      { siteId: brand.siteId, kind: "import", fromLocationId: india!.id, toLocationId: india!.id, qty: "1", qtyDate: "2026-09-30" },
+    ]);
+
+    expect((await tradePlaces([], "import")).map((row) => [row.title, row.flows])).toEqual([
+      ["India", 3],
+      ["Korea", 1],
+      ["Singapore", 1],
+    ]);
+  });
 });
 
 describe("ads", () => {
