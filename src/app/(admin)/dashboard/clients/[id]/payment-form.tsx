@@ -75,7 +75,10 @@ export function PaymentForm({
         </p>
       ) : null}
 
-      <div className="bar">
+      {/* A grid aligned from the top: a hint under one box no longer lifts
+          its neighbours, and the fields keep their rows instead of wrapping
+          wherever they happen to fit. */}
+      <div className="form-grid">
         <div className="field">
           <label htmlFor="pay-site">Brand</label>
           <select
@@ -98,7 +101,7 @@ export function PaymentForm({
           </select>
         </div>
 
-        <div className="field grow">
+        <div className="field span-2">
           <label htmlFor="pay-plan">Plan</label>
           <select
             id="pay-plan"
@@ -140,7 +143,6 @@ export function PaymentForm({
               setYears(next);
               pick(plan, next);
             }}
-            style={{ width: "5em" }}
           />
         </div>
 
@@ -179,9 +181,7 @@ export function PaymentForm({
           />
           <div className="small muted">{list !== undefined ? `list price ${list.toLocaleString("en-IN")}` : "no list price for this term"}</div>
         </div>
-      </div>
 
-      <div className="bar">
         <div className="field">
           <label htmlFor="pay-method">Paid by</label>
           <select id="pay-method" name="method" defaultValue="bank" aria-invalid={bad("method")}>
@@ -192,10 +192,6 @@ export function PaymentForm({
             ))}
           </select>
         </div>
-        <div className="field grow">
-          <label htmlFor="pay-reference">Transaction, UTR or cheque number</label>
-          <input id="pay-reference" name="reference" type="text" maxLength={191} aria-invalid={bad("reference")} />
-        </div>
         <div className="field">
           <label htmlFor="pay-on">Paid on</label>
           <input id="pay-on" name="paid_on" type="date" max={today} defaultValue={today} aria-invalid={bad("paid_on")} />
@@ -204,6 +200,10 @@ export function PaymentForm({
           <label htmlFor="pay-until">Access until</label>
           <input id="pay-until" name="until" type="date" aria-invalid={bad("until")} />
           <div className="small muted">blank: the usual term</div>
+        </div>
+        <div className="field span-3">
+          <label htmlFor="pay-reference">Transaction, UTR or cheque number</label>
+          <input id="pay-reference" name="reference" type="text" maxLength={191} aria-invalid={bad("reference")} />
         </div>
       </div>
 

@@ -1344,3 +1344,61 @@ button.linklike {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* A form laid out in rows of three, aligned from the top: a hint under one
+ * box does not lift its neighbours, and nothing wraps to an odd place.
+ * `span-2` / `span-3` take two or all three columns. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+.form-grid .field {
+  margin: 0;
+}
+
+.form-grid .span-2 {
+  grid-column: span 2;
+}
+
+.form-grid .span-3 {
+  grid-column: 1 / -1;
+}
+
+/* In a grid every box fills its column, so the rows read as one table. */
+.form-grid :is(input, select, textarea) {
+  max-width: none;
+}
+
+.form-grid .small {
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 700px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid .span-2,
+  .form-grid .span-3 {
+    grid-column: auto;
+  }
+}
+
+/* A panel's title stays on one line; a long hint beside it wraps instead. */
+.panel > .head h2 {
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .panel > .head {
+    flex-wrap: wrap;
+  }
+
+  .panel > .head h2 {
+    white-space: normal;
+  }
+}
