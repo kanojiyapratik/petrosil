@@ -5,6 +5,7 @@
  * brand's clients, and a subscriber must never reach the dashboard at all.
  */
 import bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { POST as loginRoute } from "@/app/api/auth/login/route";
@@ -14,7 +15,7 @@ import { GET as overviewRoute } from "@/app/api/dashboard/overview/route";
 
 import { db } from "@/db";
 import { loginAttempts, memberships, users } from "@/db/schema";
-import { MAX_FAILURES } from "@/lib/auth/session";
+import { MAX_FAILURES, signInLinks, signInWithLink } from "@/lib/auth/session";
 import { hashPassword, isLegacyHash, verifyPassword } from "@/lib/auth/passwords";
 import { eq } from "drizzle-orm";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
@@ -251,5 +252,53 @@ describe("who may open the dashboard", () => {
     const response = await overviewRoute(new Request("http://platform.test/api/dashboard/overview"));
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe("a private sign-in link", () => {
+  const SECRET = "a-long-random-secret-only-the-owner-has";
+  const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+
+  it("signs a staff member in, recorded as a link sign-in", async () => {
+    const id = await makePerson("owner@petrosil.example", "unused-password", [{ brand: baseoil, role: "superadmin" }]);
+    const links = signInLinks(`owner@petrosil.example=${sha(SECRET)}`);
+
+    const { identity, token } = await signInWithLink(SECRET, { ip: "203.0.113.9" }, db(), links);
+
+    expect(identity.user.id).toBe(id);
+    expect(token.length).toBeGreaterThan(30);
+
+    const [attempt] = await db().select().from(loginAttempts).where(eq(loginAttempts.userId, id));
+    expect(attempt).toMatchObject({ succeeded: true, reason: "link" });
+  });
+
+  it("refuses a wrong secret and records the refusal", async () => {
+    await makePerson("owner@petrosil.example", "unused-password", [{ brand: baseoil, role: "superadmin" }]);
+    const links = signInLinks(`owner@petrosil.example=${sha(SECRET)}`);
+
+    await expect(signInWithLink("guessed", {}, db(), links)).rejects.toMatchObject({ status: 401 });
+    await expect(signInWithLink(undefined, {}, db(), links)).rejects.toMatchObject({ status: 401 });
+
+    const refused = await db().select().from(loginAttempts).where(eq(loginAttempts.reason, "bad_link"));
+    expect(refused).toHaveLength(2);
+  });
+
+  it("is no way in for a reader, a disabled account, or once the entry is gone", async () => {
+    await makePerson("reader@petrosil.example", "unused-password", [{ brand: baseoil, role: "subscriber" }]);
+    await makePerson("gone@petrosil.example", "unused-password", [{ brand: bitumart, role: "staff" }], { status: "disabled" });
+
+    await expect(
+      signInWithLink(SECRET, {}, db(), signInLinks(`reader@petrosil.example=${sha(SECRET)}`)),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(
+      signInWithLink(SECRET, {}, db(), signInLinks(`gone@petrosil.example=${sha(SECRET)}`)),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(signInWithLink(SECRET, {}, db(), signInLinks(""))).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("reads the setting leniently but keeps only well-formed entries", () => {
+    expect(signInLinks(` Owner@Petrosil.example = ${sha(SECRET).toUpperCase()} , broken=xyz, =abc`)).toEqual([
+      { email: "owner@petrosil.example", hash: sha(SECRET) },
+    ]);
   });
 });

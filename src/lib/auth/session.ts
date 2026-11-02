@@ -9,7 +9,7 @@
  * self-contained JWT cannot.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
@@ -96,6 +96,15 @@ export async function signIn(
       .where(eq(users.id, user.id));
   }
 
+  return openSession(user, { email, ip, userAgent: context.userAgent ?? null, reason: null }, database);
+}
+
+/** The one way a session starts, whichever door was used. */
+async function openSession(
+  user: typeof users.$inferSelect,
+  context: { email: string; ip: string | null; userAgent: string | null; reason: string | null },
+  database: Database,
+): Promise<{ identity: Identity; token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
 
@@ -104,20 +113,80 @@ export async function signIn(
     .values({
       userId: user.id,
       tokenHash: hash(token),
-      ip,
+      ip: context.ip,
       userAgent: context.userAgent?.slice(0, 255) ?? null,
       expiresAt,
     })
     .returning();
 
   await database.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
-  await record(database, { email, ip, userId: user.id, succeeded: true, reason: null });
+  await record(database, { email: context.email, ip: context.ip, userId: user.id, succeeded: true, reason: context.reason });
 
   return {
     identity: { user, sessionId: session!.id, memberships: await membershipsFor(user.id, database) },
     token,
     expiresAt,
   };
+}
+
+/* ------------------------------------------------ a private sign-in link */
+
+/**
+ * `SIGN_IN_LINKS`: who may sign in by a private link, as
+ * `email=<sha256 of the link's secret>`, comma-separated. Only the hash
+ * lives on the server; the secret is in the link's `#` part, which a browser
+ * never sends, so it reaches no request log. Removing an entry revokes it.
+ */
+export function signInLinks(raw: string | undefined): { email: string; hash: string }[] {
+  return (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const at = entry.lastIndexOf("=");
+
+      return { email: entry.slice(0, at).trim().toLowerCase(), hash: entry.slice(at + 1).trim().toLowerCase() };
+    })
+    .filter((link) => link.email !== "" && /^[0-9a-f]{64}$/.test(link.hash));
+}
+
+/** Staff only: a reader's account has no business with a back door. */
+export async function signInWithLink(
+  secret: unknown,
+  context: { ip?: string | null; userAgent?: string | null } = {},
+  database: Database = db(),
+  links = signInLinks(process.env.SIGN_IN_LINKS),
+): Promise<{ identity: Identity; token: string; expiresAt: Date }> {
+  const ip = context.ip ?? null;
+  const refused = () => new SignInError("This sign-in link does not work. Sign in with your email and password.", 401, "bad_link");
+
+  if (await throttled("sign-in link", ip, database)) {
+    throw new SignInError("Too many attempts. Wait a few minutes and try again.", 429, "throttled");
+  }
+
+  const given = typeof secret === "string" ? Buffer.from(hash(secret), "hex") : null;
+  const match = given
+    ? links.find((link) => {
+        const kept = Buffer.from(link.hash, "hex");
+
+        return kept.length === given.length && timingSafeEqual(kept, given);
+      })
+    : undefined;
+
+  if (!match) {
+    await record(database, { email: "sign-in link", ip, succeeded: false, reason: "bad_link" });
+    throw refused();
+  }
+
+  const [user] = await database.select().from(users).where(eq(sql`lower(${users.email})`, match.email)).limit(1);
+  const staff = user ? (await membershipsFor(user.id, database)).some((m) => m.role === "staff" || m.role === "superadmin") : false;
+
+  if (!user || user.status !== "active" || !staff) {
+    await record(database, { email: match.email, ip, userId: user?.id ?? null, succeeded: false, reason: "bad_link" });
+    throw refused();
+  }
+
+  return openSession(user, { email: match.email, ip, userAgent: context.userAgent ?? null, reason: "link" }, database);
 }
 
 async function throttled(email: string, ip: string | null, database: Database): Promise<boolean> {
