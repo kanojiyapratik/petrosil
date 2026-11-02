@@ -1282,3 +1282,29 @@ button.quick-one:hover {
 .brandbar {
   margin-bottom: 10px;
 }
+
+/* The one-click button a remembered browser gets on the sign-in page. */
+.device-signin {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.1rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.device-signin button.wide {
+  justify-content: center;
+  width: 100%;
+  padding: 0.7rem 1rem;
+}
+
+button.linklike {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

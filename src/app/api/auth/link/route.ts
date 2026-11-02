@@ -1,7 +1,7 @@
 /** POST /api/auth/link — a private sign-in link's secret in, a session cookie out. */
 import { NextResponse } from "next/server";
 
-import { SignInError, sessionCookie, signInWithLink } from "@/lib/auth/session";
+import { SignInError, deviceCookie, sessionCookie, signInWithLink } from "@/lib/auth/session";
 import { callerIp } from "@/lib/compat/auth";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response = NextResponse.json({ ok: true });
 
     response.cookies.set(sessionCookie(token, expiresAt));
+    // Remembered: from now on this browser's sign-in page has a one-click button.
+    response.cookies.set(deviceCookie(String(body.secret)));
 
     return response;
   } catch (error) {

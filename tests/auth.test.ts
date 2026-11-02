@@ -15,7 +15,7 @@ import { GET as overviewRoute } from "@/app/api/dashboard/overview/route";
 
 import { db } from "@/db";
 import { loginAttempts, memberships, users } from "@/db/schema";
-import { MAX_FAILURES, signInLinks, signInWithLink } from "@/lib/auth/session";
+import { MAX_FAILURES, linkHolder, signInLinks, signInWithLink } from "@/lib/auth/session";
 import { hashPassword, isLegacyHash, verifyPassword } from "@/lib/auth/passwords";
 import { eq } from "drizzle-orm";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
@@ -294,6 +294,16 @@ describe("a private sign-in link", () => {
       signInWithLink(SECRET, {}, db(), signInLinks(`gone@petrosil.example=${sha(SECRET)}`)),
     ).rejects.toMatchObject({ status: 401 });
     await expect(signInWithLink(SECRET, {}, db(), signInLinks(""))).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("tells the sign-in page whose button a remembered browser gets, and nobody else", async () => {
+    await makePerson("owner@petrosil.example", "unused-password", [{ brand: baseoil, role: "superadmin" }]);
+    const links = signInLinks(`owner@petrosil.example=${sha(SECRET)}`);
+
+    expect(await linkHolder(SECRET, db(), links)).toMatchObject({ email: "owner@petrosil.example" });
+    expect(await linkHolder("guessed", db(), links)).toBeNull();
+    expect(await linkHolder(undefined, db(), links)).toBeNull();
+    expect(await linkHolder(SECRET, db(), signInLinks(""))).toBeNull();
   });
 
   it("reads the setting leniently but keeps only well-formed entries", () => {

@@ -337,6 +337,50 @@ export async function recentLogins(limit = 50, database: Database = db()) {
     .limit(Math.min(200, Math.max(1, limit)));
 }
 
+/**
+ * A browser that has used a private sign-in link keeps its secret here, so
+ * the sign-in page can offer that person one button. httpOnly: page scripts
+ * cannot read it. A browser that never had the link has no cookie and sees
+ * only the email and password form.
+ */
+export const DEVICE_COOKIE = "petrosil_device";
+
+export const deviceCookie = (secret: string) => ({
+  name: DEVICE_COOKIE,
+  value: secret,
+  httpOnly: true,
+  sameSite: "strict" as const,
+  path: "/",
+  secure: process.env.NODE_ENV === "production",
+  maxAge: 365 * 24 * 60 * 60,
+});
+
+/** Whose button a remembered browser gets, without signing anyone in. */
+export async function linkHolder(
+  secret: string | undefined,
+  database: Database = db(),
+  links = signInLinks(process.env.SIGN_IN_LINKS),
+): Promise<{ name: string; email: string } | null> {
+  if (!secret) {
+    return null;
+  }
+
+  const given = Buffer.from(hash(secret), "hex");
+  const match = links.find((link) => {
+    const kept = Buffer.from(link.hash, "hex");
+
+    return kept.length === given.length && timingSafeEqual(kept, given);
+  });
+
+  if (!match) {
+    return null;
+  }
+
+  const [user] = await database.select().from(users).where(eq(sql`lower(${users.email})`, match.email)).limit(1);
+
+  return user && user.status === "active" ? { name: user.name ?? user.email, email: user.email } : null;
+}
+
 export const sessionCookie = (token: string, expiresAt: Date) => ({
   name: COOKIE,
   value: token,
