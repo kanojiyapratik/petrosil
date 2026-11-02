@@ -17,7 +17,7 @@ two processes:
 
 | Process | `MODULE_PROCESS` | What it is | Reachable from |
 |---|---|---|---|
-| engine | *(unset)* | the JSON API the app calls, on `$PORT` (default 8094) | the app only — **never give it a public address** |
+| engine | *(unset)* | the JSON API the app calls, on `$PORT` (8094 when unset; Railway sets 8080) | the app only — **never give it a public address** |
 | crawler | `estate-crawler` | every brand's watched pages, every 15 minutes | nothing — it calls out only |
 
 They can be two services, or two processes in one container. The app itself is
@@ -51,7 +51,7 @@ The engine creates and migrates its tables itself on start-up.
 
 | Variable | Value |
 |---|---|
-| `ENGINE_URL` | the engine's private address, e.g. `http://petrosil-engine.railway.internal:8094` |
+| `ENGINE_URL` | the engine's private address, port included, e.g. `http://petrosil-engine.railway.internal:8080` |
 | `ENGINE_TOKEN` | the same value as the engine's `PRICE_API_TOKEN` |
 
 ## 4. Once, after the first deploy
@@ -90,6 +90,50 @@ All from a machine that can reach the app's database.
      --from <old site's mysql database> --site <slug> --only crawl-watch \
      --host <mysql host> --port <mysql port>
    ```
+
+## 4a. On Railway, where no machine can reach the databases
+
+How it was done on 2 November 2026 (project `generous-reverence`). Both
+Postgres databases are private, and the live standalone module's is in another
+project, so the steps above run inside the containers instead, over
+`railway ssh` with the script on stdin.
+
+**The services.** `petrosil-engine` and `petrosil-engine-crawler`, both from
+this repository's `main`. Create each one empty (`railway add --service …`),
+set its settings and variables, and only then connect the repository, so the
+first build is already the right one. Railway no longer lets a service be
+pointed at a config file (it answers that config as code is deprecated), so
+the settings live on the service: root directory `/engine`, Dockerfile path
+`Dockerfile`, watch paths `/engine/**`, restart on failure; the engine also has
+health check `/health`, the crawler none (it serves nothing). No public domain
+on either. The crawler's variables are references to the engine's
+(`${{petrosil-engine.DATABASE_URL}}` and so on) plus `MODULE_PROCESS=estate-crawler`.
+The app's `ENGINE_URL` is `http://${{petrosil-engine.RAILWAY_PRIVATE_DOMAIN}}:8080`.
+
+**Connecting the brands.** The app's image has Node and the `postgres` package
+but not `tsx` or `scripts/`, so `npm run engine:link` cannot run there. The
+same statements as `scripts/engine-link.ts`, as a plain `.mjs` file using
+`postgres`, piped in:
+
+```bash
+railway ssh -s petrosil-new-app -- node --input-type=module < link.mjs
+```
+
+with `ENGINE_SITE_API_BASE` = `http://petrosil-new-app.railway.internal:8080/api/compat`.
+
+**Copying the live settings.** `pg_dump` the four tables `copy_live` reads
+(`console_sites`, `console_ai_providers`, `console_price_rules`,
+`console_location_rounding`) from the standalone module's Postgres over
+`railway ssh`, restore them into a temporary database (`CREATE DATABASE
+live_src`) on the app's Postgres the same way, run `python -m app.db.copy_live`
+inside the engine container with `--from` = its own `DATABASE_URL` pointed at
+`/live_src`, and drop `live_src` afterwards — it holds the provider keys.
+
+**Watched pages.** Only baseoil's old site watched any (10). Its
+`price_crawl_urls` rows were read as JSON from its MariaDB over `railway ssh`
+and written by address, as `carryCrawlWatch` in `scripts/migrate-content.ts`
+does, from a script in the app's container. The old databases keep Indian
+wall-clock time, so their timestamps take `+05:30`.
 
 ## 5. Check it
 
