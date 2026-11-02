@@ -111,6 +111,10 @@ export const users = pgTable(
      */
     address: text("address"),
     postcode: varchar("postcode", { length: 32 }),
+    /** The old profile's state, by name, and its free-text "about the company"
+     * (5,769 filled on baseoil). Paying readers saw both in the directory. */
+    state: varchar("state", { length: 96 }),
+    about: text("about"),
     status: varchar("status", { length: 24 }).default("active").notNull(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

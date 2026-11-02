@@ -291,14 +291,25 @@ async function main(): Promise<void> {
      * Same shape of mistake as reading `users.expiry_date` when the dates
      * were in `subscription_users`.
      */
-    const places = { countries: new Map<number, string>(), cities: new Map<number, string>() };
+    const places = { countries: new Map<number, string>(), cities: new Map<number, string>(), states: new Map<number, string>() };
     const profiles = new Map<number, LegacyProfile>();
 
     try {
       for (const [table, into] of [
         ["countries", places.countries],
         ["cities", places.cities],
+        ["states", places.states],
       ] as const) {
+        // bitumart's dump has no `states` table: a place list it lacks is empty.
+        const [present] = await source.query<mysql.RowDataPacket[]>(
+          "select count(*) as n from information_schema.tables where table_schema = ? and table_name = ?",
+          [opts.from, table],
+        );
+
+        if (Number(present[0]?.n ?? 0) === 0) {
+          continue;
+        }
+
         const [rows] = await source.query<mysql.RowDataPacket[]>(
           `select id, name from ${table}`,
         );
@@ -333,6 +344,8 @@ async function main(): Promise<void> {
             "phone",
             "mobile",
             "website",
+            "state_id",
+            "profile",
             "updated_at",
           ],
           hasProfile,
@@ -418,6 +431,8 @@ async function main(): Promise<void> {
           website: users.website,
           address: users.address,
           postcode: users.postcode,
+          state: users.state,
+          about: users.about,
         })
         .from(users)
         .where(inArray(users.email, slice));
@@ -454,6 +469,8 @@ async function main(): Promise<void> {
             website: person.website,
             address: person.address,
             postcode: person.postcode,
+            state: person.state,
+            about: person.about,
             status: person.status,
             passwordHash: person.passwordHash,
             emailVerifiedAt: person.emailVerifiedAt,

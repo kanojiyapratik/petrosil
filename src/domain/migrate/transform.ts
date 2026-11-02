@@ -50,6 +50,8 @@ export type MigratedUser = {
   website: string | null;
   address: string | null;
   postcode: string | null;
+  state: string | null;
+  about: string | null;
   status: "active" | "disabled";
   passwordHash: string | null;
   emailVerifiedAt: Date | null;
@@ -195,6 +197,8 @@ export function readUser(
     website: null,
     address: null,
     postcode: null,
+    state: null,
+    about: null,
     status: (row.user_status ?? "Active").toLowerCase() === "active" ? "active" : "disabled",
     // Carried as it is: Laravel's $2y$ hashes verify unchanged, which is what
     // lets every subscriber keep the password they already have.
@@ -228,10 +232,13 @@ export type LegacyProfile = {
   phone: string | null;
   mobile: string | null;
   website: string | null;
+  state_id?: number | null;
+  /** Free text: "about the company". */
+  profile?: string | null;
 };
 
-/** The old `countries` and `cities` tables, by id. */
-export type Places = { countries: Map<number, string>; cities: Map<number, string> };
+/** The old `countries`, `cities` and `states` tables, by id. */
+export type Places = { countries: Map<number, string>; cities: Map<number, string>; states?: Map<number, string> };
 
 /**
  * Fold a person's profile row into their account.
@@ -269,7 +276,35 @@ export function withProfile(
     website: person.website ?? fit(profile.website, 191),
     address: person.address ?? (address === "" ? null : address.slice(0, 1000)),
     postcode: person.postcode ?? fit(profile.pincode, 32),
+    state: person.state ?? (places.states ? fit(place(profile.state_id ?? null, places.states), 96) : null),
+    about: person.about ?? aboutText(profile.profile),
   };
+}
+
+/**
+ * The old "about the company", made readable. It came from a rich-text box
+ * and, on some rows, an Excel import: `_x000D_` where a line ended, the odd
+ * tag, and UTF-8 read as Latin-1 ("Directorâ€™s"). Nothing left: null.
+ */
+export function aboutText(raw: string | null | undefined): string | null {
+  const text = String(raw ?? "")
+    .replace(/_x000D_/g, "\n")
+    .replace(/<br\s*\/?>|<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/â€™|â€˜/g, "’")
+    .replace(/â€œ/g, "“")
+    .replace(/â€\u009d|â€/g, "”")
+    .replace(/â€“/g, "–")
+    .replace(/â€”/g, "—")
+    .replace(/Â /g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return text === "" ? null : text.slice(0, 6000);
 }
 
 /** The fields a person carries that any of their brands might know. */
@@ -282,6 +317,8 @@ export const PROFILE_FIELDS = [
   "website",
   "address",
   "postcode",
+  "state",
+  "about",
 ] as const;
 
 type ProfileFields = Partial<Record<(typeof PROFILE_FIELDS)[number], string | null>>;
