@@ -398,15 +398,42 @@ input[type="password"],
 input[type="date"],
 input[type="search"],
 input[type="number"],
+input[type="url"],
+input[type="tel"],
 select,
 textarea {
   width: 100%;
-  padding: 0.5rem 0.6rem;
+  /* A text box never runs the width of a wide screen: a title or an email
+   * address in a 1,100px box read as unfinished. Columns and table cells are
+   * narrower than this anyway, so only full-width forms change. */
+  max-width: 45rem;
+  padding: 0.42rem 0.65rem;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--panel);
   color: var(--ink);
   font: inherit;
+  /* The page's own size, not the browser's larger form default. */
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+/* A number or a date is a few characters. */
+input[type="number"],
+input[type="date"] {
+  max-width: 14rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+input:hover:not(:focus),
+select:hover:not(:focus),
+textarea:hover:not(:focus) {
+  border-color: color-mix(in srgb, var(--line-strong) 60%, var(--ink) 40%);
 }
 
 input:focus-visible,
@@ -423,12 +450,15 @@ button,
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.85rem;
-  border-radius: 8px;
+  /* The same height as a text box (see forms), so a button beside one lines up. */
+  padding: 0.42rem 0.9rem;
+  border-radius: 7px;
   border: 1px solid transparent;
   background: var(--brand);
   color: var(--brand-ink);
   font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.45;
   font-weight: 600;
   cursor: pointer;
   text-decoration: none;
@@ -887,12 +917,18 @@ table.tight thead th {
 }
 
 textarea {
-  min-height: 120px;
+  /* Three lines to start; it can be dragged taller. A one-line description
+   * no longer sits in a 120px box. `rows` on the element still wins. */
+  min-height: 5rem;
   font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
   resize: vertical;
 }
 
+/* HTML templates and ad code need the room: they keep the full width. */
 textarea.code {
+  max-width: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.82rem;
 }
