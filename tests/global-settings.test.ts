@@ -14,6 +14,7 @@ import { db } from "@/db";
 import { auditLog, formFields, mailTemplates, memberships, pages, rolePermissions, roles, sites, users } from "@/db/schema";
 import { AccessError } from "@/lib/auth/guard";
 import {
+  addEmail,
   applyEmail,
   applyField,
   applyPage,
@@ -198,6 +199,48 @@ describe("system emails", () => {
     await expect(
       applyEmail(guard([baseoil.siteId]), { key: "welcome", variant: "default", subject: "S", body: "B", enabled: true, sites: ["baseoil"] }),
     ).rejects.toBeInstanceOf(AccessError);
+  });
+
+  it("adds an email of staff's own to the brands ticked, under a key made from its name", async () => {
+    const made = await addEmail(guard([]), {
+      title: "  Price outlook   offer ",
+      subject: "Your {brand} outlook",
+      body: "<p>Dear {name}, from {brand}.</p>",
+      sites: ["baseoil", "waxreport"],
+    });
+
+    expect(made).toEqual({ key: "custom-price-outlook-offer", created: 2 });
+
+    const rows = await db().select().from(mailTemplates).where(eq(mailTemplates.key, made.key));
+    expect(rows.map((row) => [row.siteId, row.title, row.subject, row.body, row.enabled]).sort()).toEqual(
+      [
+        [baseoil.siteId, "Price outlook offer", "Your Base Oil Report outlook", "<p>Dear {name}, from Base Oil Report.</p>", true],
+        [wax.siteId, "Price outlook offer", "Your Wax Report outlook", "<p>Dear {name}, from Wax Report.</p>", true],
+      ].sort(),
+    );
+    // It is listed, and edited and applied like any other.
+    expect((await globalEmails([])).find((row) => row.key === made.key)).toMatchObject({ title: "Price outlook offer", brands: 2 });
+    expect(await db().select().from(auditLog).where(eq(auditLog.action, "mail_template.create"))).toHaveLength(2);
+  });
+
+  it("refuses a second email of the same name, a blank one, and brands not the editor's", async () => {
+    const email = { title: "Offer", subject: "S", body: "B", sites: ["baseoil"] };
+
+    await addEmail(guard([]), email);
+    await expect(addEmail(guard([]), { ...email, title: "OFFER!" })).rejects.toThrow(/already an email by that name/);
+    await expect(addEmail(guard([]), { ...email, title: "  " })).rejects.toMatchObject({ field: "title" });
+    await expect(addEmail(guard([]), { ...email, title: "New", body: " " })).rejects.toMatchObject({ field: "body" });
+    await expect(addEmail(guard([bitumart.siteId]), { ...email, title: "New" })).rejects.toThrow(/brands you manage/);
+  });
+
+  it("needs mail-create on every brand ticked", async () => {
+    const [role] = await db().insert(roles).values({ name: "Editor" }).returning();
+
+    await db().insert(rolePermissions).values({ roleId: role!.id, permission: "mail-edit" });
+    await db().insert(memberships).values({ userId: staff, siteId: baseoil.siteId, role: "staff", roleId: role!.id });
+
+    await expect(addEmail(guard([baseoil.siteId]), { title: "X", subject: "S", body: "B", sites: ["baseoil"] })).rejects.toBeInstanceOf(AccessError);
+    expect(await db().select().from(mailTemplates).where(eq(mailTemplates.key, "custom-x"))).toHaveLength(0);
   });
 });
 

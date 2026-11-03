@@ -295,7 +295,7 @@ export async function sendReport(
 
 export async function sendSample(
   guard: Guarded,
-  input: { site: string; userId: number; reportIds: number[]; subject?: string; body?: string },
+  input: { site: string; userId: number; reportIds: number[]; subject?: string; body?: string; email?: string },
   store: FileStore,
   context: { ip?: string | null } = {},
   database: Database = db(),
@@ -348,6 +348,9 @@ export async function sendSample(
     attachments.push(attachment);
   }
 
+  // One of staff's own emails when they picked one; the sample-reports mail
+  // for the reader's region otherwise.
+  const own = input.email?.trim();
   const variant = ASIA.has((person.country ?? "").trim().toLowerCase()) ? "asia" : "default";
   const [template] = await database
     .select()
@@ -355,12 +358,16 @@ export async function sendSample(
     .where(
       and(
         eq(mailTemplates.siteId, brand.id),
-        eq(mailTemplates.key, "sample-reports"),
-        eq(mailTemplates.variant, variant),
+        own && own.startsWith("custom-") ? eq(mailTemplates.key, own) : eq(mailTemplates.key, "sample-reports"),
+        own && own.startsWith("custom-") ? undefined : eq(mailTemplates.variant, variant),
         eq(mailTemplates.enabled, true),
       ),
     )
     .limit(1);
+
+  if (own && !template) {
+    return { ok: false, message: "That email is not on this brand, or is switched off." };
+  }
 
   const subject = input.subject?.trim() || template?.subject;
   const body = input.body?.trim() || template?.body;
@@ -565,6 +572,17 @@ export async function getSend(
 
 const FALLBACK_BODY = "<p>Dear {name},</p><p>Please find the latest {site} report attached.</p>";
 
+export type HandEmail = { key: string; title: string; subject: string; body: string };
+
+/** The emails staff added to this brand (System emails → Add email) and left switched on, by title. */
+export async function handEmails(siteId: number, database: Database = db()): Promise<HandEmail[]> {
+  return database
+    .select({ key: mailTemplates.key, title: mailTemplates.title, subject: mailTemplates.subject, body: mailTemplates.body })
+    .from(mailTemplates)
+    .where(and(eq(mailTemplates.siteId, siteId), ilike(mailTemplates.key, "custom-%"), eq(mailTemplates.enabled, true)))
+    .orderBy(asc(mailTemplates.title));
+}
+
 /**
  * What the send screen starts from: the report, whether its PDF is in the
  * store, the brand's send-report wording, and every paying reader (ticked).
@@ -584,6 +602,8 @@ export async function reportSendForm(
   body: string;
   readers: Reader[];
   extra: string[];
+  /** Staff's own emails, offered as the wording instead. */
+  emails: HandEmail[];
 } | null> {
   const brand = await brandFor(guard, slug, database);
 
@@ -616,6 +636,7 @@ export async function reportSendForm(
     body: template?.body?.trim() ? template.body : FALLBACK_BODY,
     readers,
     extra,
+    emails: await handEmails(brand.id, database),
   };
 }
 
@@ -659,6 +680,17 @@ export async function findReaders(
 }
 
 /** The brand's reports that have their PDF in the store, newest first. */
+/** The same, for a brand named by slug; none when it is not the viewer's. */
+export async function handEmailsFor(
+  guard: Pick<Guarded, "siteIds" | "isSuperadmin">,
+  slug: string,
+  database: Database = db(),
+): Promise<HandEmail[]> {
+  const brand = await brandFor(guard, slug, database);
+
+  return brand ? handEmails(brand.id, database) : [];
+}
+
 export async function sendableReports(
   guard: Pick<Guarded, "siteIds" | "isSuperadmin">,
   slug: string,

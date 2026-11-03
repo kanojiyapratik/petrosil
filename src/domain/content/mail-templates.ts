@@ -1,9 +1,10 @@
 /**
  * The system mail templates, as staff see and edit them.
  *
- * Edit-only, like the old screen: the set is fixed by what the code sends, so
- * there is nothing to create, and switching a template off is how a brand
- * stops a mail. The old list showed a title and an Edit button; this one also
+ * The built-in set is fixed by what the code sends, as on the old screen, and
+ * switching a template off is how a brand stops a mail. Staff may also add
+ * emails of their own (keys starting "custom-", made on System emails); those
+ * are sent by staff, picked as the wording of a report or sample send. The old list showed a title and an Edit button; this one also
  * says what sends each template, because six of the twelve are sent by
  * nothing yet and staff should not polish a mail no one receives.
  */
@@ -29,9 +30,12 @@ const SENDERS: Record<string, { sentBy: string; fields: string[] }> = {
   "subscription-expired": { sentBy: "Renewal reminders, daily at 10:00", fields: REMINDER_FIELDS },
 };
 
+/** An email staff added: sent by hand, filled as a report send fills it. */
+const BY_HAND = { sentBy: "Staff, picked as the wording when sending a report or a sample", fields: ["name", "email", "site"] };
+
 /** What sends an email and which placeholders it fills, or null when nothing sends it yet. */
 export function emailSender(key: string): { sentBy: string; fields: string[] } | null {
-  return SENDERS[key] ?? null;
+  return SENDERS[key] ?? (key.startsWith("custom-") ? BY_HAND : null);
 }
 
 export type MailTemplateRow = {
@@ -72,8 +76,8 @@ export async function listMailTemplates(
     body: template.body,
     enabled: template.enabled,
     updatedAt: template.updatedAt,
-    sentBy: SENDERS[template.key]?.sentBy ?? null,
-    fields: SENDERS[template.key]?.fields ?? [],
+    sentBy: emailSender(template.key)?.sentBy ?? null,
+    fields: emailSender(template.key)?.fields ?? [],
   }));
 }
 
@@ -129,7 +133,7 @@ export async function saveMailTemplate(
 
   // Saved either way; an unfilled placeholder would reach readers as "{prise}",
   // so it is named back to whoever typed it.
-  const known = SENDERS[existing.key]?.fields;
+  const known = emailSender(existing.key)?.fields;
   const used = [...`${subject} ${body}`.matchAll(/\{([a-z_]+)\}/g)].map((match) => match[1]!);
   const unknown = known ? [...new Set(used.filter((name) => !known.includes(name)))] : [];
 

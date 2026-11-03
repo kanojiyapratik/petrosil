@@ -57,6 +57,7 @@ export async function sendSampleAction(_state: unknown, form: FormData): Promise
       site,
       userId: Number(form.get("user")),
       reportIds: form.getAll("report").map(Number).filter(Number.isInteger),
+      email: String(form.get("email") ?? "") || undefined,
     },
     fileStore(),
     { ip: await callerIp() },

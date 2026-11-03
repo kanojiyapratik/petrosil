@@ -10,7 +10,7 @@
 
 import { useActionState, useState } from "react";
 
-import { applyEmailAction, applyFieldAction, applyPageAction, newPageAction, type GlobalResult } from "./actions";
+import { addEmailAction, applyEmailAction, applyFieldAction, applyPageAction, newPageAction, type GlobalResult } from "./actions";
 
 type Brand = { slug: string; name: string };
 
@@ -194,6 +194,41 @@ export function NewGlobalPage({ brands }: { brands: Brand[] }) {
 /* ---------------------------------------------------------- system emails */
 
 type EmailVersion = { subject: string; body: string; enabled: boolean; brands: Brand[] };
+
+/** A new email of staff's own, on the brands ticked. */
+export function NewGlobalEmail({ brands }: { brands: Brand[] }) {
+  const [state, action, pending] = useActionState(addEmailAction, null as GlobalResult);
+  const [chosen, setChosen] = useState(brands.map((brand) => brand.slug));
+
+  return (
+    <form action={action}>
+      <Flash state={state} />
+      <p className="small muted" style={{ marginTop: 0 }}>
+        The built-in emails are sent by the system on their own. One you add here is sent by you: pick it as the wording
+        when you send a report or a sample. {"{name}"}, {"{email}"} and {"{site}"} are filled for each person; {"{brand}"} is
+        written as each brand&apos;s name.
+      </p>
+      <div className="field">
+        <label htmlFor="new-email-title">Name (for the list)</label>
+        <input id="new-email-title" name="title" type="text" required maxLength={191} placeholder="Price outlook offer" aria-invalid={state?.field === "title" || undefined} />
+      </div>
+      <div className="field">
+        <label htmlFor="new-email-subject">Subject</label>
+        <input id="new-email-subject" name="subject" type="text" required maxLength={255} placeholder="Your {brand} outlook" aria-invalid={state?.field === "subject" || undefined} />
+      </div>
+      <div className="field">
+        <label htmlFor="new-email-body">Body (HTML)</label>
+        <textarea id="new-email-body" name="body" className="code" rows={10} required defaultValue={"<p>Dear {name},</p>\n<p></p>\n<p>Regards,<br>{brand}</p>"} />
+      </div>
+      <BrandTicks brands={brands} chosen={chosen} onChange={setChosen} />
+      <div className="actions">
+        <button type="submit" disabled={pending || chosen.length === 0}>
+          {pending ? "Adding…" : `Add to ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
+        </button>
+      </div>
+    </form>
+  );
+}
 
 export function GlobalEmailForm({
   emailKey,

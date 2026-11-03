@@ -6,7 +6,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { findReaders, sendableReports } from "@/domain/reports/sending";
+import { findReaders, handEmailsFor, sendableReports } from "@/domain/reports/sending";
 import { fileStore } from "@/lib/files/store";
 import { SendSampleForm } from "./form";
 import { Empty, Filters, Heading, Panel, one, type Search } from "@/app/(admin)/ui";
@@ -28,9 +28,10 @@ export default async function SendSamplePage({
   const chosenId = Number(one(search, "user"));
   const base = `/dashboard/sites/${slug}/send-sample`;
 
-  const [found, reports] = await Promise.all([
+  const [found, reports, emails] = await Promise.all([
     findReaders(viewer, slug, q),
     Number.isInteger(chosenId) && chosenId > 0 ? sendableReports(viewer, slug, fileStore()) : Promise.resolve([]),
+    handEmailsFor(viewer, slug),
   ]);
   const chosen = chosenId > 0 ? found.find((reader) => reader.userId === chosenId) : undefined;
 
@@ -86,7 +87,7 @@ export default async function SendSamplePage({
       {chosen ? (
         <Panel title={`2. Which reports, for ${chosen.name}`} flush={false}>
           {reports.length > 0 ? (
-            <SendSampleForm site={slug} userId={chosen.userId} reports={reports} />
+            <SendSampleForm site={slug} userId={chosen.userId} reports={reports} emails={emails.map(({ key, title }) => ({ key, title }))} />
           ) : (
             <Empty>No report has its PDF in the file store yet.</Empty>
           )}

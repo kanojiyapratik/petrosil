@@ -38,6 +38,7 @@ export default async function SendReportPage({ params }: { params: Promise<{ slu
             body={form.body}
             readers={form.readers}
             extra={form.extra}
+            emails={form.emails}
           />
         </Panel>
       ) : (

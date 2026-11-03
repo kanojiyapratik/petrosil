@@ -295,6 +295,25 @@ describe("sending a sample", () => {
 
     expect(transport.sent[0]!.html).toContain("Rest of world samples for Jan");
   });
+
+  it("sends an email staff added instead, when one is picked, and only a switched-on one of this brand", async () => {
+    await db().insert(mailTemplates).values([
+      { siteId: baseoil.siteId, key: "custom-offer", title: "Offer", subject: "An offer, {name}", body: "<p>Special terms for {name}</p>" },
+      { siteId: baseoil.siteId, key: "custom-old", title: "Old", subject: "S", body: "B", enabled: false },
+    ]);
+    const prospect = await reader("free", { name: "Ravi", country: "India" });
+
+    expect(await sendSample(guard([]), { site: "baseoil", userId: prospect.id, reportIds: [reportId], email: "custom-offer" }, store)).toMatchObject({ ok: true });
+
+    const transport = recorder();
+
+    await deliverPending(transport, { store } as never);
+    expect(transport.sent[0]).toMatchObject({ subject: "An offer, Ravi" });
+    expect(transport.sent[0]!.html).toContain("Special terms for Ravi");
+
+    expect(await sendSample(guard([]), { site: "baseoil", userId: prospect.id, reportIds: [reportId], email: "custom-old" }, store)).toMatchObject({ ok: false });
+    expect(await sendSample(guard([]), { site: "baseoil", userId: prospect.id, reportIds: [reportId], email: "welcome" }, store)).toMatchObject({ ok: true });
+  });
 });
 
 describe("the delivery log", () => {
@@ -383,6 +402,20 @@ describe("the send form", () => {
       body: "<p>Dear {name}, please find the report attached.</p>",
     });
     expect(form!.readers.map((r) => r.userId)).toEqual([paying.id]);
+    expect(form!.emails).toEqual([]);
+  });
+
+  it("offers the brand's switched-on emails that staff added, as other wording", async () => {
+    await db().insert(mailTemplates).values([
+      { siteId: baseoil.siteId, key: "custom-offer", title: "Offer", subject: "An offer", body: "<p>Offer</p>" },
+      { siteId: baseoil.siteId, key: "custom-off", title: "Off", subject: "S", body: "B", enabled: false },
+      { siteId: bitumart.siteId, key: "custom-theirs", title: "Theirs", subject: "S", body: "B" },
+      { siteId: baseoil.siteId, key: "welcome", title: "Welcome", subject: "S", body: "B" },
+    ]);
+
+    const form = await reportSendForm(guard([]), "baseoil", reportId, store);
+
+    expect(form!.emails).toEqual([{ key: "custom-offer", title: "Offer", subject: "An offer", body: "<p>Offer</p>" }]);
   });
 
   it("says so when the PDF is missing, and refuses another brand's report", async () => {

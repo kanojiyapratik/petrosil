@@ -431,6 +431,92 @@ export async function applyEmail(
   });
 }
 
+/** Keys of emails staff add start with this; the built-in ones never do. */
+export const CUSTOM_EMAIL = "custom-";
+
+/**
+ * Add an email of staff's own to every brand ticked.
+ *
+ * The built-in emails are fixed by what the code sends. An added one is sent
+ * by staff: it is offered as the wording when they send a report or a
+ * sample by hand. Its key is made from the title, so two emails cannot share
+ * a name.
+ */
+export async function addEmail(
+  guard: Guarded,
+  input: { title: unknown; subject: unknown; body: unknown; sites: unknown[] },
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ key: string; created: number }> {
+  const title = String(input.title ?? "").trim().replace(/\s+/g, " ").slice(0, 191);
+  const subject = String(input.subject ?? "").trim().slice(0, 255);
+  const body = String(input.body ?? "").trim();
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48 - CUSTOM_EMAIL.length)
+    .replace(/-+$/, "");
+
+  if (!slug) {
+    throw new AccountError("Give the email a name, in letters or numbers.", 422, "title");
+  }
+
+  if (subject === "") {
+    throw new AccountError("A mail needs a subject.", 422, "subject");
+  }
+
+  if (body === "") {
+    throw new AccountError("A mail needs something to say.", 422, "body");
+  }
+
+  const key = `${CUSTOM_EMAIL}${slug}`;
+  const [clash] = await database
+    .select({ id: mailTemplates.id })
+    .from(mailTemplates)
+    .where(eq(mailTemplates.key, key))
+    .limit(1);
+
+  if (clash) {
+    throw new AccountError("There is already an email by that name. Open it from the list to edit it.", 409, "title");
+  }
+
+  const brands = await ticked(guard, input.sites, database);
+
+  for (const brand of brands) {
+    await requirePermission(guard, brand.id, "mail-create", database);
+  }
+
+  await database.transaction(async (tx) => {
+    for (const brand of brands) {
+      const [row] = await tx
+        .insert(mailTemplates)
+        .values({
+          siteId: brand.id,
+          key,
+          variant: "default",
+          title,
+          subject: brandText(subject, brand.name).slice(0, 255),
+          body: brandText(body, brand.name),
+          enabled: true,
+        })
+        .returning({ id: mailTemplates.id });
+
+      await tx.insert(auditLog).values({
+        siteId: brand.id,
+        userId: guard.identity.user.id,
+        action: "mail_template.create",
+        entity: "mail_template",
+        entityId: row!.id,
+        detail: { key, title, brands: brands.map((b) => b.slug) },
+        ip: context.ip ?? null,
+      });
+    }
+  });
+
+  return { key, created: brands.length };
+}
+
 /* ------------------------------------------------------- field visibility */
 
 export type FieldForm = "directory" | "offer";

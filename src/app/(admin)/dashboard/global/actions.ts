@@ -9,6 +9,7 @@ import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import {
+  addEmail,
   applyCategory,
   applyEmail,
   applyField,
@@ -117,6 +118,24 @@ export async function newPageAction(_state: unknown, form: FormData): Promise<Gl
 
   revalidatePath("/dashboard/global/pages", "layout");
   redirect(`/dashboard/global/pages/${slug}`);
+}
+
+export async function addEmailAction(_state: unknown, form: FormData): Promise<GlobalResult> {
+  const viewer = await staff();
+  let key: string;
+
+  try {
+    ({ key } = await addEmail(
+      viewer,
+      { title: text(form, "title"), subject: text(form, "subject"), body: String(form.get("body") ?? ""), sites: brands(form) },
+      { ip: await callerIp() },
+    ));
+  } catch (error) {
+    return failed(error);
+  }
+
+  revalidatePath("/dashboard/global/emails", "layout");
+  redirect(`/dashboard/global/emails/${key}/default`);
 }
 
 export async function applyEmailAction(_state: unknown, form: FormData): Promise<GlobalResult> {

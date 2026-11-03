@@ -1,7 +1,8 @@
 /**
  * System emails, across the brands.
  *
- * Every brand has its own copy of the same twelve emails. Copies that say the
+ * Every brand has its own copy of the same twelve built-in emails, plus any
+ * staff added to send by hand ("custom-" keys). Copies that say the
  * same thing but for the brand's name count as one version, so "in step"
  * means the brands already agree and "6 versions" means they drifted.
  */
@@ -9,7 +10,10 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { globalEmails } from "@/domain/global/estate";
+import { CUSTOM_EMAIL, globalEmails } from "@/domain/global/estate";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { Popup } from "@/app/(admin)/popup";
+import { NewGlobalEmail } from "../forms";
 import { Empty, Heading, Panel, count } from "../../../ui";
 
 export const metadata = { title: "System emails · Petrosil" };
@@ -17,14 +21,18 @@ export const dynamic = "force-dynamic";
 
 export default async function GlobalEmailsPage() {
   const viewer = (await currentViewer())!;
-  const rows = await globalEmails(viewer.siteIds);
+  const [rows, brands] = await Promise.all([globalEmails(viewer.siteIds), brandsFor(viewer.siteIds)]);
 
   return (
     <>
       <Heading
         title="System emails"
-        sub="The emails every brand sends by itself. Edit one here and apply it to the brands you tick."
-      />
+        sub="The emails every brand sends by itself, and ones you add to send by hand. Edit one here and apply it to the brands you tick."
+      >
+        <Popup label="Add email" title="Add email">
+          <NewGlobalEmail brands={brands.map(({ slug, name }) => ({ slug, name }))} />
+        </Popup>
+      </Heading>
 
       <Panel title={`${count(rows.length)} email${rows.length === 1 ? "" : "s"}`}>
         <table className="tight">
@@ -42,6 +50,11 @@ export default async function GlobalEmailsPage() {
                   <Link href={`/dashboard/global/emails/${row.key}/${row.variant}`}>
                     <strong>{row.title}</strong>
                   </Link>
+                  {row.key.startsWith(CUSTOM_EMAIL) ? (
+                    <span className="tag" style={{ marginLeft: 6 }}>
+                      sent by hand
+                    </span>
+                  ) : null}
                   {row.variant !== "default" ? (
                     <span className="tag" style={{ marginLeft: 6 }}>
                       {row.variant}

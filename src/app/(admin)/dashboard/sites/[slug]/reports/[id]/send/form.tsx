@@ -3,7 +3,8 @@
 /**
  * The report send form: who gets it (every paying reader, ticked), extra
  * addresses, and the wording. `{name}`, `{email}` and `{site}` are filled for
- * each person when the mail is queued.
+ * each person when the mail is queued. An email staff added on System emails
+ * can be picked to start the wording from.
  */
 
 import { useActionState, useState } from "react";
@@ -19,10 +20,20 @@ export function SendReportForm(props: {
   body: string;
   readers: Reader[];
   extra: string[];
+  emails: { key: string; title: string; subject: string; body: string }[];
 }) {
   const [state, action, pending] = useActionState(sendReportAction, null as SendResult);
   const [ticked, setTicked] = useState(() => new Set(props.readers.map((reader) => reader.userId)));
   const [extra, setExtra] = useState(props.extra.join("\n"));
+  const [subject, setSubject] = useState(props.subject);
+  const [body, setBody] = useState(props.body);
+
+  const startFrom = (key: string) => {
+    const email = props.emails.find((row) => row.key === key);
+
+    setSubject(email ? email.subject : props.subject);
+    setBody(email ? email.body : props.body);
+  };
   const extraCount = extra.split(/[\s,;]+/).filter((value) => value.includes("@")).length;
 
   const toggle = (id: number) =>
@@ -49,9 +60,23 @@ export function SendReportForm(props: {
         </p>
       ) : null}
 
+      {props.emails.length > 0 ? (
+        <div className="field">
+          <label htmlFor="start-from">Wording</label>
+          <select id="start-from" defaultValue="" onChange={(event) => startFrom(event.target.value)}>
+            <option value="">The brand&apos;s send-report mail</option>
+            {props.emails.map((email) => (
+              <option key={email.key} value={email.key}>
+                {email.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="field">
         <label htmlFor="subject">Subject</label>
-        <input id="subject" name="subject" type="text" maxLength={255} defaultValue={props.subject} required />
+        <input id="subject" name="subject" type="text" maxLength={255} value={subject} onChange={(event) => setSubject(event.target.value)} required />
       </div>
 
       <div className="field" style={{ marginTop: ".5rem" }}>
@@ -60,7 +85,8 @@ export function SendReportForm(props: {
           id="body"
           name="body"
           rows={8}
-          defaultValue={props.body}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
           spellCheck={false}
           style={{ width: "100%", fontFamily: "ui-monospace, monospace", fontSize: 12 }}
           required
