@@ -5,7 +5,7 @@
  *
  *   npm run backfill:profiles -- --from baseoilreport [--sql out.sql]
  *
- * Matched by email, blanks only: a value already here (typed in the new
+ * Matched by email (stored lowercase, so the unique index serves it), blanks only: a value already here (typed in the new
  * admin, or carried by another brand) is never overwritten. `--sql` also
  * appends the same updates as SQL, for a database this machine cannot reach.
  */
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       const result = await database.execute(sql`
         update users
            set state = coalesce(state, ${state}), about = coalesce(about, ${about}), updated_at = now()
-         where lower(email) = ${email} and ((state is null and ${state}::text is not null) or (about is null and ${about}::text is not null))
+         where email = ${email} and ((state is null and ${state}::text is not null) or (about is null and ${about}::text is not null))
       `);
 
       updated += Number((result as unknown as { count?: number }).count ?? 0);
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
         const a = about === null ? "null" : quote(about);
 
         statements.push(
-          `update users set state = coalesce(state, ${s}), about = coalesce(about, ${a}), updated_at = now() where lower(email) = ${quote(email)} and ((state is null and ${s}::text is not null) or (about is null and ${a}::text is not null));`,
+          `update users set state = coalesce(state, ${s}), about = coalesce(about, ${a}), updated_at = now() where email = ${quote(email)} and ((state is null and ${s}::text is not null) or (about is null and ${a}::text is not null));`,
         );
       }
     }
