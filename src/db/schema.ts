@@ -1299,6 +1299,86 @@ export const tradeQuantities = pgTable(
   }),
 );
 
+/* -------------------------------------------------------- customs sheets */
+
+/**
+ * One month of Indian customs import data for one product, uploaded as the
+ * data vendor's sheet, and the AI's reading of it: baseoil's old "Trade
+ * analysis", whose figures and rows lived in a separate service that never
+ * reached production. Uploading the same product and month again replaces
+ * the current sheet; the old one is kept, marked superseded.
+ */
+export const tradeImports = pgTable(
+  "trade_imports",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    productLabel: varchar("product_label", { length: 120 }).notNull(),
+    /** The first of the month the sheet covers. */
+    periodMonth: date("period_month").notNull(),
+    sourceFilename: varchar("source_filename", { length: 191 }).notNull(),
+    sheetName: varchar("sheet_name", { length: 120 }),
+    rowCount: integer("row_count").notNull(),
+    skippedRows: integer("skipped_rows").default(0).notNull(),
+    /** Known columns this sheet did not have: shown, so a renamed column is noticed. */
+    missingColumns: jsonb("missing_columns").$type<string[]>(),
+    uploadedBy: integer("uploaded_by").references(() => users.id),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /** The last AI analysis, as on price batches. */
+    analysisStatus: varchar("analysis_status", { length: 24 }),
+    analysisText: text("analysis_text"),
+    analysisModel: varchar("analysis_model", { length: 120 }),
+    analysisError: text("analysis_error"),
+    analysisAt: timestamp("analysis_at", { withTimezone: true }),
+    analysisBy: integer("analysis_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySite: index("trade_imports_site_idx").on(t.siteId, t.id),
+    // One current sheet per product and month; MySQL could only do this with
+    // a lock, here it is a constraint.
+    oneCurrent: uniqueIndex("trade_imports_current_unique")
+      .on(t.siteId, sql`lower(${t.productLabel})`, t.periodMonth)
+      .where(sql`superseded_at is null`),
+  }),
+);
+
+export const tradeShipments = pgTable(
+  "trade_shipments",
+  {
+    id: serial("id").primaryKey(),
+    importId: integer("import_id")
+      .notNull()
+      .references(() => tradeImports.id, { onDelete: "cascade" }),
+    shipmentDate: date("shipment_date").notNull(),
+    hsCode: varchar("hs_code", { length: 32 }),
+    productDescription: text("product_description").notNull(),
+    /** As written, in the sheet's own mixed units (MTS and KGS). Never summed. */
+    quantity: numeric("quantity", { precision: 20, scale: 6 }).notNull(),
+    unit: varchar("unit", { length: 24 }),
+    /** In kilograms throughout: what every total is built on. */
+    standardQuantity: numeric("standard_quantity", { precision: 20, scale: 6 }),
+    unitPriceUsd: numeric("unit_price_usd", { precision: 20, scale: 6 }),
+    cifValueUsd: numeric("cif_value_usd", { precision: 20, scale: 6 }),
+    importerName: varchar("importer_name", { length: 255 }),
+    importerCity: varchar("importer_city", { length: 120 }),
+    supplierName: varchar("supplier_name", { length: 255 }),
+    supplierCountry: varchar("supplier_country", { length: 120 }),
+    foreignCountry: varchar("foreign_country", { length: 120 }),
+    foreignPort: varchar("foreign_port", { length: 120 }),
+    indianPort: varchar("indian_port", { length: 120 }),
+    shipmentMode: varchar("shipment_mode", { length: 60 }),
+    incoterms: varchar("incoterms", { length: 24 }),
+    /** Every column of the row as the sheet had it, mapped or not. */
+    raw: jsonb("raw").$type<Record<string, unknown>>(),
+  },
+  (t) => ({
+    byImport: index("trade_shipments_import_idx").on(t.importId),
+  }),
+);
+
 /* ------------------------------------------------------------------- ads */
 
 /** Where an ad can go: 6 slots per site in the old `adlocations`. */

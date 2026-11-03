@@ -128,11 +128,12 @@ function cellValue(value: ExcelJS.CellValue): Cell {
 
 /**
  * CSV, read by hand rather than with a dependency: quoted fields, doubled
- * quotes inside them, and CRLF. Only the first three columns are used, but
- * the parser reads whole rows so a comma inside a quoted name cannot shift
- * the columns.
+ * quotes inside them, and CRLF. A price sheet uses only the first three
+ * columns (`width`, padded with nulls); a customs sheet asks for every one.
+ * Either way the parser reads whole rows, so a comma inside a quoted name
+ * cannot shift the columns.
  */
-export function readCsv(text: string): Cell[][] {
+export function readCsv(text: string, width = 3): Cell[][] {
   const rows: Cell[][] = [];
   let row: string[] = [];
   let field = "";
@@ -147,7 +148,7 @@ export function readCsv(text: string): Cell[][] {
     endField();
 
     if (row.some((cell) => cell.trim() !== "")) {
-      rows.push([row[0] ?? null, row[1] ?? null, row[2] ?? null].map(clean));
+      rows.push(Array.from({ length: Number.isFinite(width) ? width : row.length }, (_, at) => clean(row[at] ?? null)));
     }
 
     row = [];

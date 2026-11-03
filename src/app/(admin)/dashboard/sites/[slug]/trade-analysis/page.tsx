@@ -17,6 +17,8 @@ import { hasTradeAnalysis } from "@/app/(admin)/nav";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { tradeMatrix, tradePlaces, tradeSeries } from "@/domain/dashboard/trade";
 import { TRADE_KINDS, type TradeKind } from "@/db/schema";
+import { can } from "@/domain/staff/permissions";
+import { listCustomsSheets } from "@/domain/trade/customs";
 import {
   Empty,
   Filters,
@@ -24,8 +26,10 @@ import {
   Panel,
   count,
   one,
+  when,
   type Search,
 } from "@/app/(admin)/ui";
+import { UploadCustomsSheet } from "./customs";
 
 export const metadata = { title: "Trade analysis · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -63,6 +67,10 @@ export default async function TradeAnalysisPage({
     tradePlaces(viewer.siteIds, kind, { site }),
   ]);
 
+  // The customs sheets need the one permission the old screens had.
+  const brand = brands.find((row) => row.slug === slug);
+  const customs = brand && (await can(viewer, brand.id, "trade-analysis-view")) ? await listCustomsSheets(viewer, slug) : null;
+
   const high = Math.max(1, ...series.map((point) => point.total));
   const here = new URLSearchParams();
 
@@ -74,8 +82,59 @@ export default async function TradeAnalysisPage({
     <>
       <Heading
         title="Trade analysis"
-        sub="What moved between where, and when. Pick imports or exports."
+        sub="Customs sheets read by AI, and what moved between where, and when."
       />
+
+      {customs ? (
+        <Panel title="Customs sheets" hint="One month of customs import data per product, with an AI reading." aside={<UploadCustomsSheet slug={slug} />}>
+          <table className="tight">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Month</th>
+                <th className="num">Shipments</th>
+                <th>Uploaded</th>
+                <th>AI analysis</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customs.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <Link href={`/dashboard/sites/${slug}/trade-analysis/sheets/${row.id}`}>
+                      <strong>{row.product}</strong>
+                    </Link>
+                    <div className="small muted">{row.file}</div>
+                  </td>
+                  <td>
+                    {row.month}
+                    {row.superseded ? <div className="small muted">replaced</div> : null}
+                  </td>
+                  <td className="num">{count(row.shipments)}</td>
+                  <td>
+                    {when(row.uploaded_at)}
+                    <div className="small muted">{row.uploaded_by ?? "unknown"}</div>
+                  </td>
+                  <td>
+                    {row.analysis ? (
+                      <span className={`badge ${row.analysis === "complete" ? "ok" : "bad"}`}>{row.analysis}</span>
+                    ) : (
+                      <span className="muted">not run</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {customs.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    <Empty>No customs sheet yet. Upload one month of a product’s customs import data to have the AI read it.</Empty>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </Panel>
+      ) : null}
 
       <div className="chips" style={{ marginBottom: 14 }}>
         {(["import", "export"] as const).map((value) => {

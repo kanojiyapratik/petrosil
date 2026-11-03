@@ -93,3 +93,34 @@ def test_refuses_a_bad_date_no_rows_and_strangers():
     assert "no rows" in empty.text
     assert api.post(URL, json=BODY).status_code == 401
     assert api.post("/api/engine/sites/nowhere/batches/12/review", headers=HEADERS, json=BODY).status_code == 404
+
+
+# ---------------------------------------------------------- customs sheets
+
+FIGURES = {"period_month": "2026-02", "totals": {"shipments": 57, "quantity_tonnes": "487648.794"}}
+
+
+def test_a_customs_sheet_is_narrated_from_the_apps_figures_by_the_sites_model():
+    usage, driver = Usage(), Reviewer()
+    api, store = build(usage=usage, driver=driver)
+
+    response = api.post(
+        "/api/engine/sites/baseoil/trade-analysis", headers=HEADERS,
+        json={"title": "Petroleum Coke imports — February 2026", "figures": FIGURES},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["analysis"]["status"] == "complete"
+    prompt = driver.prompts[0]
+    assert "commodity trade analyst" in prompt and "487648.794" in prompt and "Petroleum Coke imports" in prompt
+    assert usage.recorded[-1]["kind"] == "trade_import" and usage.recorded[-1]["site_slug"] == "baseoil"
+    assert store.recorded[-1][1] == "asked for a customs sheet analysis"
+
+
+def test_a_customs_sheet_needs_a_title_and_figures():
+    api, _ = build(driver=Reviewer())
+
+    assert api.post("/api/engine/sites/baseoil/trade-analysis", headers=HEADERS, json={"title": "x"}).status_code == 422
+    assert api.post("/api/engine/sites/baseoil/trade-analysis", headers=HEADERS, json={"figures": FIGURES}).status_code == 422
+    failed = api.post("/api/engine/sites/baseoil/trade-analysis", headers=HEADERS, json={"title": "x", "figures": FIGURES})
+    assert failed.status_code == 200

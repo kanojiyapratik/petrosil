@@ -1065,7 +1065,6 @@ def review_batch(engine: Engine, site, price_date: str, rows: list[dict], curren
     status is "failed" and whose error says why, so the app can show it and
     the editor can try again. The figures are worked out here either way.
     """
-    from ..ai.prompt import render_prompt
     from ..api import _present_summary
     from ..price_review.differ import CurrentPrice, ProposedRow, diff_prices
     from ..price_review.summariser import summarise
@@ -1077,10 +1076,27 @@ def review_batch(engine: Engine, site, price_date: str, rows: list[dict], curren
         valid_locations=sorted({str(row["location"]) for row in rows}),
     )
     summary = _present_summary(summarise(diffed, price_date))
+
+    return {
+        "summary": summary,
+        "analysis": narrate(engine, site, "price_batch", f"{site.name} price update — {price_date}", summary),
+    }
+
+
+def narrate(engine: Engine, site, kind: str, title: str, figures) -> dict:
+    """Have this site's model put figures worked out elsewhere into prose.
+
+    `kind` picks the preamble (ai/prompt.py) and is the usage ledger's kind.
+    The model is handed the figures and told not to compute any of its own.
+    Never raises for the model: a provider that fails is a result whose
+    status is "failed" and whose error says why.
+    """
+    from ..ai.prompt import render_prompt
+
     active, chosen, model, provider = engine.model_for(site.slug)
 
     try:
-        prompt = render_prompt("price_batch", f"{site.name} price update — {price_date}", summary)
+        prompt = render_prompt(kind, title, figures)
         completion = active.generate(prompt) if chosen is not None else active.generate(model, prompt)
         status, text, error = completion.status, completion.text, completion.error
         tokens = (completion.prompt_tokens, completion.completion_tokens)
@@ -1088,7 +1104,7 @@ def review_batch(engine: Engine, site, price_date: str, rows: list[dict], curren
         status, text, error, tokens = "failed", None, str(failure) or "The AI model did not answer.", (None, None)
 
     engine.note_usage(
-        kind="price_review",
+        kind="price_review" if kind == "price_batch" else kind,
         provider=provider,
         model=model,
         status=status,
@@ -1097,7 +1113,4 @@ def review_batch(engine: Engine, site, price_date: str, rows: list[dict], curren
         site_slug=site.slug,
     )
 
-    return {
-        "summary": summary,
-        "analysis": {"status": status, "output_markdown": text, "model": model, "error": error},
-    }
+    return {"status": status, "output_markdown": text, "model": model, "error": error}

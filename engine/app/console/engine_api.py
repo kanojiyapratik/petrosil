@@ -37,6 +37,7 @@ from .flows import (
     check_row_fields,
     draft_prices,
     grouped_files,
+    narrate,
     read_reports,
     review_batch,
     save_draft,
@@ -608,6 +609,25 @@ def create_engine_api(
         store.record(actor, "asked for a batch review", site.slug, f"batch #{batch_id}: {result['analysis']['status']}")
 
         return result
+
+    @router.post("/trade-analysis")
+    async def trade_analysis(slug: str, request: Request, actor: str = Depends(caller)):
+        """{title, figures}: one month of customs import data, as figures the
+        app worked out in SQL, put into prose for industry readers by the
+        site's model (the trade-ai service's "trade_import" analysis). Always
+        200 once the request is sound -- a model that fails says so."""
+        site = site_or_404(slug)
+        body = await request.json()
+        title = str(body.get("title") or "").strip()[:200]
+        figures = body.get("figures")
+
+        if not title or not isinstance(figures, dict) or not figures:
+            raise HTTPException(status_code=422, detail="Send a title and the figures to describe.")
+
+        analysis = narrate(engine, site, "trade_import", title, figures)
+        store.record(actor, "asked for a customs sheet analysis", site.slug, f"{title}: {analysis['status']}")
+
+        return {"analysis": analysis}
 
     @router.get("/drafts/{draft_id}/workings.csv")
     def workings(slug: str, draft_id: int, actor: str = Depends(caller)):
