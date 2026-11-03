@@ -2,8 +2,7 @@
 
 /**
  * Correcting a member's details, as the old directory editor did. The email
- * is not here: it is their sign-in, and changing it needs the new address
- * confirmed.
+ * is not here: it is their sign-in, so it has its own popup (email-form.tsx).
  */
 
 import { useActionState } from "react";
@@ -90,7 +89,7 @@ export function MemberForm({ userId, details }: { userId: number; details: Detai
         <button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save details"}
         </button>
-        <span className="small muted">The email is their sign-in and is not changed here.</span>
+        <span className="small muted">The email is their sign-in: change it with “Change email” at the top.</span>
       </div>
     </form>
   );

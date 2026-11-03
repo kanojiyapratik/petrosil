@@ -20,6 +20,7 @@ import { today } from "@/domain/price/dates";
 import { MembershipForm } from "./membership-form";
 import { PaymentForm } from "./payment-form";
 import { MemberForm } from "./member-form";
+import { ChangeEmail } from "./email-form";
 import { Empty, Heading, Panel, when } from "../../../ui";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       <Heading title={client.name} sub={client.email}>
         <span className={`badge ${TONE[client.segment] ?? ""}`}>{client.segment}</span>
         <span className={`badge ${client.status === "active" ? "ok" : "bad"}`}>{client.status}</span>
+        {client.segment !== "staff" || viewer.isSuperadmin ? <ChangeEmail userId={client.id} email={client.email} /> : null}
       </Heading>
 
       <div className="cols wide">

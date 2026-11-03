@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { auditLog, memberships, rolePermissions, roles, users } from "@/db/schema";
+import { auditLog, authTokens, memberships, rolePermissions, roles, users } from "@/db/schema";
 import { AccessError } from "@/lib/auth/guard";
-import { editMember } from "@/domain/clients/profile";
+import { changeMemberEmail, editMember } from "@/domain/clients/profile";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
 
 let baseoil: Brand;
@@ -98,5 +98,53 @@ describe("editing a member", () => {
     await db().insert(memberships).values({ userId: colleague!.id, siteId: baseoil.siteId, role: "staff" });
 
     expect(await editMember(guard([baseoil.siteId]), colleague!.id, { name: "Renamed" })).toBeNull();
+  });
+});
+
+describe("changing a member's email", () => {
+  const token = (purpose: string, hash: string) => ({
+    userId: member,
+    purpose,
+    tokenHash: hash.padEnd(64, "0"),
+    expiresAt: new Date(Date.now() + 3_600_000),
+  });
+
+  it("changes the sign-in, kills links already mailed to the old address, and records it", async () => {
+    await db().insert(authTokens).values([token("reset_password", "a"), token("verify_email", "b")]);
+
+    expect(await changeMemberEmail(guard([baseoil.siteId]), member, "  Ravi@NewCo.Example ")).toEqual({ id: member, email: "ravi@newco.example" });
+
+    const [row] = await db().select().from(users).where(eq(users.id, member));
+    expect(row!.email).toBe("ravi@newco.example");
+
+    const links = await db().select().from(authTokens).where(eq(authTokens.userId, member));
+    expect(links.every((link) => link.usedAt !== null)).toBe(true);
+
+    const [entry] = await db().select().from(auditLog).where(eq(auditLog.action, "member.email"));
+    expect(entry).toMatchObject({ siteId: baseoil.siteId, userId: staff, entityId: member });
+    expect(entry!.detail).toEqual({ changed: { email: { from: "trader@gulf.example", to: "ravi@newco.example" } } });
+  });
+
+  it("refuses a bad address, the same address, and one another account has", async () => {
+    await expect(changeMemberEmail(guard([]), member, "not-an-email")).rejects.toMatchObject({ field: "email" });
+    await expect(changeMemberEmail(guard([]), member, "TRADER@gulf.example")).rejects.toThrow(/already their email/);
+    await expect(changeMemberEmail(guard([]), member, "editor@petrosil.example")).rejects.toThrow(/Another account/);
+
+    const [row] = await db().select().from(users).where(eq(users.id, member));
+    expect(row!.email).toBe("trader@gulf.example");
+    expect(await db().select().from(auditLog).where(eq(auditLog.action, "member.email"))).toHaveLength(0);
+  });
+
+  it("follows the same rules as editing: their brand, user-edit, not a colleague", async () => {
+    expect(await changeMemberEmail(guard([bitumart.siteId]), member, "x@y.example")).toBeNull();
+
+    const [colleague] = await db().insert(users).values({ email: "c@petrosil.example", name: "Colleague" }).returning();
+    await db().insert(memberships).values({ userId: colleague!.id, siteId: baseoil.siteId, role: "staff" });
+    expect(await changeMemberEmail(guard([baseoil.siteId]), colleague!.id, "x@y.example")).toBeNull();
+
+    const [role] = await db().insert(roles).values({ name: "Viewer" }).returning();
+    await db().insert(rolePermissions).values({ roleId: role!.id, permission: "user-list" });
+    await db().insert(memberships).values({ userId: staff, siteId: baseoil.siteId, role: "staff", roleId: role!.id });
+    await expect(changeMemberEmail(guard([baseoil.siteId]), member, "x@y.example")).rejects.toBeInstanceOf(AccessError);
   });
 });

@@ -2,8 +2,8 @@
  * Staff correcting a member's details: the old directory editor.
  *
  * The fields a member may change themselves, plus the address and postcode
- * the directory shows. Not the email: it is their sign-in, and changing it
- * needs the new address confirmed. Not their standing: tier and expiry are
+ * the directory shows. Not the email: it is their sign-in, so it has its own
+ * step (changeMemberEmail, below). Not their standing: tier and expiry are
  * the membership editor's, status the account controls'.
  *
  * Staff may edit a member who reads one of their brands. Another staff
@@ -11,13 +11,13 @@
  * a colleague.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { auditLog, memberships, users } from "@/db/schema";
+import { auditLog, authTokens, memberships, users } from "@/db/schema";
 import { AccessError, type Guarded } from "@/lib/auth/guard";
 import { AccountError, readCountry } from "@/domain/accounts/register";
-import { readName, readText } from "@/domain/accounts/policy";
+import { readEmail, readName, readText } from "@/domain/accounts/policy";
 import { can } from "@/domain/staff/permissions";
 
 const EDITABLE = {
@@ -56,14 +56,11 @@ const details = (row: typeof users.$inferSelect): MemberDetails => ({
   about: row.about,
 });
 
-/** Null when the member is not this editor's to change. */
-export async function editMember(
-  guard: Guarded,
-  userId: number,
-  body: Partial<Record<Editable | "name", unknown>>,
-  context: { ip?: string | null } = {},
-  database: Database = db(),
-): Promise<MemberDetails | null> {
+/**
+ * The member, when they are this editor's to change; null when not. Throws
+ * when they are, but the editor's role does not allow changing people.
+ */
+async function memberToChange(guard: Guarded, userId: number, database: Database): Promise<typeof users.$inferSelect | null> {
   const [person] = await database.select().from(users).where(eq(users.id, userId)).limit(1);
 
   if (!person) {
@@ -95,6 +92,37 @@ export async function editMember(
     }
   }
 
+  return person;
+}
+
+/** The editor's brands among the member's, for the audit trail: [null] for a superadmin's change. */
+async function trailBrands(guard: Guarded, userId: number, database: Database): Promise<(number | null)[]> {
+  if (guard.isSuperadmin) {
+    return [null];
+  }
+
+  const rows = await database
+    .select({ siteId: memberships.siteId })
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), inArray(memberships.siteId, guard.siteIds)));
+
+  return rows.map((row) => row.siteId);
+}
+
+/** Null when the member is not this editor's to change. */
+export async function editMember(
+  guard: Guarded,
+  userId: number,
+  body: Partial<Record<Editable | "name", unknown>>,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<MemberDetails | null> {
+  const person = await memberToChange(guard, userId, database);
+
+  if (!person) {
+    return null;
+  }
+
   const changes: Partial<typeof users.$inferInsert> = {};
 
   if (body.name !== undefined) {
@@ -124,14 +152,7 @@ export async function editMember(
 
     // Recorded against each of the member's brands the editor works on, so it
     // shows in those brands' trails.
-    const brands = guard.isSuperadmin
-      ? [null]
-      : (
-          await database
-            .select({ siteId: memberships.siteId })
-            .from(memberships)
-            .where(and(eq(memberships.userId, userId), inArray(memberships.siteId, guard.siteIds)))
-        ).map((row) => row.siteId);
+    const brands = await trailBrands(guard, userId, database);
 
     await database.insert(auditLog).values(
       brands.map((siteId) => ({
@@ -149,4 +170,82 @@ export async function editMember(
   const [after] = await database.select().from(users).where(eq(users.id, userId)).limit(1);
 
   return details(after!);
+}
+
+/**
+ * Staff changing a member's email address: their sign-in.
+ *
+ * Its own step, not a field of the details form, because of what goes with
+ * it. The new address must be no one else's (two people on one sign-in would
+ * be one account). Any reset or confirmation link already mailed to the old
+ * address stops working, so whoever still reads that inbox cannot use one to
+ * get in. Staff change it on the member's word, as the old admin let them, so
+ * the account's confirmed standing is kept and they sign in with the new
+ * address straight away.
+ *
+ * Null when the member is not this editor's to change.
+ */
+export async function changeMemberEmail(
+  guard: Guarded,
+  userId: number,
+  value: unknown,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<{ id: number; email: string } | null> {
+  const person = await memberToChange(guard, userId, database);
+
+  if (!person) {
+    return null;
+  }
+
+  const email = readEmail(value);
+
+  if (!email) {
+    throw new AccountError("Enter a valid email address.", 422, "email");
+  }
+
+  if (email === person.email) {
+    throw new AccountError("That is already their email address.", 422, "email");
+  }
+
+  const [taken] = await database.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+
+  if (taken) {
+    throw new AccountError("Another account already signs in with that address.", 409, "email");
+  }
+
+  try {
+    await database.transaction(async (tx) => {
+      await tx.update(users).set({ email, updatedAt: new Date() }).where(eq(users.id, userId));
+      await tx
+        .update(authTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(authTokens.userId, userId), isNull(authTokens.usedAt)));
+
+      const brands = await trailBrands(guard, userId, tx as unknown as Database);
+
+      await tx.insert(auditLog).values(
+        brands.map((siteId) => ({
+          siteId,
+          userId: guard.identity.user.id,
+          action: "member.email",
+          entity: "user",
+          entityId: userId,
+          detail: { changed: { email: { from: person.email, to: email } } },
+          ip: context.ip ?? null,
+        })),
+      );
+    });
+  } catch (error) {
+    // Someone else took the address between the check and the write.
+    const failure = error as { code?: string; cause?: { code?: string } };
+
+    if (failure.code === "23505" || failure.cause?.code === "23505") {
+      throw new AccountError("Another account already signs in with that address.", 409, "email");
+    }
+
+    throw error;
+  }
+
+  return { id: userId, email };
 }
