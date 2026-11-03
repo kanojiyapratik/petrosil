@@ -120,6 +120,13 @@
       "when": 1793620397700,
       "tag": "0016_profile_about_state",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793697624725,
+      "tag": "0017_batch_review",
+      "breakpoints": true
     }
   ]
 }

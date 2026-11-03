@@ -1048,3 +1048,56 @@ def write_update_note(client, batch_id: int, *, driver, default_model: str, driv
             client.post_summary(note, source=source, batch_id=batch_id)
     except Exception:  # noqa: BLE001 - see the docstring
         return
+
+
+# ------------------------------------------------- reviewing a staged batch
+
+
+def review_batch(engine: Engine, site, price_date: str, rows: list[dict], current: list[dict]) -> dict:
+    """The old baseoil "Run analysis": is this staged batch safe to commit?
+
+    The same diff, figures and prompt as `/api/price-reviews`, with two
+    differences. The rows arrive already matched by the app, by the market's
+    own title, so the only valid locations are those titles. And the model is
+    this site's, with its use recorded against the site.
+
+    Never raises for the model: a provider that fails gives a review whose
+    status is "failed" and whose error says why, so the app can show it and
+    the editor can try again. The figures are worked out here either way.
+    """
+    from ..ai.prompt import render_prompt
+    from ..api import _present_summary
+    from ..price_review.differ import CurrentPrice, ProposedRow, diff_prices
+    from ..price_review.summariser import summarise
+
+    diffed = diff_prices(
+        price_date=price_date,
+        rows=[ProposedRow(location=str(row["location"]), price=float(row["price"])) for row in rows],
+        current_prices=[CurrentPrice(location=str(entry["location"]), price=float(entry["price"])) for entry in current],
+        valid_locations=sorted({str(row["location"]) for row in rows}),
+    )
+    summary = _present_summary(summarise(diffed, price_date))
+    active, chosen, model, provider = engine.model_for(site.slug)
+
+    try:
+        prompt = render_prompt("price_batch", f"{site.name} price update — {price_date}", summary)
+        completion = active.generate(prompt) if chosen is not None else active.generate(model, prompt)
+        status, text, error = completion.status, completion.text, completion.error
+        tokens = (completion.prompt_tokens, completion.completion_tokens)
+    except Exception as failure:  # noqa: BLE001 - said, never a 500
+        status, text, error, tokens = "failed", None, str(failure) or "The AI model did not answer.", (None, None)
+
+    engine.note_usage(
+        kind="price_review",
+        provider=provider,
+        model=model,
+        status=status,
+        prompt_tokens=tokens[0],
+        completion_tokens=tokens[1],
+        site_slug=site.slug,
+    )
+
+    return {
+        "summary": summary,
+        "analysis": {"status": status, "output_markdown": text, "model": model, "error": error},
+    }

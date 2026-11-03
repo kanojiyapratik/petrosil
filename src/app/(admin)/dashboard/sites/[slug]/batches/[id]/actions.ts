@@ -19,6 +19,7 @@ import { AccountError } from "@/domain/accounts/register";
 import { commitUpdate, discardUpdate, rollBackUpdate } from "@/domain/price/entry";
 import { askForNote } from "@/domain/ai/update";
 import { editRow } from "@/domain/price/upload";
+import { reviewBatch } from "@/domain/price/review";
 import type { ItemPatch } from "@/domain/price/batches";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
@@ -107,6 +108,30 @@ export async function discardAction(_state: unknown, form: FormData): Promise<Ro
 
   revalidatePath(`/dashboard/sites/${slug}`, "layout");
   redirect(`/dashboard/sites/${slug}/batches/${batchId}?done=${encodeURIComponent("Discarded. Nothing from it was published.")}`);
+}
+
+/** The AI's read of a draft before commit. A failed review is kept and shown, not thrown. */
+export async function reviewAction(_state: unknown, form: FormData): Promise<RollBackState> {
+  const viewer = await staff();
+  const slug = String(form.get("site") ?? "");
+  const batchId = Number(form.get("batch"));
+  let done: string;
+
+  try {
+    const result = await reviewBatch(viewer, { site: slug, batchId }, { ip: await callerIp() });
+
+    done =
+      result.status === "complete"
+        ? "The AI review is below."
+        : result.status === "skipped"
+          ? "Nothing to review yet."
+          : "The AI review did not complete. The reason is below; you can run it again.";
+  } catch (error) {
+    return refused(error, "review");
+  }
+
+  revalidatePath(`/dashboard/sites/${slug}/batches/${batchId}`);
+  redirect(`/dashboard/sites/${slug}/batches/${batchId}?done=${encodeURIComponent(done)}#review`);
 }
 
 /**

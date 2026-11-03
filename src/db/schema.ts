@@ -326,6 +326,19 @@ export const priceBatches = pgTable(
     createdBy: integer("created_by").references(() => users.id),
     committedBy: integer("committed_by").references(() => users.id),
     committedAt: timestamp("committed_at", { withTimezone: true }),
+    /**
+     * The last AI review of the batch before commit: baseoil's old "Run
+     * analysis". `analysis_status` is the engine's word (complete, declined,
+     * failed) or "skipped" when there was nothing to review; the summary is
+     * the engine's own figures, kept for the suspected errors it lists.
+     */
+    analysisStatus: varchar("analysis_status", { length: 24 }),
+    analysisText: text("analysis_text"),
+    analysisSummary: jsonb("analysis_summary"),
+    analysisModel: varchar("analysis_model", { length: 120 }),
+    analysisError: text("analysis_error"),
+    analysisAt: timestamp("analysis_at", { withTimezone: true }),
+    analysisBy: integer("analysis_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

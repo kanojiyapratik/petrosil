@@ -38,6 +38,7 @@ from .flows import (
     draft_prices,
     grouped_files,
     read_reports,
+    review_batch,
     save_draft,
     workings_sheet,
     write_update_note,
@@ -573,6 +574,40 @@ def create_engine_api(
         store.record(actor, "asked for the price note", site.slug, f"batch #{batch_id}")
 
         return JSONResponse({}, status_code=202)
+
+    @router.post("/batches/{batch_id}/review")
+    async def review(slug: str, batch_id: int, request: Request, actor: str = Depends(caller)):
+        """{price_date, rows: [{location, price}], current_prices: [...]}: is
+        this staged batch safe to commit? The app sends the included, matched
+        rows by market title and what each moves from; the engine works out
+        the figures and has the site's model narrate them. Always 200 once
+        the request is sound -- a model that fails is a review that says so."""
+        site = site_or_404(slug)
+        body = await request.json()
+
+        def priced(entries) -> list[dict]:
+            return [
+                entry
+                for entry in (entries or [])
+                if isinstance(entry, dict)
+                and str(entry.get("location") or "").strip()
+                and isinstance(entry.get("price"), (int, float))
+                and not isinstance(entry.get("price"), bool)
+            ]
+
+        price_date = str(body.get("price_date") or "")
+        rows = priced(body.get("rows"))
+
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", price_date):
+            raise HTTPException(status_code=422, detail="price_date must be YYYY-MM-DD.")
+
+        if not rows:
+            raise HTTPException(status_code=422, detail="There are no rows to review.")
+
+        result = review_batch(engine, site, price_date, rows, priced(body.get("current_prices")))
+        store.record(actor, "asked for a batch review", site.slug, f"batch #{batch_id}: {result['analysis']['status']}")
+
+        return result
 
     @router.get("/drafts/{draft_id}/workings.csv")
     def workings(slug: str, draft_id: int, actor: str = Depends(caller)):

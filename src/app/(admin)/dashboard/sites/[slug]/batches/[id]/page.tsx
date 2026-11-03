@@ -18,6 +18,8 @@ import { marketsToPick } from "@/domain/price/upload";
 import { Publish } from "./publish";
 import { RollBack } from "./rollback";
 import { RowEdit } from "./row-edit";
+import { RunReview } from "./review";
+import { reviewOf } from "@/domain/price/review";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,9 @@ export default async function BatchPage({
   // Rows are mended only on a draft, by someone who may stage updates.
   const editing = batch.status === "draft" && (await can(viewer, batch.site_id, "price-batch-create"));
   const markets = editing && batch.rows.some((row) => row.status === "unmatched" || row.status === "ambiguous") ? await marketsToPick(batch.site_id) : [];
+
+  const review = await reviewOf(batch.id);
+  const mayReview = batch.status === "draft" && (await can(viewer, batch.site_id, "price-batch-view"));
 
   const tally = new Map<string, number>();
 
@@ -133,6 +138,64 @@ export default async function BatchPage({
             ))}
         </div>
       </Panel>
+
+      {mayReview || review ? (
+        <div id="review">
+          <Panel
+            title="AI review"
+            flush={false}
+            hint={review ? `${when(review.at)}${review.by ? ` · ${review.by}` : ""}${review.model ? ` · ${review.model}` : ""}` : undefined}
+            aside={mayReview ? <RunReview slug={slug} batch={batch.id} again={review !== null} /> : null}
+          >
+            {!review ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Before committing, the AI can read this batch as it stands and say whether anything looks wrong: an
+                implausible jump, a zero, a market far out of line. It changes nothing.
+              </p>
+            ) : (
+              <>
+                {review.stale ? (
+                  <p className="flash" role="status" style={{ marginTop: 0 }}>
+                    Rows were changed after this review. Run it again to review the batch as it is now.
+                  </p>
+                ) : null}
+                {review.text ? (
+                  <p style={{ whiteSpace: "pre-line", maxWidth: "80ch", marginTop: 0 }}>
+                    {/* The model is asked for prose but may still use **bold** or a # heading. */}
+                    {review.text
+                      .replace(/^#{1,6}\s+/gm, "")
+                      .split(/\*\*(.+?)\*\*/g)
+                      .map((part, at) => (at % 2 === 1 ? <strong key={at}>{part}</strong> : part))}
+                  </p>
+                ) : (
+                  <p className={review.status === "skipped" ? "muted" : "bad"} style={{ marginTop: 0 }}>
+                    {review.status === "skipped"
+                      ? review.error
+                      : review.status === "declined"
+                        ? `The model declined to review this batch.${review.error ? ` Reason: ${review.error}` : ""} You can run it again.`
+                        : `The review did not complete: ${review.error ?? "no reason was given"}.`}
+                  </p>
+                )}
+                {review.suspected.length > 0 ? (
+                  <>
+                    <h3 className="small muted" style={{ margin: "12px 0 4px" }}>
+                      Rows the figures flag
+                    </h3>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {review.suspected.map((row) => (
+                        <li key={row.location}>
+                          <strong>{row.location}</strong>: {row.old_price ?? "—"} → {row.new_price ?? "—"}{" "}
+                          <span className="muted">({row.reason})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </>
+            )}
+          </Panel>
+        </div>
+      ) : null}
 
       <Panel title="Rows" hint="Rows needing a look are listed first.">
         <table className="tight">
