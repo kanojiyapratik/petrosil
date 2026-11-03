@@ -29,6 +29,9 @@ const EDITABLE = {
   website: 191,
   address: 2000,
   postcode: 32,
+  state: 96,
+  // The migration cuts the old text at 6,000 characters; the same cap here.
+  about: 6000,
 } as const;
 
 type Editable = keyof typeof EDITABLE;
@@ -49,6 +52,8 @@ const details = (row: typeof users.$inferSelect): MemberDetails => ({
   website: row.website,
   address: row.address,
   postcode: row.postcode,
+  state: row.state,
+  about: row.about,
 });
 
 /** Null when the member is not this editor's to change. */

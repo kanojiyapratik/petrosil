@@ -52,9 +52,13 @@ describe("editing a member", () => {
       address: "Jebel Ali Free Zone, Plot 12",
       postcode: "17000",
       website: "https://gulflubes.example",
+      state: "Dubai",
+      about: "  Lubricant traders.\nSince 1999.  ",
     });
 
     expect(saved).toMatchObject({ name: "Ravi Khan", company: "Gulf Lubes FZE", city: "Dubai", postcode: "17000" });
+    // The about text keeps its line breaks; only the ends are trimmed.
+    expect(saved).toMatchObject({ state: "Dubai", about: "Lubricant traders.\nSince 1999." });
 
     const [entry] = await db().select().from(auditLog).where(eq(auditLog.action, "member.edit"));
 

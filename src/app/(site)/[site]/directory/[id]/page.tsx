@@ -62,6 +62,7 @@ export default async function Company({ params }: Props) {
     ["Contact", [company.person, company.designation].filter(Boolean).join(", ") || null],
     ["Address", [company.address, company.postcode].filter(Boolean).join(", ") || null],
     ["City", company.city],
+    ["State", company.state],
     ["Country", company.country],
     [
       "Website",
@@ -99,6 +100,14 @@ export default async function Company({ params }: Props) {
             </div>
           ))}
         </dl>
+      ) : null}
+
+      {company.about ? (
+        <section>
+          <h2 style={{ fontSize: 18, marginTop: 24 }}>About the company</h2>
+          {/* Free text with the line breaks the company typed. */}
+          <p style={{ whiteSpace: "pre-line", maxWidth: "70ch" }}>{company.about}</p>
+        </section>
       ) : null}
 
       <Gate site={brand} entitlement={reader.entitlement} lead="Full company details, and writing to companies through the site, are for subscribers." />

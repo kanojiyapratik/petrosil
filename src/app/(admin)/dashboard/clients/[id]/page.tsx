@@ -134,6 +134,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
               <dd>{client.country ?? "—"}</dd>
               <dt>City</dt>
               <dd>{client.city ?? "—"}</dd>
+              <dt>State</dt>
+              <dd>{client.state ?? "—"}</dd>
               <dt>Address</dt>
               <dd>
                 {client.address ?? "—"}
@@ -150,6 +152,14 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
               <dt>Brands</dt>
               <dd>{client.brands.length}</dd>
             </dl>
+            {client.about ? (
+              <>
+                <h3 className="small muted" style={{ margin: "14px 0 4px" }}>
+                  About the company
+                </h3>
+                <p style={{ whiteSpace: "pre-line", margin: 0, maxHeight: 220, overflowY: "auto" }}>{client.about}</p>
+              </>
+            ) : null}
           </Panel>
 
           {/* A colleague's record is a superadmin's to change. */}
@@ -167,6 +177,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   address: client.address ?? null,
                   postcode: client.postcode ?? null,
                   website: client.website ?? null,
+                  state: client.state ?? null,
+                  about: client.about ?? null,
                 }}
               />
             </Panel>

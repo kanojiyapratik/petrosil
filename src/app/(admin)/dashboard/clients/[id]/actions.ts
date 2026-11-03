@@ -12,7 +12,7 @@ import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type MemberResult = { error?: string; field?: string; saved?: string } | null;
 
-const FIELDS = ["name", "company", "designation", "phone", "country", "city", "address", "postcode", "website"] as const;
+const FIELDS = ["name", "company", "designation", "phone", "country", "city", "address", "postcode", "website", "state", "about"] as const;
 
 export async function editMemberAction(_state: unknown, form: FormData): Promise<MemberResult> {
   const viewer = await currentViewer();

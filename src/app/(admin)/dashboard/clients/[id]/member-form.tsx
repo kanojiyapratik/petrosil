@@ -21,6 +21,8 @@ type Details = {
   address: string | null;
   postcode: string | null;
   website: string | null;
+  state: string | null;
+  about: string | null;
 };
 
 const FIELDS: { name: keyof Details; label: string; max: number; wide?: boolean }[] = [
@@ -29,6 +31,7 @@ const FIELDS: { name: keyof Details; label: string; max: number; wide?: boolean 
   { name: "designation", label: "Job title", max: 191 },
   { name: "phone", label: "Phone", max: 64 },
   { name: "city", label: "City", max: 96 },
+  { name: "state", label: "State", max: 96 },
   { name: "country", label: "Country", max: 96 },
   { name: "postcode", label: "Postcode", max: 32 },
   { name: "website", label: "Website", max: 191 },
@@ -76,6 +79,10 @@ export function MemberForm({ userId, details }: { userId: number; details: Detai
         <div className="field" style={{ gridColumn: "1 / -1" }}>
           <label htmlFor="member-address">Address</label>
           <textarea id="member-address" name="address" rows={3} maxLength={2000} defaultValue={details.address ?? ""} style={{ minHeight: 0 }} />
+        </div>
+        <div className="field" style={{ gridColumn: "1 / -1" }}>
+          <label htmlFor="member-about">About the company</label>
+          <textarea id="member-about" name="about" rows={5} maxLength={6000} defaultValue={details.about ?? ""} />
         </div>
       </div>
 

@@ -35,6 +35,9 @@ export type ClientRow = {
   website?: string | null;
   address?: string | null;
   postcode?: string | null;
+  /** The old profile's state and its "about the company" text (migration 0016). */
+  state?: string | null;
+  about?: string | null;
   status: string;
   member_since: string;
   last_login_at: string | null;
@@ -285,6 +288,8 @@ export async function clientDetail(
     website: person.website,
     address: person.address,
     postcode: person.postcode,
+    state: person.state,
+    about: person.about,
     status: person.status,
     member_since: person.createdAt.toISOString().slice(0, 10),
     last_login_at: person.lastLoginAt ? person.lastLoginAt.toISOString() : null,

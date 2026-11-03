@@ -16,8 +16,10 @@
  *
  * The old profile carried a phone and a mobile; the migration kept whichever
  * was filled in one `phone`. It cannot be told which it was, so it is shown
- * only where both rules allow. The old "state" and free-text "profile" were
- * not carried, so their rules have nothing to show.
+ * only where both rules allow. The old "state" and free-text "profile" (the
+ * company's own "about" text) follow their own rules, `state` and `profile`;
+ * the old site gave both to paying readers only. The about text is not
+ * searched: it is long, and the old list did not search it either.
  */
 
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql, type SQL } from "drizzle-orm";
@@ -39,6 +41,8 @@ const DEFAULTS: Record<string, [boolean, boolean]> = {
   phone: [false, true],
   mobile: [false, true],
   user_contact: [false, true],
+  state: [false, true],
+  profile: [false, true],
 };
 
 const PAID_TIERS = ["premium", "trial"];
@@ -52,11 +56,14 @@ export type DirectoryEntry = {
   designation: string | null;
   country: string | null;
   city: string | null;
+  state: string | null;
   website: string | null;
   address: string | null;
   postcode: string | null;
   email: string | null;
   phone: string | null;
+  /** The company's own words about itself: the old profile's free text. */
+  about: string | null;
   /** Whether this reader may write to the company through the site. */
   can_contact: boolean;
 };
@@ -100,11 +107,13 @@ const COLUMNS = {
   designation: users.designation,
   country: users.country,
   city: users.city,
+  state: users.state,
   website: users.website,
   address: users.address,
   postcode: users.postcode,
   email: users.email,
   phone: users.phone,
+  about: users.about,
   tier: memberships.tier,
 };
 
@@ -121,11 +130,13 @@ function entry(row: Row, shown: Set<string>): DirectoryEntry {
     designation: when("designation", row.designation),
     country: when("country", row.country),
     city: when("city", row.city),
+    state: when("state", row.state),
     website: when("website", row.website),
     address: when("address", row.address),
     postcode: when("address", row.postcode),
     email: when("email", row.email),
     phone: shown.has("mobile") ? when("phone", row.phone) : null,
+    about: when("profile", row.about),
     can_contact: shown.has("user_contact"),
   };
 }

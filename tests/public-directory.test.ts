@@ -125,6 +125,23 @@ describe("what a reader sees", () => {
     expect(seen.phone).toBeNull();
   });
 
+  it("gives the state and the about text by their own rules, paying readers only by default", async () => {
+    const made = await member({ state: "Maharashtra", about: "Blenders since 1987.\nISO 9001." });
+
+    const free = (await directoryEntry(baseoil.siteId, made.id, anonymous))!;
+    expect(free).toMatchObject({ state: null, about: null });
+    expect(JSON.stringify(free)).not.toContain("Blenders");
+
+    // baseoil's rules carry `state` (paying) but no `profile` row: the default applies.
+    expect((await directoryEntry(baseoil.siteId, made.id, paying))!).toMatchObject({
+      state: "Maharashtra",
+      about: "Blenders since 1987.\nISO 9001.",
+    });
+
+    await db().insert(formFields).values({ siteId: baseoil.siteId, form: "directory", key: "profile", label: "profile", showFree: false, showPremium: false, sortOrder: 99 });
+    expect((await directoryEntry(baseoil.siteId, made.id, paying))!.about).toBeNull();
+  });
+
   it("shows the phone only where both the phone and the mobile rule allow it", async () => {
     const made = await member();
 
