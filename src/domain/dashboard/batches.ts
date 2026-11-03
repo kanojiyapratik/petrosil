@@ -135,8 +135,10 @@ export async function listBatches(
 }
 
 export type BatchDetail = BatchRow & {
+  site_id: number;
   rows: {
     id: number;
+    location_id: number | null;
     location: string | null;
     raw_location: string;
     price_date: string;
@@ -194,8 +196,10 @@ export async function batchDetail(
 
   return {
     ...summary,
+    site_id: found.batch.siteId,
     rows: items.map(({ item, title }) => ({
       id: item.id,
+      location_id: item.locationId,
       location: title,
       raw_location: item.rawLocation,
       price_date: item.priceDate,

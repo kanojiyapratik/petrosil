@@ -351,7 +351,7 @@ export async function discardUpdate(
   }
 }
 
-async function brandForBatch(guard: Guarded, slug: string, permission: string, database: Database) {
+export async function brandForBatch(guard: Guarded, slug: string, permission: string, database: Database) {
   const [brand] = await database.select().from(sites).where(eq(sites.slug, slug)).limit(1);
 
   if (!brand || (!guard.isSuperadmin && !guard.siteIds.includes(brand.id))) {

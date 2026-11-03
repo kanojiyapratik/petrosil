@@ -12,6 +12,8 @@ import Link from "@/lib/ui/link";
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listBatches } from "@/domain/dashboard/batches";
+import { can } from "@/domain/staff/permissions";
+import { UploadSheet } from "./upload";
 import { BATCH_SOURCES, BATCH_STATUSES, type BatchSource, type BatchStatus } from "@/db/schema";
 import {
   Empty,
@@ -64,12 +66,17 @@ export default async function BatchesPage({
     listBatches(viewer.siteIds, { site, status, source, page }),
   ]);
 
+  const brand = brands.find((row) => row.slug === slug);
+  const mayStage = brand ? await can(viewer, brand.id, "price-batch-create") : false;
+
   return (
     <>
       <Heading
         title="Price update"
         sub="Each batch is one round of prices — staged, checked, then committed in a single step."
-      />
+      >
+        {mayStage ? <UploadSheet slug={slug} /> : null}
+      </Heading>
 
       <div className="listbar">
         <div className="listbar-chips">

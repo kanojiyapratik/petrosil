@@ -13,8 +13,11 @@ import { notFound } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { batchDetail } from "@/domain/dashboard/batches";
 import { Change, Empty, Heading, Panel, count, money, one, when, type Search } from "@/app/(admin)/ui";
+import { can } from "@/domain/staff/permissions";
+import { marketsToPick } from "@/domain/price/upload";
 import { Publish } from "./publish";
 import { RollBack } from "./rollback";
+import { RowEdit } from "./row-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +58,10 @@ export default async function BatchPage({
 
     return aBad - bBad || a.id - b.id;
   });
+
+  // Rows are mended only on a draft, by someone who may stage updates.
+  const editing = batch.status === "draft" && (await can(viewer, batch.site_id, "price-batch-create"));
+  const markets = editing && batch.rows.some((row) => row.status === "unmatched" || row.status === "ambiguous") ? await marketsToPick(batch.site_id) : [];
 
   const tally = new Map<string, number>();
 
@@ -137,6 +144,7 @@ export default async function BatchPage({
               <th>Becomes</th>
               <th>Change</th>
               <th>Status</th>
+              {editing ? <th aria-label="Edit" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -181,12 +189,22 @@ export default async function BatchPage({
                     ) : null}
                     {!row.is_included ? <div className="small muted">excluded</div> : null}
                   </td>
+                  {editing ? (
+                    <td>
+                      <RowEdit
+                        slug={slug}
+                        batch={batch.id}
+                        row={row}
+                        markets={row.status === "unmatched" || row.status === "ambiguous" ? markets : undefined}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={editing ? 7 : 6}>
                   <Empty>This batch has no rows.</Empty>
                 </td>
               </tr>

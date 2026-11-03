@@ -18,6 +18,8 @@ import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import { commitUpdate, discardUpdate, rollBackUpdate } from "@/domain/price/entry";
 import { askForNote } from "@/domain/ai/update";
+import { editRow } from "@/domain/price/upload";
+import type { ItemPatch } from "@/domain/price/batches";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type RollBackState = { error?: string; done?: string } | null;
@@ -105,4 +107,40 @@ export async function discardAction(_state: unknown, form: FormData): Promise<Ro
 
   revalidatePath(`/dashboard/sites/${slug}`, "layout");
   redirect(`/dashboard/sites/${slug}/batches/${batchId}?done=${encodeURIComponent("Discarded. Nothing from it was published.")}`);
+}
+
+/**
+ * One row of a draft, changed. Only what the form carries is sent: a row
+ * that may not have its value changed (locked, unchanged, invalid) gets just
+ * the "include" box, and the market only when a different one was picked.
+ */
+export async function editRowAction(_state: unknown, form: FormData): Promise<RollBackState> {
+  const viewer = await staff();
+  const slug = String(form.get("site") ?? "");
+  const batchId = Number(form.get("batch"));
+  const itemId = Number(form.get("item"));
+  const patch: ItemPatch = { is_included: form.get("included") === "on" };
+
+  if (form.has("new_price")) {
+    patch.new_price = String(form.get("new_price") ?? "").replace(/,/g, "").trim();
+  }
+
+  if (form.has("pricedate")) {
+    patch.pricedate = String(form.get("pricedate") ?? "");
+  }
+
+  const picked = String(form.get("location_id") ?? "");
+
+  if (picked !== "" && picked !== String(form.get("was_location") ?? "")) {
+    patch.location_id = picked;
+  }
+
+  try {
+    await editRow(viewer, { site: slug, itemId, patch }, { ip: await callerIp() });
+  } catch (error) {
+    return refused(error, "edit");
+  }
+
+  revalidatePath(`/dashboard/sites/${slug}`, "layout");
+  redirect(`/dashboard/sites/${slug}/batches/${batchId}?done=${encodeURIComponent("Row saved.")}`);
 }
