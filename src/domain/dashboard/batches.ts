@@ -37,6 +37,8 @@ export type BatchRow = {
 };
 
 export type BatchQuery = {
+  /** One batch only: what the batch page asks for. */
+  id?: number;
   site?: string;
   status?: BatchStatus;
   source?: BatchSource;
@@ -68,6 +70,7 @@ export async function listBatches(
 
   const where = and(
     scope.length > 0 ? inArray(priceBatches.siteId, scope) : undefined,
+    query.id !== undefined ? eq(priceBatches.id, query.id) : undefined,
     query.status ? eq(priceBatches.status, query.status) : undefined,
     query.source ? eq(priceBatches.source, query.source) : undefined,
   );
@@ -172,9 +175,8 @@ export async function batchDetail(
     return null;
   }
 
-  const [summary] = (await listBatches(siteIds, { site: found.slug, perPage: 100 }, database)).rows.filter(
-    (row) => row.id === batchId,
-  );
+  // Asked for by id: a page of the newest 100 left any older batch "not found".
+  const [summary] = (await listBatches(siteIds, { site: found.slug, id: batchId, perPage: 1 }, database)).rows;
 
   if (!summary) {
     return null;

@@ -47,4 +47,17 @@ describe("a price update's rows", () => {
     // A market never priced before has nothing to move from.
     expect(row(NEW_MARKET)).toMatchObject({ status: "new", old_price: null, previous_price: null });
   });
+
+  it("finds a batch older than the brand's newest hundred", async () => {
+    const stage = () => stageRows({ siteId: brand.siteId, priceDate: "2099-03-06", rows: [{ location: KOREA, price: 1 }], source: "editorial" });
+    const { batch: oldest } = await stage();
+
+    for (let i = 0; i < 100; i++) {
+      await stage();
+    }
+
+    expect(await batchDetail([], oldest.id)).toMatchObject({ id: oldest.id, items: 1 });
+    // Still only for staff of its brand.
+    expect(await batchDetail([brand.siteId + 1000], oldest.id)).toBeNull();
+  });
 });
