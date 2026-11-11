@@ -20,7 +20,8 @@ import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
 import { orRefused } from "@/domain/staff/permissions";
-import { createArticle, updateArticle, withdrawArticle } from "@/domain/content/articles";
+import { createArticle, restoreArticle, updateArticle, withdrawArticle } from "@/domain/content/articles";
+import { saveCategory } from "@/domain/content/categories";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type ArticleFormResult = { error?: string; field?: string; saved?: string } | null;
@@ -41,6 +42,13 @@ const ticked = (form: FormData, name: string) => form.get(name) === "on";
 /** An empty select or text field means "nothing", not "leave it alone". */
 function text(form: FormData, name: string): string {
   return String(form.get(name) ?? "").trim();
+}
+
+/** The chosen author, or null for "no author". */
+function authorFrom(form: FormData): number | null {
+  const id = Number(text(form, "author_id"));
+
+  return text(form, "author_id") !== "" && Number.isInteger(id) ? id : null;
 }
 
 function categoryFrom(form: FormData): number | null {
@@ -75,6 +83,7 @@ export async function createArticleAction(
         hero_image: text(form, "hero_image") || null,
         premium_only: ticked(form, "premium_only"),
         category_id: categoryFrom(form),
+        author_id: authorFrom(form),
       },
       { ip: await callerIp() },
     );
@@ -117,8 +126,10 @@ export async function saveArticleAction(
   const id = Number(form.get("id"));
   const intent = text(form, "intent");
 
+  // "Take down" leaves the piece in place, marked taken down; deleting is a
+  // separate button with its own confirmation.
   const status =
-    intent === "publish" ? "published" : intent === "unpublish" ? "draft" : undefined;
+    intent === "publish" ? "published" : intent === "takedown" || intent === "unpublish" ? "withdrawn" : undefined;
 
   try {
     const saved = await updateArticle(
@@ -131,6 +142,7 @@ export async function saveArticleAction(
         hero_image: text(form, "hero_image") || null,
         premium_only: ticked(form, "premium_only"),
         category_id: categoryFrom(form),
+        author_id: authorFrom(form),
         ...(status ? { status } : {}),
       },
       { ip: await callerIp() },
@@ -160,13 +172,57 @@ export async function saveArticleAction(
     saved:
       status === "published"
         ? "Published."
-        : status === "draft"
-          ? "Taken back to a draft."
+        : status === "withdrawn"
+          ? "Taken down. It is off the brand site but kept here; publish it again whenever you like."
           : "Saved.",
   };
 }
 
-/** Withdraw, not destroy: the row stays and every link to it still resolves. */
+/** Bring a deleted piece back from the Deleted list. */
+export async function restoreArticleAction(form: FormData) {
+  const viewer = await staff();
+  const slug = slugFrom(form);
+  const id = Number(form.get("id"));
+
+  const done = await orRefused(restoreArticle(viewer, id, { ip: await callerIp() }));
+
+  revalidatePath(`/dashboard/sites/${slug}/articles`);
+
+  if (typeof done === "object") {
+    redirect(`/dashboard/sites/${slug}/articles?status=deleted&refused=${encodeURIComponent(done.message)}`);
+  }
+
+  redirect(`/dashboard/sites/${slug}/articles/${id}`);
+}
+
+export type NewCategory = { ok: true; id: number; name: string } | { ok: false; error: string };
+
+/** A category made from the popup on the article form, for the brand being written for. */
+export async function addCategoryAction(site: string, name: string): Promise<NewCategory> {
+  const viewer = await staff();
+
+  try {
+    const saved = await saveCategory(viewer, { site, name }, { ip: await callerIp() });
+
+    if (!saved) {
+      return { ok: false, error: "You cannot add categories to that brand." };
+    }
+
+    revalidatePath(`/dashboard/sites/${site}/articles`);
+
+    return { ok: true, id: saved.id, name: saved.name };
+  } catch (error) {
+    if (error instanceof AccountError || error instanceof AccessError) {
+      return { ok: false, error: error.message };
+    }
+
+    console.error("could not add a category", { error });
+
+    return { ok: false, error: "Something went wrong. The category was not added." };
+  }
+}
+
+/** Delete, softly: the row stays (and can be restored), it just leaves every list and the site. */
 export async function withdrawArticleAction(form: FormData) {
   const viewer = await staff();
   const slug = slugFrom(form);

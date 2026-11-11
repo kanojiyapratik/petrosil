@@ -574,7 +574,7 @@ export async function listWatchedUrls(
   }));
 }
 
-export type ArticleTally = { all: number; published: number; draft: number; withdrawn: number };
+export type ArticleTally = { all: number; published: number; draft: number; withdrawn: number; deleted: number };
 
 /**
  * How many articles sit in each state, for the filter chips.
@@ -593,15 +593,15 @@ export async function articleTally(
 
   const [row] = await database
     .select({
-      all: sql<number>`count(*)`,
-      published: sql<number>`count(*) filter (where ${articles.status} = 'published')`,
-      draft: sql<number>`count(*) filter (where ${articles.status} = 'draft')`,
-      withdrawn: sql<number>`count(*) filter (where ${articles.status} = 'withdrawn')`,
+      all: sql<number>`count(*) filter (where ${articles.deletedAt} is null)`,
+      published: sql<number>`count(*) filter (where ${articles.deletedAt} is null and ${articles.status} = 'published')`,
+      draft: sql<number>`count(*) filter (where ${articles.deletedAt} is null and ${articles.status} = 'draft')`,
+      withdrawn: sql<number>`count(*) filter (where ${articles.deletedAt} is null and ${articles.status} = 'withdrawn')`,
+      deleted: sql<number>`count(*) filter (where ${articles.deletedAt} is not null)`,
     })
     .from(articles)
     .where(
       and(
-        isNull(articles.deletedAt),
         only ? inArray(articles.siteId, only) : undefined,
         query.search ? ilike(articles.title, `%${query.search}%`) : undefined,
       ),
@@ -612,5 +612,6 @@ export async function articleTally(
     published: Number(row?.published ?? 0),
     draft: Number(row?.draft ?? 0),
     withdrawn: Number(row?.withdrawn ?? 0),
+    deleted: Number(row?.deleted ?? 0),
   };
 }

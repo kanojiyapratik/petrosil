@@ -1402,3 +1402,152 @@ button.linklike {
     white-space: normal;
   }
 }
+
+/* ---- the article editor: formatted writing, the cover picture ---- */
+
+.rte {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.rte:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+.rte-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 70%, var(--panel));
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.rte-bar button {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 13px;
+  min-height: 30px;
+  box-shadow: none;
+}
+
+.rte-bar button:hover:not(:disabled) {
+  background: var(--panel);
+  border-color: var(--line-strong);
+}
+
+.rte-bar select {
+  width: auto;
+  font-size: 13px;
+  padding: 4px 8px;
+  min-height: 30px;
+}
+
+.rte-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 2px 4px;
+}
+
+.rte-box {
+  padding: 16px 20px;
+  font-size: 16px;
+  line-height: 1.7;
+  outline: none;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.rte-box h2 {
+  font-size: 22px;
+  margin: 20px 0 8px;
+}
+
+.rte-box h3 {
+  font-size: 18px;
+  margin: 18px 0 6px;
+}
+
+.rte-box p {
+  margin: 0 0 12px;
+}
+
+.rte-box blockquote {
+  margin: 12px 0;
+  padding: 4px 16px;
+  border-left: 3px solid var(--brand);
+  color: var(--muted);
+}
+
+.rte-box img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.rte-box a {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.rte-box table {
+  border-collapse: collapse;
+}
+
+.rte-box td,
+.rte-box th {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+}
+
+.cover-pick {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--bg);
+}
+
+.cover-pick img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cover-none {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.inline-pick {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.inline-pick select {
+  flex: 1;
+  min-width: 0;
+}
+
+.danger-zone {
+  border-color: color-mix(in srgb, var(--bad) 35%, var(--line));
+}

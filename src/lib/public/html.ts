@@ -42,6 +42,28 @@ export function cleanHtml(html: string | null | undefined): string {
   return html ? sanitizeHtml(html, OPTIONS) : "";
 }
 
+/**
+ * A body ready for the formatting editor: cleaned, and when it is plain text
+ * (many carried articles are, with line breaks for paragraphs) turned into
+ * paragraphs, so the editor shows them as paragraphs rather than one block.
+ */
+export function editableHtml(body: string | null | undefined): string {
+  const text = body ?? "";
+
+  if (/<(p|div|br|h[1-6]|ul|ol|table|img|blockquote)\b/i.test(text)) {
+    return cleanHtml(text);
+  }
+
+  // Inline tags (<strong>, <a>) inside a plain-text body are kept, cleaned.
+  return text
+    .replace(/_x000D_/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${cleanHtml(line)}</p>`)
+    .join("");
+}
+
 /** Plain text, for a card or a meta description. */
 export function plainText(html: string | null | undefined, max = 220): string {
   const text = sanitizeHtml(html ?? "", { allowedTags: [], allowedAttributes: {} })

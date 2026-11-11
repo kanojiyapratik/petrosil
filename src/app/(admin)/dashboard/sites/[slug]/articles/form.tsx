@@ -7,33 +7,48 @@
  * which buttons sit at the bottom and whether the brand can still be chosen.
  * A new article is always a draft — publishing is its own audited act — so
  * the create form has no Publish button at all rather than one that lies.
+ *
+ * The body is written in a formatting editor, never as raw HTML. "Take down"
+ * only takes a piece off the brand site; deleting is a separate, confirmed
+ * button below the form (DeleteArticle), and even that can be undone.
  */
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "@/lib/ui/link";
 
 import type { Brand } from "@/domain/dashboard/brands";
-import type { ArticleForEdit } from "@/domain/content/articles";
-import {
-  createArticleAction,
-  saveArticleAction,
-  withdrawArticleAction,
-  type ArticleFormResult,
-} from "./actions";
+import type { ArticleAuthor, ArticleForEdit } from "@/domain/content/articles";
+import { RichEditor } from "@/app/(admin)/rich-editor";
+import { CategoryPicker, CoverImage } from "./fields";
+import { createArticleAction, saveArticleAction, type ArticleFormResult } from "./actions";
 
 type Category = { id: number; site: string; name: string };
+
+const STATUS_LABEL: Record<string, string> = {
+  published: "Published",
+  draft: "Draft",
+  withdrawn: "Taken down",
+};
 
 export function ArticleForm({
   slug,
   brands,
   categories,
+  authors,
   article,
+  body,
+  me,
 }: {
   /** The brand this editor is standing in, for its own links. */
   slug: string;
   brands: Brand[];
   categories: Category[];
+  authors: ArticleAuthor[];
   article?: ArticleForEdit;
+  /** The body as cleaned HTML, ready for the editor. */
+  body: string;
+  /** The signed-in person, the default author of a new piece. */
+  me: number;
 }) {
   const editing = article !== undefined;
 
@@ -41,19 +56,16 @@ export function ArticleForm({
     editing ? saveArticleAction : createArticleAction,
     null as ArticleFormResult,
   );
-
-  // On a new piece the brand is still being chosen, so every brand's
-  // categories are offered and labelled; the server refuses one that does
-  // not belong to the brand picked.
-  const forBrand = editing
-    ? categories.filter((category) => category.site === article.site)
-    : categories;
+  const [site, setSite] = useState(article?.site ?? (brands.some((b) => b.slug === slug) ? slug : (brands[0]?.slug ?? "")));
 
   const published = article?.status === "published";
+  const author = article ? article.author_id : authors.some((a) => a.id === me) ? me : null;
 
   return (
     <form action={action}>
       {editing ? <input type="hidden" name="id" value={article.id} /> : null}
+      {/* The brand, for the actions' redirects: on an existing piece it cannot change. */}
+      {editing ? <input type="hidden" name="site" value={article.site} /> : null}
 
       {state?.error ? (
         <p className="flash bad" role="alert">
@@ -69,7 +81,7 @@ export function ArticleForm({
       <div className="cols wide">
         <div className="panel">
           <div className="head">
-            <h2>The piece</h2>
+            <h2>The article</h2>
           </div>
           <div className="body">
             <div className="field">
@@ -86,28 +98,17 @@ export function ArticleForm({
             </div>
 
             <div className="field">
-              <label htmlFor="excerpt">Excerpt</label>
-              <textarea
-                id="excerpt"
-                name="excerpt"
-                rows={3}
-                maxLength={2000}
-                defaultValue={article?.excerpt ?? ""}
-              />
+              <label htmlFor="excerpt">Summary</label>
+              <textarea id="excerpt" name="excerpt" rows={3} maxLength={2000} defaultValue={article?.excerpt ?? ""} />
               <div className="small muted">
-                Shown to everyone, including on a subscribers-only piece — it is the hook, and
-                the reason to subscribe is reading the rest.
+                Two or three sentences shown to everyone, including on a subscribers-only piece — the reason to
+                read on.
               </div>
             </div>
 
             <div className="field">
-              <label htmlFor="body">Body</label>
-              <textarea
-                id="body"
-                name="body"
-                rows={22}
-                defaultValue={article?.body ?? ""}
-              />
+              <label>Article text</label>
+              <RichEditor name="body" initial={body} site={site} />
             </div>
           </div>
         </div>
@@ -115,7 +116,7 @@ export function ArticleForm({
         <div>
           <div className="panel">
             <div className="head">
-              <h2>Filing</h2>
+              <h2>Details</h2>
             </div>
             <div className="body">
               {editing ? (
@@ -130,7 +131,7 @@ export function ArticleForm({
               ) : (
                 <div className="field">
                   <label htmlFor="site">Brand</label>
-                  <select id="site" name="site" defaultValue={brands[0]?.slug ?? ""} required>
+                  <select id="site" name="site" value={site} onChange={(event) => setSite(event.target.value)} required>
                     {brands.map((brand) => (
                       <option key={brand.slug} value={brand.slug}>
                         {brand.name}
@@ -141,53 +142,39 @@ export function ArticleForm({
               )}
 
               <div className="field">
-                <label htmlFor="category_id">Category</label>
-                <select
-                  id="category_id"
-                  name="category_id"
-                  defaultValue={article?.category_id ?? ""}
-                >
-                  <option value="">Filed under nothing</option>
-                  {forBrand.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {editing ? category.name : `${category.site} — ${category.name}`}
+                <label htmlFor="author_id">Author</label>
+                <select id="author_id" name="author_id" defaultValue={author ?? ""}>
+                  <option value="">No author shown</option>
+                  {authors.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                      {authors.filter((other) => other.name === person.name).length > 1 ? ` (${person.email})` : ""}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="field">
-                <label htmlFor="hero_image">Hero image</label>
-                <input
-                  id="hero_image"
-                  name="hero_image"
-                  type="text"
-                  maxLength={512}
-                  defaultValue={article?.hero_image ?? ""}
-                  placeholder="uploads/baseoil/week-40.jpg"
-                />
-              </div>
+              <CategoryPicker
+                site={site}
+                options={categories.filter((category) => category.site === site).map(({ id, name }) => ({ id, name }))}
+                value={article?.category_id ?? null}
+              />
+
+              <CoverImage site={site} name="hero_image" initial={article?.hero_image ?? null} />
 
               <div className="field">
                 <label>
-                  <input
-                    type="checkbox"
-                    name="premium_only"
-                    defaultChecked={article?.premium_only ?? false}
-                  />{" "}
-                  Subscribers only
+                  <input type="checkbox" name="premium_only" defaultChecked={article?.premium_only ?? false} /> Subscribers
+                  only
                 </label>
-                <div className="small muted">
-                  The body is absent from the reply for anyone who has not paid — not hidden
-                  with CSS.
-                </div>
+                <div className="small muted">Readers who have not paid see the title and summary, not the text.</div>
               </div>
             </div>
           </div>
 
           <div className="panel">
             <div className="head">
-              <h2>{editing ? "Status" : "Saving"}</h2>
+              <h2>{editing ? "Publishing" : "Saving"}</h2>
             </div>
             <div className="body">
               {editing ? (
@@ -195,8 +182,8 @@ export function ArticleForm({
                   <dl className="kv">
                     <dt>Now</dt>
                     <dd>
-                      <span className={`badge ${published ? "ok" : "warn"}`}>
-                        {article.status}
+                      <span className={`badge ${published ? "ok" : article.status === "withdrawn" ? "" : "warn"}`}>
+                        {STATUS_LABEL[article.status] ?? article.status}
                       </span>
                     </dd>
                     <dt>First published</dt>
@@ -210,37 +197,26 @@ export function ArticleForm({
                       {pending ? "Saving…" : "Save"}
                     </button>
                     {published ? (
-                      <button
-                        className="ghost"
-                        type="submit"
-                        name="intent"
-                        value="unpublish"
-                        disabled={pending}
-                      >
-                        Take it down
+                      <button className="ghost" type="submit" name="intent" value="takedown" disabled={pending}>
+                        Take down
                       </button>
                     ) : (
-                      <button
-                        type="submit"
-                        name="intent"
-                        value="publish"
-                        disabled={pending}
-                      >
-                        Save and publish
+                      <button type="submit" name="intent" value="publish" disabled={pending}>
+                        {article.status === "withdrawn" ? "Publish again" : "Save and publish"}
                       </button>
                     )}
                   </div>
 
                   <p className="small muted" style={{ marginTop: 10 }}>
-                    The publication date is stamped once, so fixing a typo on a piece that is
-                    already out will not re-date it to the top of the list.
+                    {published
+                      ? "Take down hides it from readers and keeps it here as “Taken down”. Nothing is deleted."
+                      : "The publication date is stamped the first time, so fixing a typo later will not re-date it."}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="small muted" style={{ margin: "0 0 10px" }}>
-                    A new piece is saved as a draft. You publish it on the next screen, which
-                    keeps publishing a deliberate act with its own entry in the audit trail.
+                    A new article is saved as a draft. You publish it on the next screen.
                   </p>
                   <div className="actions">
                     <button type="submit" disabled={pending}>
@@ -254,30 +230,6 @@ export function ArticleForm({
               )}
             </div>
           </div>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-/**
- * Withdrawing, in a form of its own.
- *
- * Outside the editing form on purpose: a stray Enter in the title field must
- * not be able to submit the one button here that takes a piece off the site.
- */
-export function WithdrawArticle({ id }: { id: number }) {
-  return (
-    <form action={withdrawArticleAction} style={{ marginTop: 16 }}>
-      <input type="hidden" name="id" value={id} />
-      <div className="note">
-        <strong>Withdraw this piece.</strong> It comes off the brand site and out of the
-        listings. Nothing is destroyed — the row stays, so every link ever shared to it still
-        resolves, and the audit trail records who withdrew it.
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="ghost small" type="submit">
-            Withdraw
-          </button>
         </div>
       </div>
     </form>

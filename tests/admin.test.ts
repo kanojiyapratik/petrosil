@@ -316,12 +316,14 @@ describe("the article counts behind the filter chips", () => {
           title: `Piece ${at}`,
           body: "x",
           status: at < 20 ? "published" : "draft",
+          // Two drafts deleted: counted under Deleted, and nowhere else.
+          deletedAt: at >= 28 ? new Date() : null,
         })),
       );
 
     const tally = await articleTally([], {});
 
-    expect(tally).toEqual({ all: 30, published: 20, draft: 10, withdrawn: 0 });
+    expect(tally).toEqual({ all: 28, published: 20, draft: 8, withdrawn: 0, deleted: 2 });
   });
 
   test("respect the search the chips are sitting next to", async () => {

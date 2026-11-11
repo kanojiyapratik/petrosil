@@ -16,10 +16,11 @@
 import { and, count, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { articleCategories, articles, auditLog, sites } from "@/db/schema";
+import { articleCategories, articles, auditLog, memberships, sites, users } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { requirePermission } from "@/domain/staff/permissions";
 import { AccountError } from "@/domain/accounts/register";
+import { cleanHtml } from "@/lib/public/html";
 
 export type ArticleCard = {
   id: number;
@@ -161,7 +162,7 @@ export async function publishedArticle(
 
 export async function staffArticles(
   siteIds: number[],
-  options: { site?: string; status?: string; search?: string; limit?: number } = {},
+  options: { site?: string; status?: string; search?: string; limit?: number; deleted?: boolean } = {},
   database: Database = db(),
 ): Promise<ArticleCard[]> {
   const rows = await database
@@ -173,7 +174,8 @@ export async function staffArticles(
       and(
         // Empty means superadmin: the whole estate.
         siteIds.length > 0 ? inArray(articles.siteId, siteIds) : undefined,
-        isNull(articles.deletedAt),
+        // Deleted pieces are listed only when asked for, so they can be restored.
+        options.deleted ? isNotNull(articles.deletedAt) : isNull(articles.deletedAt),
         options.site ? eq(sites.slug, options.site) : undefined,
         options.status ? eq(articles.status, options.status) : undefined,
         options.search ? sql`${articles.title} ilike ${`%${options.search}%`}` : undefined,
@@ -260,11 +262,12 @@ export async function createArticle(
       slug: await slugFor(brand.id, title, database),
       title: title.slice(0, 255),
       excerpt: typeof body.excerpt === "string" ? body.excerpt.slice(0, 2000) : null,
-      body: typeof body.body === "string" ? body.body : "",
+      body: typeof body.body === "string" ? cleanHtml(body.body) : "",
       heroImage: typeof body.hero_image === "string" ? body.hero_image.slice(0, 512) : null,
       premiumOnly: body.premium_only === true,
       categoryId: await categoryFor(brand.id, body.category_id, database),
-      authorId: guard.identity.user.id,
+      // The writer the editor chose; the editor themself when none was chosen.
+      authorId: body.author_id === undefined ? guard.identity.user.id : await authorFor(body.author_id, database),
       // Always a draft. Publishing is its own, audited act.
       status: "draft",
     })
@@ -320,6 +323,47 @@ async function categoryFor(
   return found.id;
 }
 
+export type ArticleAuthor = { id: number; name: string; email: string };
+
+/**
+ * Who can be named as an article's author: Petrosil's own people. On the old
+ * sites the writers were the @petrosil.com accounts (Poonam, Asmita, Diksha
+ * and the rest), and anyone who works in this admin writes too.
+ */
+export async function articleAuthors(database: Database = db()): Promise<ArticleAuthor[]> {
+  const rows = await database
+    .selectDistinct({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .leftJoin(memberships, eq(memberships.userId, users.id))
+    .where(
+      and(
+        eq(users.status, "active"),
+        sql`(${users.email} like '%@petrosil.com' or ${memberships.role} in ('staff', 'superadmin'))`,
+        // Shared mailboxes, not people.
+        sql`${users.email} not in ('info@petrosil.com', 'staff@petrosil.com')`,
+      ),
+    )
+    .orderBy(users.name);
+
+  return rows;
+}
+
+/** An author id from a form: one of the people articleAuthors lists, or none. */
+async function authorFor(given: unknown, database: Database): Promise<number | null> {
+  if (given === null || given === "" || given === undefined) {
+    return null;
+  }
+
+  const id = Number(given);
+  const found = Number.isInteger(id) ? (await articleAuthors(database)).find((author) => author.id === id) : undefined;
+
+  if (!found) {
+    throw new AccountError("Choose an author from the list.", 422, "author_id");
+  }
+
+  return found.id;
+}
+
 const EDITABLE_TEXT = { excerpt: 2000, body: 1_000_000, hero_image: 512 } as const;
 
 export async function updateArticle(
@@ -359,7 +403,9 @@ export async function updateArticle(
   }
 
   if (typeof body.body === "string") {
-    changes.body = body.body;
+    // Cleaned on the way in: text pasted from Word or a web page brings
+    // styles and sometimes scripts, and the editor posts whatever it holds.
+    changes.body = cleanHtml(body.body);
   }
 
   if (body.hero_image !== undefined) {
@@ -375,9 +421,18 @@ export async function updateArticle(
     changes.categoryId = await categoryFor(found.siteId, body.category_id, database);
   }
 
-  let published = false;
+  // An author carried from the old sites who is not on today's list (the old
+  // shared admin account, say) stays put when the form sends them back.
+  if (body.author_id !== undefined && !(found.authorId !== null && Number(body.author_id) === found.authorId)) {
+    changes.authorId = await authorFor(body.author_id, database);
+  }
 
-  if (body.status === "draft" || body.status === "published") {
+  let published = false;
+  // Taking a piece down is not deleting it: it leaves the brand site, stays
+  // in the editor's list as "taken down", and can go back up with one press.
+  const takenDown = body.status === "withdrawn" && found.status !== "withdrawn";
+
+  if (body.status === "draft" || body.status === "published" || body.status === "withdrawn") {
     changes.status = body.status;
 
     // Stamped once. Correcting a typo on a piece that is already out must not
@@ -395,7 +450,7 @@ export async function updateArticle(
   await database.insert(auditLog).values({
     siteId: found.siteId,
     userId: guard.identity.user.id,
-    action: published ? "article.publish" : "article.update",
+    action: published ? "article.publish" : takenDown ? "article.take_down" : "article.update",
     entity: "article",
     entityId: id,
     detail: { fields: Object.keys(changes).filter((key) => key !== "updatedAt") },
@@ -448,10 +503,48 @@ export async function withdrawArticle(
   return true;
 }
 
+/**
+ * Bring a deleted article back, as it was: its status is untouched, so a
+ * piece that was live when it was deleted is live again.
+ */
+export async function restoreArticle(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<boolean> {
+  const [found] = await database
+    .select()
+    .from(articles)
+    .where(and(eq(articles.id, id), isNotNull(articles.deletedAt)))
+    .limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return false;
+  }
+
+  await requirePermission(guard, found.siteId, "article-delete", database);
+
+  await database.update(articles).set({ deletedAt: null, updatedAt: new Date() }).where(eq(articles.id, id));
+
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "article.restore",
+    entity: "article",
+    entityId: id,
+    detail: { title: found.title, slug: found.slug },
+    ip: context.ip ?? null,
+  });
+
+  return true;
+}
+
 export type ArticleForEdit = ArticleFull & {
   site: string;
   site_name: string;
   category_id: number | null;
+  author_id: number | null;
   updated_at: string;
 };
 
@@ -491,6 +584,7 @@ export async function articleForEdit(
     site: row.slug,
     site_name: row.name,
     category_id: row.article.categoryId,
+    author_id: row.article.authorId,
     updated_at: row.article.updatedAt.toISOString(),
   };
 }
