@@ -794,6 +794,8 @@ export const authTokens = pgTable(
     /** "verify_email" | "reset_password". Checked on use: a confirmation link must not set a password. */
     purpose: varchar("purpose", { length: 32 }).notNull(),
     tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    /** For "change_email": the address the member asked to move to, taken up once confirmed. */
+    newEmail: varchar("new_email", { length: 191 }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

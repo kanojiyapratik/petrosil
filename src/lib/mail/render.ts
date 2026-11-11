@@ -132,6 +132,33 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
       "If it was not you, ignore this message and your password stays as it is.",
     ]),
 
+  /** Sent to the NEW address: pressing the button there is what moves the sign-in. */
+  change_email: (mail, context) =>
+    compose(mail.subject, [
+      greeting(mail.payload),
+      `You asked to sign in${mail.payload.siteName ? ` to ${String(mail.payload.siteName)}` : ""} with this email address from now on. Please confirm it is yours.`,
+      { href: link(context, "confirm-email", mail.payload.token), label: "Confirm my new email address" },
+      "The link works once and lasts a day. If you did not ask for this, ignore this message and nothing changes.",
+    ]),
+
+  /** The new address already has an account: nothing changed, and the reply on the site did not say so. */
+  change_email_taken: (mail, context) =>
+    compose(mail.subject, [
+      "Hello,",
+      "Someone asked to move their sign-in to this email address, but this address already has an account of its own, so nothing was changed.",
+      { href: `${context.linkBase}/sign-in`, label: "Sign in" },
+      "If that was you, sign in with this address, or contact us to have your two accounts joined.",
+    ]),
+
+  /** Sent to the OLD address once the change is confirmed, so its owner knows. */
+  email_changed: (mail, context) =>
+    compose(mail.subject, [
+      greeting(mail.payload),
+      `The email address on your account is now ${String(mail.payload.newEmail ?? "")}. From now on, sign in with that address.`,
+      "If you did not make this change, contact us straight away.",
+      { href: `${context.linkBase}/sign-in`, label: "Sign in" },
+    ]),
+
   /**
    * A mail whose subject and body were written and personalised when it was
    * queued — a report send, a sample — so delivery only has to send it.

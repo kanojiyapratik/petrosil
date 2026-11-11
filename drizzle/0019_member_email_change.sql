@@ -1,0 +1,1 @@
+ALTER TABLE "auth_tokens" ADD COLUMN "new_email" varchar(191);

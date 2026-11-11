@@ -1,6 +1,6 @@
 /**
  * A reader's own page: what they hold on this brand and the others, their
- * invoices, their details and their password.
+ * invoices, their details, their sign-in address and their password.
  */
 
 import Link from "@/lib/ui/link";
@@ -15,7 +15,8 @@ import { sites } from "@/db/schema";
 import { ordersFor } from "@/domain/billing/orders";
 import { currentIdentity } from "@/lib/auth/server";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
-import { saveProfile, savePassword, signOutReader } from "../actions";
+import { pendingEmailChange } from "@/domain/accounts/email-change";
+import { askForNewEmail, saveProfile, savePassword, signOutReader } from "../actions";
 import { CountryField, Field, ReaderForm } from "../forms";
 import { day } from "../ui";
 
@@ -53,9 +54,10 @@ export default async function Account({ params }: { params: Promise<{ site: stri
   }
 
   const others = identity.memberships.filter((m) => m.siteId !== brand.id);
-  const [reader, orders, named] = await Promise.all([
+  const [reader, orders, pending, named] = await Promise.all([
     readerFor(brand.id),
     ordersFor(identity.user.id),
+    pendingEmailChange(identity.user.id),
     others.length > 0
       ? db().select({ id: sites.id, name: sites.name }).from(sites).where(inArray(sites.id, others.map((m) => m.siteId)))
       : [],
@@ -169,7 +171,29 @@ export default async function Account({ params }: { params: Promise<{ site: stri
                 <Field name="website" label="Website" defaultValue={me.website ?? ""} wide />
               </div>
             </ReaderForm>
-            <p className="muted bs-after">To change your email address, contact us.</p>
+          </section>
+
+          <section className="bs-card">
+            <h2>Email address</h2>
+            <p>
+              You sign in with <strong>{me.email}</strong>.
+            </p>
+            {pending ? (
+              <p className="bs-flash">
+                Waiting for you to confirm <strong>{pending}</strong> — press the button in the email we sent there. Until then, keep signing in with your current address.
+              </p>
+            ) : null}
+            <ReaderForm action={askForNewEmail} site={site} submit="Change email address" busy="Sending…">
+              <Field name="email" label="New email address" type="email" autoComplete="email" required />
+              <Field
+                name="password"
+                label="Current password"
+                type="password"
+                autoComplete="current-password"
+                required
+                hint="We email a link to the new address. Nothing changes until you press it."
+              />
+            </ReaderForm>
           </section>
 
           <section className="bs-card">

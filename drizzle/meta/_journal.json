@@ -134,6 +134,13 @@
       "when": 1793698671762,
       "tag": "0018_customs_sheets",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794382947158,
+      "tag": "0019_member_email_change",
+      "breakpoints": true
     }
   ]
 }

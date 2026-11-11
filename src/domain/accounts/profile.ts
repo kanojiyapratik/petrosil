@@ -2,8 +2,8 @@
  * A subscriber's own details.
  *
  * What is *not* here matters more than what is. A person may change their
- * name, company and contact details. They may not change their email address
- * (it is their identity and would need re-confirming), their status (that is
+ * name, company and contact details. Not their email address here: it is
+ * their identity, so it has its own confirmed step (email-change.ts). Not their status (that is
  * staff's), or their tier — the old sites' profile update accepted the whole
  * request array, and `premium` was a column on the same table.
  */

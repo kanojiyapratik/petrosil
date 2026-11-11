@@ -19,6 +19,7 @@ import { callerIp } from "@/lib/compat/auth";
 import { liveBrandBySlug } from "@/lib/public/reader";
 import { AccountError, confirmEmail, register, requestPasswordReset, resetPassword } from "@/domain/accounts/register";
 import { spendToken } from "@/domain/accounts/tokens";
+import { confirmEmailChange, requestEmailChange } from "@/domain/accounts/email-change";
 import { changePassword, updateProfile } from "@/domain/accounts/profile";
 import { placeOrder, settleOrder, type Checkout, type OrderView } from "@/domain/billing/orders";
 import { requestTrial } from "@/domain/billing/trials";
@@ -202,6 +203,43 @@ export async function savePassword(_state: FormState, form: FormData): Promise<F
     return { done: "Your password is changed. Your other devices have been signed out." };
   } catch (error) {
     return failed(error, "brand password");
+  }
+}
+
+/**
+ * Ask to move the sign-in to a new address. Nothing changes until the link
+ * mailed there is used, and the reply is the same whether or not that
+ * address already has an account.
+ */
+export async function askForNewEmail(_state: FormState, form: FormData): Promise<FormState> {
+  const identity = await signedIn();
+
+  if (!identity) {
+    return { error: "Your session has ended. Sign in again." };
+  }
+
+  try {
+    const brand = await brandFrom(form);
+
+    await requestEmailChange(identity, { password: form.get("password"), email: form.get("email") }, { siteId: brand.id });
+    revalidatePath(`/${brand.slug}/account`);
+
+    return { done: "Check the inbox of your new address: the change happens when you press the button in the email we sent there." };
+  } catch (error) {
+    return failed(error, "brand email change");
+  }
+}
+
+/** Spent by pressing a button, never by opening the page, for the same reason as confirmAddress. */
+export async function confirmNewEmail(_state: FormState, form: FormData): Promise<FormState> {
+  try {
+    await brandFrom(form);
+
+    const { email } = await confirmEmailChange(form.get("token"), { ip: callerIp(await caller()) });
+
+    return { done: `Done. Sign in with ${email} from now on.` };
+  } catch (error) {
+    return failed(error, "brand confirm email change");
   }
 }
 

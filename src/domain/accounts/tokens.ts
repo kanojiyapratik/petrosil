@@ -13,7 +13,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, type Database } from "@/db";
 import { authTokens } from "@/db/schema";
 
-export type Purpose = "verify_email" | "reset_password" | "staff_invite";
+export type Purpose = "verify_email" | "reset_password" | "staff_invite" | "change_email";
 
 /** How long each kind of link lives. A reset is short because it is a key. */
 export const LIFETIME_MINUTES: Record<Purpose, number> = {
@@ -21,12 +21,14 @@ export const LIFETIME_MINUTES: Record<Purpose, number> = {
   reset_password: 60,
   // An invitation waits for someone to read their mail; a week, as for a confirmation.
   staff_invite: 7 * 24 * 60,
+  // Moving someone's sign-in is as much a key as a reset; a day to open the new inbox.
+  change_email: 24 * 60,
 };
 
 const digest = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
 
 export async function issueToken(
-  input: { userId: number; purpose: Purpose; siteId?: number | null },
+  input: { userId: number; purpose: Purpose; siteId?: number | null; newEmail?: string | null },
   database: Database = db(),
 ): Promise<string> {
   const token = randomBytes(32).toString("base64url");
@@ -36,6 +38,7 @@ export async function issueToken(
     siteId: input.siteId ?? null,
     purpose: input.purpose,
     tokenHash: digest(token),
+    newEmail: input.newEmail ?? null,
     expiresAt: new Date(Date.now() + LIFETIME_MINUTES[input.purpose] * 60 * 1000),
   });
 
