@@ -100,7 +100,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|offer-owners|offer-countries|impex-dates|crawl-watch]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|articles|offer-owners|offer-countries|impex-dates|crawl-watch]");
   }
 
   return {
@@ -692,6 +692,166 @@ async function carryEnquiries(
   );
 }
 
+/**
+ * A brand's articles, from the old `articles` table: one rule for the whole
+ * migration and for `--only articles`, so a brand carried later reads the
+ * same as one carried first. `filedUnder` maps an old article id to the new
+ * category it is filed under. The author is the old `authored_by`'s account
+ * here, matched by email; none when that person is not on the platform.
+ */
+async function carryArticles(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  filedUnder: Map<number, number>,
+): Promise<number> {
+  const [rows] = await source.query<Row[]>(
+    `select a.id, a.title, a.description, a.path, a.thumb_image, a.publish_options, a.meta_description,
+            a.authored_on, a.published_datetime, a.published_at, a.clicks, a.created_at, a.updated_at,
+            lower(trim(u.email)) as author_email
+       from articles a left join users u on u.id = a.authored_by
+      where a.deleted_at is null
+      order by a.id`,
+  );
+
+  const emails = [...new Set(rows.map((row) => text(row.author_email)).filter((e): e is string => e !== null))];
+  const authors = new Map<string, number>(
+    emails.length === 0
+      ? []
+      : (await database.select({ id: users.id, email: users.email }).from(users).where(inArray(users.email, emails))).map(
+          (row) => [row.email, row.id] as const,
+        ),
+  );
+
+  const seen = new Set<string>();
+  let drafts = 0;
+  let paywalled = 0;
+  let signed = 0;
+
+  const values = rows.map((row) => {
+    const read = readStatus(text(row.publish_options));
+    const title = clipped(row.title, 255) ?? `Untitled ${row.id}`;
+    const published =
+      readDate(row.published_datetime) ?? readDate(row.published_at) ?? readDate(row.authored_on) ?? readDate(row.created_at);
+    const authorId = authors.get(text(row.author_email) ?? "") ?? null;
+
+    if (read.status === "draft") {
+      drafts += 1;
+    }
+
+    if (read.premium) {
+      paywalled += 1;
+    }
+
+    if (authorId !== null) {
+      signed += 1;
+    }
+
+    return {
+      siteId,
+      categoryId: filedUnder.get(Number(row.id)) ?? null,
+      slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
+      title,
+      // A locked article shows its excerpt to everyone, and most rows
+      // have no meta_description — so the body stands in for one.
+      excerpt: excerptFrom(text(row.meta_description), text(row.description)),
+      body: text(row.description) ?? "",
+      heroImage: clipped(row.thumb_image, 512),
+      status: read.status,
+      premiumOnly: read.premium,
+      publishedAt: read.status === "published" ? published : null,
+      authorId,
+      views: Number(row.clicks ?? 0),
+      createdAt: readDate(row.created_at) ?? published ?? new Date("2015-01-01"),
+      updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
+    };
+  });
+
+  await insertAll(articles, values);
+  console.log(
+    `articles     ${values.length} carried  (${drafts} as drafts, ${paywalled} subscribers-only, ${signed} with their author)`,
+  );
+
+  return values.length;
+}
+
+/**
+ * `--only articles`: for a brand whose articles were missing from the source
+ * when its content was first carried (fertilizer, glycerine, methanol). It
+ * runs only into a brand with no articles, so it cannot duplicate anything,
+ * and leaves everything else the brand holds alone. Old categories are
+ * matched to the brand's by name; any it does not have are added.
+ */
+async function carryArticlesOnly(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  tables: Set<string>,
+): Promise<void> {
+  const [held] = await database.select({ n: count() }).from(articles).where(eq(articles.siteId, siteId));
+
+  if (Number(held?.n ?? 0) > 0) {
+    throw new Error(`this brand already holds ${held!.n} articles; --only articles runs only into a brand with none`);
+  }
+
+  if (!tables.has("articles")) {
+    console.log("articles     the source has no articles table");
+    return;
+  }
+
+  const existing = await database.select().from(articleCategories).where(eq(articleCategories.siteId, siteId));
+  const byName = new Map(existing.map((row) => [row.name.trim().toLowerCase(), row.id] as const));
+  const categoryMap = new Map<number, number>();
+  let added = 0;
+
+  if (tables.has("categories")) {
+    const [rows] = await source.query<Row[]>("select id, title, created_at from categories where deleted_at is null order by id");
+    const seen = new Set(existing.map((row) => row.slug));
+
+    for (const row of rows) {
+      const title = clipped(row.title, 191) ?? `Category ${row.id}`;
+      let id = byName.get(title.trim().toLowerCase());
+
+      if (id === undefined) {
+        const [inserted] = await database
+          .insert(articleCategories)
+          .values({
+            siteId,
+            slug: uniqueSlug(title, Number(row.id), seen),
+            name: title,
+            sortOrder: existing.length + added,
+            createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+          })
+          .returning();
+
+        id = inserted!.id;
+        byName.set(title.trim().toLowerCase(), id);
+        added += 1;
+      }
+
+      categoryMap.set(Number(row.id), id);
+    }
+  }
+
+  console.log(`categories   ${categoryMap.size} old ones matched, ${added} added`);
+
+  const filedUnder = new Map<number, number>();
+
+  if (tables.has("categorizables")) {
+    const [rows] = await source.query<Row[]>("select category_id, categorizables_id from categorizables");
+
+    for (const row of rows) {
+      const category = categoryMap.get(Number(row.category_id));
+
+      if (category !== undefined) {
+        filedUnder.set(Number(row.categorizables_id), category);
+      }
+    }
+  }
+
+  await carryArticles(source, database, siteId, filedUnder);
+}
+
 async function main(): Promise<void> {
   const opts = options();
   const database = db();
@@ -733,11 +893,14 @@ async function main(): Promise<void> {
       } else if (opts.only === "crawl-watch") {
         // An update-in-place by address: safe to run again.
         await carryCrawlWatch(source, database, brand.id, tables);
+      } else if (opts.only === "articles") {
+        // Into a brand with no articles only: refuses otherwise.
+        await carryArticlesOnly(source, database, brand.id, tables);
       } else if (opts.only === "offer-owners") {
         // A fill-in, not a replace: safe to run again.
         await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails", "enquiries", "offer-owners", "offer-countries", "impex-dates" and "crawl-watch"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries", "articles", "offer-owners", "offer-countries", "impex-dates" and "crawl-watch"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;
@@ -914,58 +1077,7 @@ async function main(): Promise<void> {
     /* ------------------------------------------------------------ articles */
 
     if (have.has("articles")) {
-      const [rows] = await source.query<Row[]>(
-        `select id, title, description, path, thumb_image, publish_options, meta_description,
-                authored_on, published_datetime, published_at, clicks, created_at, updated_at
-           from articles
-          where deleted_at is null
-          order by id`,
-      );
-
-      const seen = new Set<string>();
-      let drafts = 0;
-      let paywalled = 0;
-
-      const values = rows.map((row) => {
-        const read = readStatus(text(row.publish_options));
-        const title = clipped(row.title, 255) ?? `Untitled ${row.id}`;
-        const published =
-          readDate(row.published_datetime) ??
-          readDate(row.published_at) ??
-          readDate(row.authored_on) ??
-          readDate(row.created_at);
-
-        if (read.status === "draft") {
-          drafts += 1;
-        }
-
-        if (read.premium) {
-          paywalled += 1;
-        }
-
-        return {
-          siteId: brand.id,
-          categoryId: filedUnder.get(Number(row.id)) ?? null,
-          slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
-          title,
-          // A locked article shows its excerpt to everyone, and most rows
-          // have no meta_description — so the body stands in for one.
-          excerpt: excerptFrom(text(row.meta_description), text(row.description)),
-          body: text(row.description) ?? "",
-          heroImage: clipped(row.thumb_image, 512),
-          status: read.status,
-          premiumOnly: read.premium,
-          publishedAt: read.status === "published" ? published : null,
-          views: Number(row.clicks ?? 0),
-          createdAt: readDate(row.created_at) ?? published ?? new Date("2015-01-01"),
-          updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
-        };
-      });
-
-      await insertAll(articles, values);
-      console.log(
-        `articles     ${values.length} carried  (${drafts} as drafts, ${paywalled} subscribers-only)`,
-      );
+      await carryArticles(source, database, brand.id, filedUnder);
     }
 
     /* --------------------------------------------------------------- pages */
