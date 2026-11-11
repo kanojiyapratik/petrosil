@@ -202,4 +202,10 @@ describe("the estate's jobs", () => {
     expect(jobsEnabled({ NODE_ENV: "development", JOBS: "on" })).toBe(true);
     expect(jobsEnabled({ NODE_ENV: "test" })).toBe(false);
   });
+
+  it("with JOBS=mail runs delivery and nothing else: no reminders, no sweep", () => {
+    expect(jobsEnabled({ NODE_ENV: "production", JOBS: "mail" })).toBe(true);
+    expect(defaultJobs({ JOBS: "mail" }).map((job) => job.name)).toEqual(["mail.deliver"]);
+    expect(defaultJobs({}).map((job) => job.name)).toEqual(["mail.deliver", "memberships.reminders", "memberships.sweep"]);
+  });
 });

@@ -19,7 +19,21 @@ import { transportFromEnv } from "@/lib/mail/transport";
 import type { Job } from "./runner";
 import { indiaDay } from "./schedule";
 
+/**
+ * `JOBS=mail` runs mail delivery and nothing else: emailed links (confirm,
+ * reset, change of address) work, while the reminder mails and the expiry
+ * sweep stay off — for an estate whose membership data is not current yet,
+ * where those two would tell every reader their subscription had ended.
+ */
+const mailOnly = (env: Record<string, string | undefined>) => (env.JOBS ?? "").trim().toLowerCase() === "mail";
+
 export function defaultJobs(env: Record<string, string | undefined> = process.env): Job[] {
+  const jobs = allJobs(env);
+
+  return mailOnly(env) ? jobs.filter((job) => job.name === "mail.deliver") : jobs;
+}
+
+function allJobs(env: Record<string, string | undefined>): Job[] {
   return [
     {
       name: "mail.deliver",
@@ -60,7 +74,8 @@ export function defaultJobs(env: Record<string, string | undefined> = process.en
 }
 
 /**
- * On in production unless `JOBS=off`; elsewhere only with `JOBS=on`. A
+ * On in production unless `JOBS=off`; elsewhere only with `JOBS=on` (or
+ * `JOBS=mail`, which runs delivery alone — see defaultJobs). A
  * laptop holding a copy of the real estate must not start mailing it.
  */
 export function jobsEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -70,5 +85,5 @@ export function jobsEnabled(env: Record<string, string | undefined> = process.en
     return false;
   }
 
-  return flag === "on" || env.NODE_ENV === "production";
+  return flag === "on" || flag === "mail" || env.NODE_ENV === "production";
 }
