@@ -11,7 +11,7 @@ import { ArticleCard, Pager, pageParam } from "../ui";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Articles" };
 
-const PER_PAGE = 24;
+const PER_PAGE = 30;
 
 export default async function Articles({
   params,

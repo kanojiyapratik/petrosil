@@ -11,7 +11,7 @@ import { Pager, day, pageParam } from "../ui";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Reports" };
 
-const PER_PAGE = 24;
+const PER_PAGE = 30;
 
 export default async function Reports({
   params,

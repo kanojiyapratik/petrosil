@@ -33,7 +33,7 @@ export default async function BrandHome({ params }: { params: Promise<{ site: st
   const [trends, notes, news, research] = await Promise.all([
     priceTrends(brand.id, reader.entitlement.entitled),
     insightsFor(brand.id, { limit: 1 }),
-    publishedArticles(brand.id, { limit: 6 }),
+    publishedArticles(brand.id, { limit: 8 }),
     publishedReports(brand.id, { limit: 4 }),
   ]);
   const look = brandLook(brand);
@@ -171,7 +171,7 @@ export default async function BrandHome({ params }: { params: Promise<{ site: st
               All articles →
             </Link>
           </div>
-          <div className="bs-cards">
+          <div className="bs-cards four">
             {news.articles.map((article) => (
               <ArticleCard key={article.id} site={site} article={article} />
             ))}

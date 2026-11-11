@@ -86,11 +86,13 @@
   font-feature-settings: "tnum";
 }
 
+/* The page uses the screen: on a 1920 monitor a 1240px column left a third
+ * of it empty. Capped only where lines would get absurdly long. */
 .bs .wrap {
   width: 100%;
-  max-width: 1240px;
+  max-width: 1760px;
   margin: 0 auto;
-  padding-inline: clamp(16px, 3vw, 40px);
+  padding-inline: clamp(16px, 3vw, 56px);
 }
 
 .bs .eyebrow {
@@ -876,8 +878,8 @@
 
 .bs-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 22px;
 }
 
 .bs-art {
@@ -1899,4 +1901,21 @@
   margin: 0;
   color: var(--ink-2);
   font-size: 15.5px;
+}
+
+/* The front page's articles: two even rows of four on a wide screen. */
+.bs-cards.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .bs-cards.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .bs-cards.four {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
