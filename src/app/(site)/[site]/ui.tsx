@@ -9,6 +9,8 @@ import Link from "@/lib/ui/link";
 import type { PublicTrendRow } from "@/domain/public/prices";
 import type { Entitlement } from "@/domain/public/paywall";
 import { liveAds } from "@/domain/public/ads";
+import type { ArticleCard as ArticleCardData } from "@/domain/content/articles";
+import { plainText } from "@/lib/public/html";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -76,13 +78,13 @@ export function PriceTable({ site, rows }: { site: string; rows: PublicTrendRow[
               <td>
                 <Movement row={row} />
               </td>
-              <td className="r num">
+              <td className="r num price">
                 {row.locked ? <span className="lock" aria-label="For subscribers">●●●●</span> : figure(row.price, row.currency)}
               </td>
-              <td className="r num">
+              <td className="r num muted">
                 {row.locked ? <span className="lock" aria-label="For subscribers">●●●●</span> : figure(row.previous_price)}
               </td>
-              <td className="num muted">{day(row.price_date)}</td>
+              <td className="num muted nowrap">{day(row.price_date)}</td>
             </tr>
           ))}
         </tbody>
@@ -132,8 +134,33 @@ export function Gate({
   );
 }
 
+/** An article as a card: its image across the top when it has one. */
+export function ArticleCard({ site, article }: { site: string; article: ArticleCardData }) {
+  return (
+    <Link className="bs-art" href={`/${site}/articles/${article.slug}`}>
+      {article.hero_image ? (
+        <div className="img">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/public/${site}/files/articles/thumbnail/${encodeURIComponent(article.hero_image)}`}
+            alt=""
+            loading="lazy"
+          />
+        </div>
+      ) : null}
+      {article.category ? <div className="cat">{article.category.replace(/-/g, " ")}</div> : null}
+      <h3>
+        {article.title}
+        {article.premium_only ? <span className="bs-tag">Subscribers</span> : null}
+      </h3>
+      {article.excerpt ? <p>{plainText(article.excerpt, 180)}</p> : null}
+      <time dateTime={article.published_at ?? undefined}>{day(article.published_at)}</time>
+    </Link>
+  );
+}
+
 /** One ad slot, by its title as staff name it. Nothing at all when nothing is running. */
-export async function AdSlot({ brand, slot }: { brand: { id: number; slug: string }; slot: string }) {
+export async function AdSlot({ brand, slot, spaced = false }: { brand: { id: number; slug: string }; slot: string; spaced?: boolean }) {
   const [running] = await liveAds(brand, { slot });
 
   if (!running || running.ads.length === 0) {
@@ -141,7 +168,7 @@ export async function AdSlot({ brand, slot }: { brand: { id: number; slug: strin
   }
 
   return (
-    <div className="bs-ads" aria-label="Advertisement">
+    <div className="bs-ads" aria-label="Advertisement" style={spaced ? { marginBlock: 24 } : undefined}>
       {running.ads.map((ad) => {
         const art = ad.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element

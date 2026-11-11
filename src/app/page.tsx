@@ -53,12 +53,20 @@ export default async function Home() {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap"
       />
 
       <header className="bs-mast">
         <div className="wrap bs-mast-in">
-          <span className="bs-logo">Petrosil</span>
+          <span className="bs-logo">
+            <span className="mark" aria-hidden>
+              P
+            </span>
+            <span className="name">
+              <strong>Petrosil</strong>
+              <small>Market intelligence publications</small>
+            </span>
+          </span>
           {/* In plain sight: the footer link alone was too easy to miss. */}
           <div className="bs-acct">
             <Link href="/sign-in" className="bs-cta">
@@ -89,6 +97,14 @@ export default async function Home() {
                 href={`/${brand.slug}`}
                 style={{ "--brand": look.color } as React.CSSProperties}
               >
+                <span className="bs-home-mark" aria-hidden>
+                  {brand.name
+                    .split(/\s+/)
+                    .filter((word) => word && !/^reports?$/i.test(word))
+                    .slice(0, 2)
+                    .map((word) => word[0]!.toUpperCase())
+                    .join("")}
+                </span>
                 <h2>{brand.name}</h2>
                 <p>{look.tagline}</p>
                 <span className="small muted">{last ? `Prices updated ${last}` : "Prices coming soon"}</span>

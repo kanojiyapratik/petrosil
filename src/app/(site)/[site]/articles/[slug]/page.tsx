@@ -47,16 +47,24 @@ export default async function Article({ params }: Props) {
   const { article, locked, reader } = found;
 
   return (
-    <article className="bs-card">
+    <article className="bs-card bs-story">
       <Link className="bs-crumb" href={`/${site}/articles`}>
         ← Articles
       </Link>
-      <h1 style={{ fontSize: "clamp(24px, 3.4vw, 34px)", maxWidth: "28ch" }}>{article.title}</h1>
+      {article.category ? <div className="eyebrow">{article.category.replace(/-/g, " ")}</div> : null}
+      <h1>{article.title}</h1>
       <div className="bs-byline">
-        {article.category ? <span className="eyebrow">{article.category.replace(/-/g, " ")}</span> : null}
         <time dateTime={article.published_at ?? undefined}>{day(article.published_at)}</time>
         {article.premium_only ? <span className="bs-tag">Subscribers</span> : null}
       </div>
+      {article.hero_image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="bs-story-img"
+          src={`/api/public/${site}/files/articles/thumbnail/${encodeURIComponent(article.hero_image)}`}
+          alt=""
+        />
+      ) : null}
 
       {locked ? (
         <>

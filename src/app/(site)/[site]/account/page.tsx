@@ -71,10 +71,22 @@ export default async function Account({ params }: { params: Promise<{ site: stri
   return (
     <>
       <div className="bs-head">
-        <div>
-          <p className="eyebrow">My account</p>
-          <h1>{me.name}</h1>
-          <p className="muted bs-email">{me.email}</p>
+        <div className="bs-acct-head">
+          <span className="av" aria-hidden>
+            {me.name
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((word) => word[0]!.toUpperCase())
+              .join("")}
+          </span>
+          <div>
+            <p className="eyebrow" style={{ margin: 0 }}>
+              My account
+            </p>
+            <h1>{me.name}</h1>
+            <p className="muted bs-email">{me.email}</p>
+          </div>
         </div>
         <form action={signOutReader} className="more">
           <input type="hidden" name="site" value={site} />
@@ -91,30 +103,39 @@ export default async function Account({ params }: { params: Promise<{ site: stri
       <div className="bs-grid">
         <div className="bs-stack">
           <section className="bs-card">
-            <h2>{brand.name}</h2>
-            <p className="bs-status">
-              <strong>{STATUS[reason] ?? reason}</strong>
-              {here?.expiresAt ? <span className="muted"> · {reader.entitlement.entitled ? "runs to" : "ended"} {day(here.expiresAt)}</span> : null}
-            </p>
-            <p>
+            <h2>My subscription</h2>
+            <div className="bs-standing">
+              <div>
+                <span className="muted" style={{ fontSize: 14 }}>
+                  {brand.name}
+                </span>
+                <strong>{STATUS[reason] ?? reason}</strong>
+                {here?.expiresAt ? (
+                  <span className="muted" style={{ fontSize: 14 }}>
+                    {reader.entitlement.entitled ? "Runs to" : "Ended"} {day(here.expiresAt)}
+                  </span>
+                ) : null}
+              </div>
               <Link className="btn" href={`/${site}/subscription`}>
                 {reader.entitlement.entitled ? "Extend my subscription" : "Subscribe"}
               </Link>
-            </p>
+            </div>
             {others.length > 0 ? (
               <>
                 <h3>Your other brands</h3>
-                <ul className="bs-list">
-                  {others
-                    .map((m) => (
+                <ul className="bs-brands">
+                  {others.map((m) => {
+                    const ended = m.tier !== "free" && m.expiresAt !== null && new Date(m.expiresAt).getTime() < Date.now();
+
+                    return (
                       <li key={m.siteId}>
                         <Link href={`/${m.slug}`}>{nameOf.get(m.siteId) ?? m.slug}</Link>
-                        <span className="muted">
-                          {" "}
-                          · {m.tier === "free" ? "free" : m.expiresAt ? `to ${day(m.expiresAt)}` : m.tier}
+                        <span className={`bs-pill${m.tier === "free" ? "" : ended ? " off" : " on"}`}>
+                          {m.tier === "free" ? "Free" : m.expiresAt ? `${ended ? "Ended" : "To"} ${day(m.expiresAt)}` : m.tier}
                         </span>
                       </li>
-                    ))}
+                    );
+                  })}
                 </ul>
               </>
             ) : null}
@@ -147,30 +168,17 @@ export default async function Account({ params }: { params: Promise<{ site: stri
                         <td className="r num nowrap">
                           {Number(o.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })} {o.currency}
                         </td>
-                        <td>{ORDER_STATUS[o.status] ?? o.status}</td>
+                        <td>
+                          <span className={`bs-pill${o.status === "paid" ? " on" : o.status === "failed" ? " off" : ""}`}>
+                            {ORDER_STATUS[o.status] ?? o.status}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </section>
-        </div>
-
-        <div className="bs-stack">
-          <section className="bs-card">
-            <h2>My details</h2>
-            <ReaderForm action={saveProfile} site={site} submit="Save" busy="Saving…" keepOpen>
-              <div className="bs-fields">
-                <Field name="name" label="Name" defaultValue={me.name} autoComplete="name" required />
-                <CountryField countries={COUNTRIES.map((c) => c.name)} value={me.country} />
-                <Field name="company" label="Company" defaultValue={me.company ?? ""} autoComplete="organization" />
-                <Field name="designation" label="Job title" defaultValue={me.designation ?? ""} />
-                <Field name="phone" label="Phone" type="tel" defaultValue={me.phone ?? ""} autoComplete="tel" />
-                <Field name="city" label="City" defaultValue={me.city ?? ""} autoComplete="address-level2" />
-                <Field name="website" label="Website" defaultValue={me.website ?? ""} wide />
-              </div>
-            </ReaderForm>
           </section>
 
           <section className="bs-card">
@@ -195,7 +203,23 @@ export default async function Account({ params }: { params: Promise<{ site: stri
               />
             </ReaderForm>
           </section>
+        </div>
 
+        <div className="bs-stack">
+          <section className="bs-card">
+            <h2>My details</h2>
+            <ReaderForm action={saveProfile} site={site} submit="Save" busy="Saving…" keepOpen>
+              <div className="bs-fields">
+                <Field name="name" label="Name" defaultValue={me.name} autoComplete="name" required />
+                <CountryField countries={COUNTRIES.map((c) => c.name)} value={me.country} />
+                <Field name="company" label="Company" defaultValue={me.company ?? ""} autoComplete="organization" />
+                <Field name="designation" label="Job title" defaultValue={me.designation ?? ""} />
+                <Field name="phone" label="Phone" type="tel" defaultValue={me.phone ?? ""} autoComplete="tel" />
+                <Field name="city" label="City" defaultValue={me.city ?? ""} autoComplete="address-level2" />
+                <Field name="website" label="Website" defaultValue={me.website ?? ""} wide />
+              </div>
+            </ReaderForm>
+          </section>
           <section className="bs-card">
             <h2>Password</h2>
             <ReaderForm action={savePassword} site={site} submit="Change password" busy="Saving…">

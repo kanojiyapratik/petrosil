@@ -6,8 +6,7 @@ import { notFound } from "next/navigation";
 import { publishedArticles } from "@/domain/content/articles";
 import { liveCategories } from "@/domain/content/categories";
 import { liveBrandBySlug } from "@/lib/public/reader";
-import { plainText } from "@/lib/public/html";
-import { Pager, day, pageParam } from "../ui";
+import { ArticleCard, Pager, pageParam } from "../ui";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Articles" };
@@ -81,15 +80,7 @@ export default async function Articles({
       {found.articles.length > 0 ? (
         <div className="bs-cards">
           {found.articles.map((article) => (
-            <Link key={article.id} className="bs-art" href={`/${site}/articles/${article.slug}`}>
-              {article.category ? <div className="cat">{article.category.replace(/-/g, " ")}</div> : null}
-              <h3>
-                {article.title}
-                {article.premium_only ? <span className="bs-tag">Subscribers</span> : null}
-              </h3>
-              {article.excerpt ? <p>{plainText(article.excerpt, 160)}</p> : null}
-              <time dateTime={article.published_at ?? undefined}>{day(article.published_at)}</time>
-            </Link>
+            <ArticleCard key={article.id} site={site} article={article} />
           ))}
         </div>
       ) : (

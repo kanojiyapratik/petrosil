@@ -38,6 +38,30 @@ export async function generateMetadata({ params }: { params: Promise<{ site: str
 const ABOUT = ["about-us", "methodology", "analytics", "presentations", "advertise", "contact-us"];
 const LEGAL = ["terms-and-conditions", "privacy-policy", "refund-cancellation-policy", "pricing-policy"];
 
+/** "Base Oil Report" → "BO": the words that name the brand, not the word "Report". */
+function initials(name: string, most: number): string {
+  const words = name.split(/\s+/).filter((word) => word && !/^(report|reports)$/i.test(word));
+
+  return (words.length > 0 ? words : [name])
+    .slice(0, most)
+    .map((word) => word[0]!.toUpperCase())
+    .join("");
+}
+
+function Logo({ site, name, tagline }: { site: string; name: string; tagline: string }) {
+  return (
+    <Link className="bs-logo" href={`/${site}`}>
+      <span className="mark" aria-hidden>
+        {initials(name, 2)}
+      </span>
+      <span className="name">
+        <strong>{name}</strong>
+        <small>{tagline}</small>
+      </span>
+    </Link>
+  );
+}
+
 export default async function BrandLayout({ children, params }: Props) {
   const { site } = await params;
   const brand = await liveBrandBySlug(site);
@@ -61,7 +85,7 @@ export default async function BrandLayout({ children, params }: Props) {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap"
       />
 
       {notices.length > 0 ? (
@@ -79,13 +103,16 @@ export default async function BrandLayout({ children, params }: Props) {
 
       <header className="bs-mast">
         <div className="wrap bs-mast-in">
-          <Link className="bs-logo" href={`/${site}`}>
-            {brand.name}
-          </Link>
+          <Logo site={site} name={brand.name} tagline={look.tagline} />
           <BrandNav site={site} />
           <div className="bs-acct">
             {reader.name ? (
-              <Link href={`/${site}/account`}>{reader.name}</Link>
+              <Link className="bs-me" href={`/${site}/account`} aria-label={`My account (${reader.name})`}>
+                <span className="av" aria-hidden>
+                  {initials(reader.name, 2)}
+                </span>
+                <span>{reader.name.split(/\s+/)[0]}</span>
+              </Link>
             ) : (
               <>
                 <Link href={`/${site}/sign-in`}>Sign in</Link>
@@ -102,11 +129,17 @@ export default async function BrandLayout({ children, params }: Props) {
 
       <footer className="bs-foot">
         <div className="wrap bs-foot-in">
-          <div>
-            <h2>{brand.name}</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              {look.tagline}
+          <div className="brand">
+            <Logo site={site} name={brand.name} tagline={look.tagline} />
+            <p>
+              {look.tagline}. Independent weekly price assessments, market analysis and trade data from the Petrosil
+              research desk.
             </p>
+            {reader.entitlement.entitled ? null : (
+              <Link className="btn" href={`/${site}/subscription`}>
+                Subscribe
+              </Link>
+            )}
           </div>
           <div>
             <h2>Read</h2>
