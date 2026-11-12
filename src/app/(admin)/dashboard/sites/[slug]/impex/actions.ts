@@ -8,7 +8,8 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { createImpex, updateImpex, withdrawImpex } from "@/domain/impex/editor";
+import { createImpex, updateImpex, withdrawImpex, restoreImpex } from "@/domain/impex/editor";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type ImpexFormResult = { error?: string; field?: string; saved?: string } | null;
@@ -30,6 +31,7 @@ const fields = (form: FormData) => ({
   description: text(form, "description"),
   status: text(form, "status"),
   authored_on: text(form, "authored_on"),
+  author_id: text(form, "author_id") === "" ? null : Number(text(form, "author_id")),
   file: text(form, "file"),
 });
 
@@ -81,19 +83,39 @@ export async function saveImpexAction(_state: unknown, form: FormData): Promise<
   return { saved: "Saved." };
 }
 
-export async function withdrawImpexAction(_state: unknown, form: FormData): Promise<ImpexFormResult> {
+/** Delete, softly, from the confirm popup: the row stays and can be restored. */
+export async function deleteImpexAction(form: FormData) {
   const viewer = await staff();
   const slug = text(form, "site");
   const id = Number(form.get("id"));
 
-  try {
-    if (!(await withdrawImpex(viewer, id, { ip: await callerIp() }))) {
-      return { error: "That sheet is not yours to change." };
-    }
-  } catch (error) {
-    return failed(error, "withdraw", { id });
+  const done = await orRefused(withdrawImpex(viewer, id, { ip: await callerIp() }));
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That impex sheet is not yours to change.";
+
+    redirect(`/dashboard/sites/${slug}/impex/${id}?refused=${encodeURIComponent(why)}`);
   }
 
   revalidatePath(`/dashboard/sites/${slug}/impex`);
   redirect(`/dashboard/sites/${slug}/impex`);
+}
+
+/** Bring a deleted impex sheet back from the Deleted list. */
+export async function restoreImpexAction(form: FormData) {
+  const viewer = await staff();
+  const slug = text(form, "site");
+  const id = Number(form.get("id"));
+
+  const done = await orRefused(restoreImpex(viewer, id, { ip: await callerIp() }));
+
+  revalidatePath(`/dashboard/sites/${slug}/impex`);
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That impex sheet could not be restored.";
+
+    redirect(`/dashboard/sites/${slug}/impex?status=deleted&refused=${encodeURIComponent(why)}`);
+  }
+
+  redirect(`/dashboard/sites/${slug}/impex/${id}`);
 }

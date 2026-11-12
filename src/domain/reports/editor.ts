@@ -9,7 +9,7 @@
  * carried reports and new ones are read the same way.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { auditLog, reports, sites } from "@/db/schema";
@@ -17,6 +17,7 @@ import { attachable, storedFileId } from "@/domain/files/attach";
 import type { Guarded } from "@/lib/auth/guard";
 import { requirePermission } from "@/domain/staff/permissions";
 import { AccountError } from "@/domain/accounts/register";
+import { authorChange, authorFor } from "@/domain/content/articles";
 
 /** "premium" shows the title and description to everyone and the file to subscribers. */
 export const REPORT_STATUSES = ["draft", "published", "premium"] as const;
@@ -34,6 +35,7 @@ export type ReportForEdit = {
   report_type: string;
   status: string;
   authored_on: string | null;
+  author_id: number | null;
   file: string | null;
   /** The file's row in the store, or null when the name points at nothing. */
   file_id: number | null;
@@ -190,6 +192,8 @@ export async function createReport(
     reportType: reportType(body.report_type),
     status: body.status === undefined ? "draft" : status(body.status),
     authoredOn: day(body.authored_on),
+    // The writer the editor chose; the editor themself when none was chosen.
+    authorId: body.author_id === undefined ? guard.identity.user.id : await authorFor(body.author_id, database),
     file: (await attach(brand.id, "file", body.file, database)) ?? null,
     thumbnail: (await attach(brand.id, "thumbnail", body.thumbnail, database)) ?? null,
     metaTitle: optional(body.meta_title, 255) ?? null,
@@ -248,6 +252,10 @@ export async function updateReport(
   if (body.report_type !== undefined) changes.reportType = reportType(body.report_type);
   if (body.status !== undefined) changes.status = status(body.status);
   if (body.authored_on !== undefined) changes.authoredOn = day(body.authored_on);
+
+  const author = await authorChange(found.authorId, body.author_id, database);
+
+  if (author !== undefined) changes.authorId = author;
   if (body.file !== undefined) changes.file = await attach(found.siteId, "file", body.file, database);
   if (body.thumbnail !== undefined) changes.thumbnail = await attach(found.siteId, "thumbnail", body.thumbnail, database);
   if (body.meta_title !== undefined) changes.metaTitle = optional(body.meta_title, 255);
@@ -340,6 +348,7 @@ export async function reportForEdit(
     report_type: report.reportType,
     status: report.status,
     authored_on: report.authoredOn,
+    author_id: report.authorId,
     file: report.file,
     file_id: fileId,
     thumbnail: report.thumbnail,
@@ -359,4 +368,38 @@ export async function reportTypes(siteId: number, database: Database = db()): Pr
     .where(eq(reports.siteId, siteId));
 
   return [...new Set(["report", "sample", ...rows.map((row) => row.type)])].sort();
+}
+
+/** Bring a deleted report back as it was, from the Deleted list. */
+export async function restoreReport(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<boolean> {
+  const [found] = await database
+    .select()
+    .from(reports)
+    .where(and(eq(reports.id, id), isNotNull(reports.deletedAt)))
+    .limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return false;
+  }
+
+  await requirePermission(guard, found.siteId, "report-delete", database);
+
+  await database.update(reports).set({ deletedAt: null, updatedAt: new Date() }).where(eq(reports.id, id));
+
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "report.restore",
+    entity: "report",
+    entityId: id,
+    detail: {},
+    ip: context.ip ?? null,
+  });
+
+  return true;
 }

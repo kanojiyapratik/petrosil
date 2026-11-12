@@ -12,6 +12,8 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { RestoreButton, ViewOnSite } from "@/app/(admin)/content-row";
+import { restoreOfferAction } from "./actions";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listOffers } from "@/domain/dashboard/publishing";
 import {
@@ -49,6 +51,8 @@ export default async function OffersPage({
   const status = one(search, "status");
   const q = one(search, "q");
   const page = pageParam(one(search, "page"));
+  const deleted = status === "deleted";
+  const refused = one(search, "refused");
 
   const [brands, paged] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -91,9 +95,19 @@ export default async function OffersPage({
           { value: "published", label: "Published" },
           { value: "draft", label: "Draft" },
           { value: "suspended", label: "Suspended" },
+          { value: "deleted", label: "Deleted" },
         ]}
       />
       </ListBar>
+
+      {deleted ? (
+        <p className="note">Deleted offers are hidden from the site and the list, not destroyed. Restore brings one back as it was.</p>
+      ) : null}
+      {refused ? (
+        <p className="flash bad" role="alert">
+          {refused}
+        </p>
+      ) : null}
 
       <Panel title={`${count(paged.total)} offer${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">
@@ -113,12 +127,23 @@ export default async function OffersPage({
                   <span className={`badge ${row.offer_type === "sell" ? "ok" : "warn"}`}>
                     {row.offer_type}
                   </span>{" "}
-                  <Link href={`/dashboard/sites/${slug}/offers/${row.id}`}>
+                  {deleted ? (
                     <strong>{row.subject}</strong>
-                  </Link>
+                  ) : (
+                    <Link href={`/dashboard/sites/${slug}/offers/${row.id}`}>
+                      <strong>{row.subject}</strong>
+                    </Link>
+                  )}
                   {row.offer_value ? (
                     <div className="small muted">{row.offer_value}</div>
                   ) : null}
+                  <div>
+                    {deleted ? (
+                      <RestoreButton action={restoreOfferAction} id={row.id} site={slug} />
+                    ) : row.status !== "draft" ? (
+                      <ViewOnSite href={`/${slug}/offers/${row.id}`} />
+                    ) : null}
+                  </div>
                 </td>
                 <td>
                   {row.company_name ?? <span className="muted">no company</span>}

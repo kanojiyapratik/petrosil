@@ -107,6 +107,12 @@ export function ArticleForm({
             </div>
 
             <div className="field">
+              <label htmlFor="keywords">Keywords</label>
+              <input id="keywords" name="keywords" type="text" maxLength={255} defaultValue={article?.keywords ?? ""} placeholder="Thailand, AMEA, Group II" />
+              <div className="small muted">Separate with commas. Search finds articles by these as well as by title.</div>
+            </div>
+
+            <div className="field">
               <label>Article text</label>
               <RichEditor name="body" initial={body} site={site} />
             </div>

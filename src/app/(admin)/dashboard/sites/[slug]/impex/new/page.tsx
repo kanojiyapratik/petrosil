@@ -2,6 +2,7 @@ import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
+import { articleAuthors } from "@/domain/content/articles";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { ImpexForm } from "../form";
 import { Heading } from "@/app/(admin)/ui";
@@ -26,7 +27,7 @@ export default async function NewImpexPage({ params }: { params: Promise<{ slug:
 
       <Heading title="New impex sheet" sub={`${brand.name} · saved as a draft unless you choose otherwise.`} />
 
-      <ImpexForm slug={slug} />
+      <ImpexForm slug={slug} authors={await articleAuthors()} me={viewer.identity.user.id} />
     </>
   );
 }

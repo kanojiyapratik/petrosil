@@ -11,7 +11,7 @@
  * offer that no longer exists is one nobody can follow up.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { auditLog, offers, sites, users } from "@/db/schema";
@@ -326,3 +326,37 @@ export async function offerForEdit(siteIds: number[], id: number, database: Data
 }
 
 export type OfferForEdit = NonNullable<Awaited<ReturnType<typeof offerForEdit>>>;
+
+/** Bring a deleted offer back as it was, from the Deleted list. */
+export async function restoreOffer(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<boolean> {
+  const [found] = await database
+    .select()
+    .from(offers)
+    .where(and(eq(offers.id, id), isNotNull(offers.deletedAt)))
+    .limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return false;
+  }
+
+  await requirePermission(guard, found.siteId, "offer-delete", database);
+
+  await database.update(offers).set({ deletedAt: null, updatedAt: new Date() }).where(eq(offers.id, id));
+
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "offer.restore",
+    entity: "offer",
+    entityId: id,
+    detail: {},
+    ip: context.ip ?? null,
+  });
+
+  return true;
+}

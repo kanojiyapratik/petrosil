@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { reportTypes } from "@/domain/reports/editor";
+import { articleAuthors } from "@/domain/content/articles";
 import { ReportForm } from "../form";
 import { Heading, one, type Search } from "@/app/(admin)/ui";
 
@@ -40,7 +41,7 @@ export default async function NewReportPage({
         sub={`${brand.name} · saved as a draft unless you choose otherwise. Upload the PDF here; it goes into this brand's report files.`}
       />
 
-      <ReportForm slug={slug} types={await reportTypes(brand.id)} kind={kind} />
+      <ReportForm slug={slug} types={await reportTypes(brand.id)} kind={kind} authors={await articleAuthors()} me={viewer.identity.user.id} />
     </>
   );
 }

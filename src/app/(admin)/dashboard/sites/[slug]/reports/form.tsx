@@ -13,12 +13,13 @@ import { useActionState } from "react";
 import Link from "@/lib/ui/link";
 
 import { Attachment } from "@/app/(admin)/attachment";
+import { AuthorField, type AuthorChoice } from "@/app/(admin)/content-tools";
 
 import type { ReportForEdit } from "@/domain/reports/editor";
 import {
   createReportAction,
   saveReportAction,
-  withdrawReportAction,
+  
   type ReportFormResult,
 } from "./actions";
 
@@ -49,9 +50,14 @@ export function ReportForm({
   types,
   report,
   kind,
+  authors,
+  me,
 }: {
   slug: string;
   types: string[];
+  authors: AuthorChoice[];
+  /** The editor, the author a new report starts with. */
+  me?: number;
   /** The kind a new report starts as: "sample" from the Sample reports screen. */
   kind?: string;
   report?: ReportForEdit;
@@ -172,6 +178,8 @@ export function ReportForm({
                 </datalist>
               </div>
 
+              <AuthorField authors={authors} value={report ? report.author_id : authors.some((a) => a.id === me) ? (me ?? null) : null} />
+
               <div className="field">
                 <label htmlFor="authored_on">Dated</label>
                 <input
@@ -215,28 +223,6 @@ export function ReportForm({
               {editing ? "Back to reports" : "Cancel"}
             </Link>
           </div>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-/** Outside the editing form, so a stray Enter cannot take a report down. */
-export function WithdrawReport({ slug, id }: { slug: string; id: number }) {
-  const [state, action, pending] = useActionState(withdrawReportAction, null as ReportFormResult);
-
-  return (
-    <form action={action} style={{ marginTop: 16 }}>
-      <input type="hidden" name="site" value={slug} />
-      <input type="hidden" name="id" value={id} />
-      <div className="note">
-        <Flash state={state} />
-        <strong>Withdraw this report.</strong> It comes off the brand site and the lists. The row and its file
-        stay, so the delivery log still shows what was sent.
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="ghost small" type="submit" disabled={pending}>
-            Withdraw
-          </button>
         </div>
       </div>
     </form>

@@ -6,8 +6,9 @@ import { useActionState } from "react";
 import Link from "@/lib/ui/link";
 
 import { Attachment } from "@/app/(admin)/attachment";
+import { AuthorField, type AuthorChoice } from "@/app/(admin)/content-tools";
 import type { ImpexForEdit } from "@/domain/impex/editor";
-import { createImpexAction, saveImpexAction, withdrawImpexAction, type ImpexFormResult } from "./actions";
+import { createImpexAction, saveImpexAction,  type ImpexFormResult } from "./actions";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft: not on the site",
@@ -31,7 +32,18 @@ function Flash({ state }: { state: ImpexFormResult }) {
   ) : null;
 }
 
-export function ImpexForm({ slug, sheet }: { slug: string; sheet?: ImpexForEdit }) {
+export function ImpexForm({
+  slug,
+  sheet,
+  authors,
+  me,
+}: {
+  slug: string;
+  sheet?: ImpexForEdit;
+  authors: AuthorChoice[];
+  /** The editor, the author a new sheet starts with. */
+  me?: number;
+}) {
   const editing = sheet !== undefined;
   const [state, action, pending] = useActionState(editing ? saveImpexAction : createImpexAction, null as ImpexFormResult);
   const bad = (field: string) => state?.field === field || undefined;
@@ -100,6 +112,8 @@ export function ImpexForm({ slug, sheet }: { slug: string; sheet?: ImpexForEdit 
                 </select>
               </div>
 
+              <AuthorField authors={authors} value={sheet ? sheet.author_id : authors.some((a) => a.id === me) ? (me ?? null) : null} />
+
               <div className="field" style={{ marginBottom: 0 }}>
                 <label htmlFor="authored_on">Dated</label>
                 <input id="authored_on" name="authored_on" type="date" defaultValue={sheet?.authored_on ?? ""} aria-invalid={bad("authored_on")} />
@@ -115,27 +129,6 @@ export function ImpexForm({ slug, sheet }: { slug: string; sheet?: ImpexForEdit 
               {editing ? "Back to sheets" : "Cancel"}
             </Link>
           </div>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-/** Outside the editing form, so a stray Enter cannot take a sheet down. */
-export function WithdrawImpex({ slug, id }: { slug: string; id: number }) {
-  const [state, action, pending] = useActionState(withdrawImpexAction, null as ImpexFormResult);
-
-  return (
-    <form action={action} style={{ marginTop: 16 }}>
-      <input type="hidden" name="site" value={slug} />
-      <input type="hidden" name="id" value={id} />
-      <div className="note">
-        <Flash state={state} />
-        <strong>Withdraw this sheet.</strong> It comes off the site and the list. The row and its file stay.
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="ghost small" type="submit" disabled={pending}>
-            Withdraw
-          </button>
         </div>
       </div>
     </form>

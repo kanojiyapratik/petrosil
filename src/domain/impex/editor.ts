@@ -8,12 +8,13 @@
  * everyone and the file to subscribers.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { auditLog, impexSheets, sites } from "@/db/schema";
 import type { Guarded } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
+import { authorChange, authorFor } from "@/domain/content/articles";
 import { requirePermission } from "@/domain/staff/permissions";
 import { attachable, storedFileId } from "@/domain/files/attach";
 import { dateInput } from "@/domain/billing/inputs";
@@ -119,6 +120,7 @@ export async function createImpex(
       description: description(body.description),
       status: body.status === undefined ? "draft" : status(body.status),
       authoredOn: dateInput(body.authored_on, "authored_on"),
+      authorId: body.author_id === undefined ? guard.identity.user.id : await authorFor(body.author_id, database),
       file: (await attach(brand.id, body.file, database)) ?? null,
     })
     .returning();
@@ -167,6 +169,10 @@ export async function updateImpex(
   if (body.description !== undefined) changes.description = description(body.description);
   if (body.status !== undefined) changes.status = status(body.status);
   if (body.authored_on !== undefined) changes.authoredOn = dateInput(body.authored_on, "authored_on");
+
+  const author = await authorChange(found.authorId, body.author_id, database);
+
+  if (author !== undefined) changes.authorId = author;
   if (body.file !== undefined) changes.file = await attach(found.siteId, body.file, database);
 
   const [after] = await database
@@ -245,6 +251,7 @@ export async function impexForEdit(siteIds: number[], id: number, database: Data
     description: sheet.description,
     status: sheet.status,
     authored_on: sheet.authoredOn,
+    author_id: sheet.authorId,
     file: sheet.file,
     file_id: sheet.file ? await storedFileId(sheet.siteId, FILE_FOLDER, sheet.file, database) : null,
     clicks: sheet.clicks,
@@ -253,3 +260,37 @@ export async function impexForEdit(siteIds: number[], id: number, database: Data
 }
 
 export type ImpexForEdit = NonNullable<Awaited<ReturnType<typeof impexForEdit>>>;
+
+/** Bring a deleted impex back as it was, from the Deleted list. */
+export async function restoreImpex(
+  guard: Guarded,
+  id: number,
+  context: { ip?: string | null } = {},
+  database: Database = db(),
+): Promise<boolean> {
+  const [found] = await database
+    .select()
+    .from(impexSheets)
+    .where(and(eq(impexSheets.id, id), isNotNull(impexSheets.deletedAt)))
+    .limit(1);
+
+  if (!found || (!guard.isSuperadmin && !guard.siteIds.includes(found.siteId))) {
+    return false;
+  }
+
+  await requirePermission(guard, found.siteId, "impex-delete", database);
+
+  await database.update(impexSheets).set({ deletedAt: null, updatedAt: new Date() }).where(eq(impexSheets.id, id));
+
+  await database.insert(auditLog).values({
+    siteId: found.siteId,
+    userId: guard.identity.user.id,
+    action: "impex.restore",
+    entity: "impex",
+    entityId: id,
+    detail: {},
+    ip: context.ip ?? null,
+  });
+
+  return true;
+}

@@ -9,6 +9,8 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { RestoreButton, ViewOnSite } from "@/app/(admin)/content-row";
+import { restoreReportAction } from "./actions";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listReports } from "@/domain/dashboard/publishing";
 import {
@@ -48,6 +50,8 @@ export default async function ReportsPage({
   const status = one(search, "status");
   const q = one(search, "q");
   const page = pageParam(one(search, "page"));
+  const deleted = status === "deleted";
+  const refused = one(search, "refused");
 
   const [brands, paged] = await Promise.all([
     brandsFor(viewer.siteIds),
@@ -76,9 +80,19 @@ export default async function ReportsPage({
           { value: "published", label: "Open to everyone" },
           { value: "premium", label: "Subscribers only" },
           { value: "draft", label: "Draft" },
+          { value: "deleted", label: "Deleted" },
         ]}
       />
       </ListBar>
+
+      {deleted ? (
+        <p className="note">Deleted reports are hidden from the site and the list, not destroyed. Restore brings one back as it was.</p>
+      ) : null}
+      {refused ? (
+        <p className="flash bad" role="alert">
+          {refused}
+        </p>
+      ) : null}
 
       <Panel title={`${count(paged.total)} report${paged.total === 1 ? "" : "s"}`}>
         <table className="tight">
@@ -95,13 +109,22 @@ export default async function ReportsPage({
             {paged.rows.map((row) => (
               <tr key={row.id}>
                 <td>
-                  <Link href={`/dashboard/sites/${slug}/reports/${row.id}`}>
+                  {deleted ? (
                     <strong>{row.title}</strong>
-                  </Link>
+                  ) : (
+                    <Link href={`/dashboard/sites/${slug}/reports/${row.id}`}>
+                      <strong>{row.title}</strong>
+                    </Link>
+                  )}
                   <div className="small muted">
                     {row.file ? <code>{row.file}</code> : "no file attached"}
                   </div>
-                  {row.file ? (
+                  {deleted ? (
+                    <RestoreButton action={restoreReportAction} id={row.id} site={slug} />
+                  ) : row.status !== "draft" ? (
+                    <ViewOnSite href={`/${slug}/reports/${encodeURIComponent(row.slug)}`} />
+                  ) : null}{" "}
+                  {row.file && !deleted ? (
                     <Link className="small" href={`/dashboard/sites/${slug}/reports/${row.id}/send`}>
                       Send to paying readers →
                     </Link>

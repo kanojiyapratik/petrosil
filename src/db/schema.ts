@@ -509,6 +509,8 @@ export const articles = pgTable(
     excerpt: text("excerpt"),
     body: text("body").notNull(),
     heroImage: varchar("hero_image", { length: 512 }),
+    /** Comma-separated tags, the old `keywords` column ("Thailand, AMEA"). */
+    keywords: varchar("keywords", { length: 255 }),
     status: varchar("status", { length: 24 }).default("draft").notNull(),
     premiumOnly: boolean("premium_only").default(false).notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
@@ -1147,6 +1149,7 @@ export const reports = pgTable(
     /** "published" | "premium" | "draft": premium means subscribers only. */
     status: varchar("status", { length: 24 }).default("draft").notNull(),
     authoredOn: date("authored_on"),
+    authorId: integer("author_id").references(() => users.id, { onDelete: "set null" }),
     clicks: integer("clicks").default(0).notNull(),
     metaTitle: varchar("meta_title", { length: 255 }),
     metaDescription: text("meta_description"),
@@ -1218,6 +1221,7 @@ export const impexSheets = pgTable(
     file: varchar("file", { length: 512 }),
     status: varchar("status", { length: 24 }).default("draft").notNull(),
     authoredOn: date("authored_on"),
+    authorId: integer("author_id").references(() => users.id, { onDelete: "set null" }),
     clicks: integer("clicks").default(0).notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

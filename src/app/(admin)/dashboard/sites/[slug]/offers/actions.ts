@@ -8,7 +8,8 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { createOffer, updateOffer, withdrawOffer } from "@/domain/offers/editor";
+import { createOffer, updateOffer, withdrawOffer, restoreOffer } from "@/domain/offers/editor";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type OfferFormResult = { error?: string; field?: string; saved?: string } | null;
@@ -94,19 +95,39 @@ export async function saveOfferAction(_state: unknown, form: FormData): Promise<
   return { saved: "Saved." };
 }
 
-export async function withdrawOfferAction(_state: unknown, form: FormData): Promise<OfferFormResult> {
+/** Delete, softly, from the confirm popup: the row stays and can be restored. */
+export async function deleteOfferAction(form: FormData) {
   const viewer = await staff();
   const slug = text(form, "site");
   const id = Number(form.get("id"));
 
-  try {
-    if (!(await withdrawOffer(viewer, id, { ip: await callerIp() }))) {
-      return { error: "That offer is not yours to change." };
-    }
-  } catch (error) {
-    return failed(error, "withdraw", { id });
+  const done = await orRefused(withdrawOffer(viewer, id, { ip: await callerIp() }));
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That offer is not yours to change.";
+
+    redirect(`/dashboard/sites/${slug}/offers/${id}?refused=${encodeURIComponent(why)}`);
   }
 
   revalidatePath(`/dashboard/sites/${slug}/offers`);
   redirect(`/dashboard/sites/${slug}/offers`);
+}
+
+/** Bring a deleted offer back from the Deleted list. */
+export async function restoreOfferAction(form: FormData) {
+  const viewer = await staff();
+  const slug = text(form, "site");
+  const id = Number(form.get("id"));
+
+  const done = await orRefused(restoreOffer(viewer, id, { ip: await callerIp() }));
+
+  revalidatePath(`/dashboard/sites/${slug}/offers`);
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That offer could not be restored.";
+
+    redirect(`/dashboard/sites/${slug}/offers?status=deleted&refused=${encodeURIComponent(why)}`);
+  }
+
+  redirect(`/dashboard/sites/${slug}/offers/${id}`);
 }

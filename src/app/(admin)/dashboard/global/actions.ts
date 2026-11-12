@@ -21,6 +21,7 @@ import {
   type FieldForm,
 } from "@/domain/global/estate";
 import { callerIp } from "../actions";
+import { cleanHtml } from "@/lib/public/html";
 
 export type GlobalResult = { error?: string; field?: string; saved?: string } | null;
 
@@ -77,7 +78,8 @@ export async function applyPageAction(_state: unknown, form: FormData): Promise<
         slug,
         new_slug: target,
         title: text(form, "title"),
-        body: String(form.get("body") ?? ""),
+        // Cleaned like article text: the formatting editor takes pasted Word and web content.
+        body: cleanHtml(String(form.get("body") ?? "")),
         visible: form.get("visible") === "on",
         sites: brands(form),
       },

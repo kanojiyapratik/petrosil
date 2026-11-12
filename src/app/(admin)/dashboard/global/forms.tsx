@@ -10,6 +10,8 @@
 
 import { useActionState, useState } from "react";
 
+import { RichEditor } from "@/app/(admin)/rich-editor";
+
 import { addEmailAction, applyEmailAction, applyFieldAction, applyPageAction, newPageAction, type GlobalResult } from "./actions";
 
 type Brand = { slug: string; name: string };
@@ -124,8 +126,14 @@ export function GlobalPageForm({ slug, versions, brands }: { slug: string; versi
               </div>
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="body">Body (HTML)</label>
-              <textarea id="body" name="body" className="code" rows={22} defaultValue={version.body} />
+              <label>Page text</label>
+              <RichEditor
+                name="body"
+                initial={version.body}
+                site={version.brands[0]?.slug ?? brands[0]?.slug ?? ""}
+                imageFolder="pages/images"
+                minHeight={460}
+              />
               <div className="small muted">
                 {MARKER_NOTE} Changing the address moves the page on the brands ticked, and every link to the old one
                 stops working.

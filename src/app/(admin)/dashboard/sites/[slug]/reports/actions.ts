@@ -16,7 +16,8 @@ import { revalidatePath } from "next/cache";
 import { currentViewer, type Viewer } from "@/lib/auth/server";
 import { AccessError } from "@/lib/auth/guard";
 import { AccountError } from "@/domain/accounts/register";
-import { createReport, updateReport, withdrawReport } from "@/domain/reports/editor";
+import { createReport, updateReport, withdrawReport, restoreReport } from "@/domain/reports/editor";
+import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
 export type ReportFormResult = { error?: string; field?: string; saved?: string } | null;
@@ -41,6 +42,7 @@ function fields(form: FormData) {
     report_type: text(form, "report_type"),
     status: text(form, "status"),
     authored_on: text(form, "authored_on"),
+    author_id: text(form, "author_id") === "" ? null : Number(text(form, "author_id")),
     file: text(form, "file"),
     thumbnail: text(form, "thumbnail"),
     meta_title: text(form, "meta_title"),
@@ -100,19 +102,39 @@ export async function saveReportAction(_state: unknown, form: FormData): Promise
   return { saved: "Saved." };
 }
 
-export async function withdrawReportAction(_state: unknown, form: FormData): Promise<ReportFormResult> {
+/** Delete, softly, from the confirm popup: the row stays and can be restored. */
+export async function deleteReportAction(form: FormData) {
   const viewer = await staff();
   const slug = text(form, "site");
   const id = Number(form.get("id"));
 
-  try {
-    if (!(await withdrawReport(viewer, id, { ip: await callerIp() }))) {
-      return { error: "That report is not yours to change." };
-    }
-  } catch (error) {
-    return failed(error, "withdraw", { id });
+  const done = await orRefused(withdrawReport(viewer, id, { ip: await callerIp() }));
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That report is not yours to change.";
+
+    redirect(`/dashboard/sites/${slug}/reports/${id}?refused=${encodeURIComponent(why)}`);
   }
 
   revalidatePath(`/dashboard/sites/${slug}/reports`);
   redirect(`/dashboard/sites/${slug}/reports`);
+}
+
+/** Bring a deleted report back from the Deleted list. */
+export async function restoreReportAction(form: FormData) {
+  const viewer = await staff();
+  const slug = text(form, "site");
+  const id = Number(form.get("id"));
+
+  const done = await orRefused(restoreReport(viewer, id, { ip: await callerIp() }));
+
+  revalidatePath(`/dashboard/sites/${slug}/reports`);
+
+  if (typeof done === "object" || !done) {
+    const why = typeof done === "object" ? done.message : "That report could not be restored.";
+
+    redirect(`/dashboard/sites/${slug}/reports?status=deleted&refused=${encodeURIComponent(why)}`);
+  }
+
+  redirect(`/dashboard/sites/${slug}/reports/${id}`);
 }

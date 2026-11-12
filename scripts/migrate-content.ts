@@ -692,6 +692,19 @@ async function carryEnquiries(
   );
 }
 
+/** Platform user ids for old-site emails: who wrote what, matched by email. */
+async function usersByEmail(database: ReturnType<typeof db>, rows: Row[]): Promise<Map<string, number>> {
+  const emails = [...new Set(rows.map((row) => text(row.author_email)).filter((e): e is string => e !== null))];
+
+  return new Map<string, number>(
+    emails.length === 0
+      ? []
+      : (await database.select({ id: users.id, email: users.email }).from(users).where(inArray(users.email, emails))).map(
+          (row) => [row.email, row.id] as const,
+        ),
+  );
+}
+
 /**
  * A brand's articles, from the old `articles` table: one rule for the whole
  * migration and for `--only articles`, so a brand carried later reads the
@@ -706,7 +719,7 @@ async function carryArticles(
   filedUnder: Map<number, number>,
 ): Promise<number> {
   const [rows] = await source.query<Row[]>(
-    `select a.id, a.title, a.description, a.path, a.thumb_image, a.publish_options, a.meta_description,
+    `select a.id, a.title, a.description, a.path, a.thumb_image, a.publish_options, a.meta_description, a.keywords,
             a.authored_on, a.published_datetime, a.published_at, a.clicks, a.created_at, a.updated_at,
             lower(trim(u.email)) as author_email
        from articles a left join users u on u.id = a.authored_by
@@ -757,6 +770,7 @@ async function carryArticles(
       excerpt: excerptFrom(text(row.meta_description), text(row.description)),
       body: text(row.description) ?? "",
       heroImage: clipped(row.thumb_image, 512),
+      keywords: clipped(row.keywords, 255),
       status: read.status,
       premiumOnly: read.premium,
       publishedAt: read.status === "published" ? published : null,
@@ -1136,9 +1150,11 @@ async function main(): Promise<void> {
     if (have.has("reports")) {
       const [rows] = await source.query<Row[]>(
         `select id, title, description, attach_file, report_type, thumb_image, publish_options,
-                authored_on, clicks, meta_title, meta_description, path, created_at, updated_at
+                authored_on, clicks, meta_title, meta_description, path, created_at, updated_at,
+                (select lower(trim(u.email)) from users u where u.id = reports.authored_by) as author_email
            from reports where deleted_at is null order by id`,
       );
+      const reportAuthors = await usersByEmail(database, rows);
 
       const seen = new Set<string>();
 
@@ -1157,6 +1173,7 @@ async function main(): Promise<void> {
           // Listed meant paid: the old report page sat behind auth + premium (see migration 0015).
           status: read.premium || read.status === "published" ? "premium" : read.status,
           authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
+          authorId: reportAuthors.get(text(row.author_email) ?? "") ?? null,
           clicks: Number(row.clicks ?? 0),
           metaTitle: clipped(row.meta_title, 255),
           metaDescription: text(row.meta_description),
@@ -1221,9 +1238,11 @@ async function main(): Promise<void> {
     if (have.has("impexes")) {
       const [rows] = await source.query<Row[]>(
         `select id, title, description, attach_file, publish_options, authored_on, clicks,
-                path, created_at, updated_at
+                path, created_at, updated_at,
+                (select lower(trim(u.email)) from users u where u.id = impexes.authored_by) as author_email
            from impexes where deleted_at is null order by id`,
       );
+      const sheetAuthors = await usersByEmail(database, rows);
 
       const seen = new Set<string>();
 
@@ -1241,6 +1260,7 @@ async function main(): Promise<void> {
           status: read.premium || read.status === "published" ? "premium" : read.status,
           // Half of baseoil’s carry a zero date; their title still names the month.
           authoredOn: readDay(row.authored_on) ?? readDay(row.created_at) ?? monthFromTitle(title),
+          authorId: sheetAuthors.get(text(row.author_email) ?? "") ?? null,
           clicks: Number(row.clicks ?? 0),
           createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
           updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),

@@ -141,6 +141,13 @@
       "when": 1794382947158,
       "tag": "0019_member_email_change",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794472513904,
+      "tag": "0020_content_authors_keywords",
+      "breakpoints": true
     }
   ]
 }

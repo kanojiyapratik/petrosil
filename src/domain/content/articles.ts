@@ -85,7 +85,7 @@ export async function publishedArticles(
             ),
         )
       : undefined,
-    options.search ? sql`${articles.title} ilike ${`%${options.search}%`}` : undefined,
+    options.search ? sql`(${articles.title} ilike ${`%${options.search}%`} or ${articles.keywords} ilike ${`%${options.search}%`})` : undefined,
   );
 
   const [counted] = await database.select({ n: count() }).from(articles).where(where);
@@ -178,7 +178,7 @@ export async function staffArticles(
         options.deleted ? isNotNull(articles.deletedAt) : isNull(articles.deletedAt),
         options.site ? eq(sites.slug, options.site) : undefined,
         options.status ? eq(articles.status, options.status) : undefined,
-        options.search ? sql`${articles.title} ilike ${`%${options.search}%`}` : undefined,
+        options.search ? sql`(${articles.title} ilike ${`%${options.search}%`} or ${articles.keywords} ilike ${`%${options.search}%`})` : undefined,
       ),
     )
     .orderBy(desc(articles.updatedAt), desc(articles.id))
@@ -264,6 +264,7 @@ export async function createArticle(
       excerpt: typeof body.excerpt === "string" ? body.excerpt.slice(0, 2000) : null,
       body: typeof body.body === "string" ? cleanHtml(body.body) : "",
       heroImage: typeof body.hero_image === "string" ? body.hero_image.slice(0, 512) : null,
+      keywords: keywordsFrom(body.keywords),
       premiumOnly: body.premium_only === true,
       categoryId: await categoryFor(brand.id, body.category_id, database),
       // The writer the editor chose; the editor themself when none was chosen.
@@ -349,7 +350,7 @@ export async function articleAuthors(database: Database = db()): Promise<Article
 }
 
 /** An author id from a form: one of the people articleAuthors lists, or none. */
-async function authorFor(given: unknown, database: Database): Promise<number | null> {
+export async function authorFor(given: unknown, database: Database = db()): Promise<number | null> {
   if (given === null || given === "" || given === undefined) {
     return null;
   }
@@ -362,6 +363,53 @@ async function authorFor(given: unknown, database: Database): Promise<number | n
   }
 
   return found.id;
+}
+
+/**
+ * The author a save leaves on a piece. Undefined leaves it alone; the one it
+ * already has is kept even if they are no longer on the list (carried from
+ * the old sites); anyone else must be on the list.
+ */
+export async function authorChange(
+  current: number | null,
+  given: unknown,
+  database: Database = db(),
+): Promise<number | null | undefined> {
+  if (given === undefined || (current !== null && Number(given) === current)) {
+    return undefined;
+  }
+
+  return authorFor(given, database);
+}
+
+/**
+ * Tags as the editor typed them, tidied: split on commas, trimmed, repeats
+ * dropped (ignoring case), and kept to the column. Empty means none.
+ */
+export function keywordsFrom(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const seen = new Set<string>();
+  const kept: string[] = [];
+
+  for (const raw of value.split(/[,\n;]/)) {
+    const word = raw.trim().replace(/\s+/g, " ");
+
+    if (word && !seen.has(word.toLowerCase())) {
+      const next = [...kept, word].join(", ");
+
+      if (next.length > 255) {
+        break;
+      }
+
+      seen.add(word.toLowerCase());
+      kept.push(word);
+    }
+  }
+
+  return kept.length ? kept.join(", ") : null;
 }
 
 const EDITABLE_TEXT = { excerpt: 2000, body: 1_000_000, hero_image: 512 } as const;
@@ -411,6 +459,10 @@ export async function updateArticle(
   if (body.hero_image !== undefined) {
     changes.heroImage =
       typeof body.hero_image === "string" ? body.hero_image.slice(0, 512) : null;
+  }
+
+  if (body.keywords !== undefined) {
+    changes.keywords = keywordsFrom(body.keywords);
   }
 
   if (typeof body.premium_only === "boolean") {
@@ -545,6 +597,7 @@ export type ArticleForEdit = ArticleFull & {
   site_name: string;
   category_id: number | null;
   author_id: number | null;
+  keywords: string | null;
   updated_at: string;
 };
 
@@ -585,6 +638,30 @@ export async function articleForEdit(
     site_name: row.name,
     category_id: row.article.categoryId,
     author_id: row.article.authorId,
+    keywords: row.article.keywords,
     updated_at: row.article.updatedAt.toISOString(),
   };
+}
+
+/**
+ * The author list for an editor, with the piece's own author added when they
+ * are not on today's list (carried from the old sites), so saving the piece
+ * does not quietly drop them.
+ */
+export async function authorsFor(current: number | null, database: Database = db()): Promise<ArticleAuthor[]> {
+  const authors = await articleAuthors(database);
+
+  if (current !== null && !authors.some((author) => author.id === current)) {
+    const [carried] = await database
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, current))
+      .limit(1);
+
+    if (carried) {
+      authors.push(carried);
+    }
+  }
+
+  return authors;
 }

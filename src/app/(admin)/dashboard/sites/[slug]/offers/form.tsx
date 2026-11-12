@@ -10,10 +10,11 @@
 
 import { useActionState } from "react";
 import Link from "@/lib/ui/link";
+import { COUNTRIES, findCountry } from "@/domain/geo/countries";
 
 import { Attachment } from "@/app/(admin)/attachment";
 import type { OfferForEdit } from "@/domain/offers/editor";
-import { createOfferAction, saveOfferAction, withdrawOfferAction, type OfferFormResult } from "./actions";
+import { createOfferAction, saveOfferAction,  type OfferFormResult } from "./actions";
 
 const STATUS_LABEL: Record<string, string> = {
   published: "Published: on the site",
@@ -35,6 +36,31 @@ function Flash({ state }: { state: OfferFormResult }) {
       {state.saved}
     </p>
   ) : null;
+}
+
+/**
+ * A country from the list. A name carried from the old sites that matches
+ * no country ("Romania RU  Russia") stays selectable as it was, so saving an
+ * offer never quietly changes it.
+ */
+function CountryField({ value }: { value: string | null }) {
+  const known = value ? findCountry(value) : null;
+  const carried = value && !known ? value : null;
+
+  return (
+    <div className="field">
+      <label htmlFor="country">Country</label>
+      <select id="country" name="country" defaultValue={known?.name ?? carried ?? ""}>
+        <option value="">Not given</option>
+        {carried ? <option value={carried}>{carried} (as carried)</option> : null}
+        {COUNTRIES.map((country) => (
+          <option key={country.code} value={country.name}>
+            {country.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 function Text(props: {
@@ -150,7 +176,7 @@ export function OfferForm({ slug, offer }: { slug: string; offer?: OfferForEdit 
                 <Text name="city" label="City" value={offer?.city} max={96} />
                 <Text name="state" label="State" value={offer?.state} max={96} />
               </div>
-              <Text name="country" label="Country" value={offer?.country} max={96} />
+              <CountryField value={offer?.country ?? null} />
 
               <div className="field">
                 <label htmlFor="poster_email">Posted for (member&apos;s email)</label>
@@ -202,28 +228,6 @@ export function OfferForm({ slug, offer }: { slug: string; offer?: OfferForEdit 
               {editing ? "Back to offers" : "Cancel"}
             </Link>
           </div>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-/** Outside the editing form, so a stray Enter cannot take an offer down. */
-export function WithdrawOffer({ slug, id }: { slug: string; id: number }) {
-  const [state, action, pending] = useActionState(withdrawOfferAction, null as OfferFormResult);
-
-  return (
-    <form action={action} style={{ marginTop: 16 }}>
-      <input type="hidden" name="site" value={slug} />
-      <input type="hidden" name="id" value={id} />
-      <div className="note">
-        <Flash state={state} />
-        <strong>Withdraw this offer.</strong> It comes off the site and the lists for good. To take it down for a
-        while, set it to Suspended instead. Enquiries about it keep their link either way.
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="ghost small" type="submit" disabled={pending}>
-            Withdraw
-          </button>
         </div>
       </div>
     </form>

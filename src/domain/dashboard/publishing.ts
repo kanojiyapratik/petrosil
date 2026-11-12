@@ -9,7 +9,7 @@
  * is public, see how many people opened it.
  */
 
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { impexSheets, offers, reports, sites, users } from "@/db/schema";
@@ -38,9 +38,10 @@ export async function listReports(
   const { page, perPage, offset } = paging(query);
 
   const where = and(
-    isNull(reports.deletedAt),
+    // "deleted" is the bin: soft-deleted rows, listed so they can be restored.
+    query.status === "deleted" ? isNotNull(reports.deletedAt) : isNull(reports.deletedAt),
     only ? inArray(reports.siteId, only) : undefined,
-    query.status ? eq(reports.status, query.status) : undefined,
+    query.status && query.status !== "deleted" ? eq(reports.status, query.status) : undefined,
     query.type ? eq(reports.reportType, query.type) : undefined,
     query.search ? ilike(reports.title, `%${query.search}%`) : undefined,
   );
@@ -110,10 +111,11 @@ export async function listOffers(
   const { page, perPage, offset } = paging(query);
 
   const where = and(
-    isNull(offers.deletedAt),
+    // "deleted" is the bin: soft-deleted rows, listed so they can be restored.
+    query.status === "deleted" ? isNotNull(offers.deletedAt) : isNull(offers.deletedAt),
     only ? inArray(offers.siteId, only) : undefined,
     query.type ? eq(offers.offerType, query.type) : undefined,
-    query.status ? eq(offers.status, query.status) : undefined,
+    query.status && query.status !== "deleted" ? eq(offers.status, query.status) : undefined,
     query.search
       ? or(
           ilike(offers.subject, `%${query.search}%`),
@@ -180,9 +182,10 @@ export async function listImpex(
   const { page, perPage, offset } = paging(query);
 
   const where = and(
-    isNull(impexSheets.deletedAt),
+    // "deleted" is the bin: soft-deleted rows, listed so they can be restored.
+    query.status === "deleted" ? isNotNull(impexSheets.deletedAt) : isNull(impexSheets.deletedAt),
     only ? inArray(impexSheets.siteId, only) : undefined,
-    query.status ? eq(impexSheets.status, query.status) : undefined,
+    query.status && query.status !== "deleted" ? eq(impexSheets.status, query.status) : undefined,
     query.search ? ilike(impexSheets.title, `%${query.search}%`) : undefined,
   );
 
