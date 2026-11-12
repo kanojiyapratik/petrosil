@@ -7,7 +7,7 @@
  * people, then attach their memberships, never the other way round.
  */
 
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, ne, isNull, or, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { auditLog, loginAttempts, memberships, sites, users } from "@/db/schema";
@@ -56,6 +56,12 @@ export type ClientQuery = {
    * Premium Users. An open-ended standing is never due.
    */
   due?: number;
+  /**
+   * Only accounts that cannot sign in. The old sites kept "Inactive" and
+   * "Suspended" as free text (two to four people a brand); both carried
+   * here as `disabled`, so they are one list.
+   */
+  suspended?: boolean;
   page?: number;
   perPage?: number;
 };
@@ -154,7 +160,7 @@ export async function listClients(
       .select({ id: users.id, name: users.name })
       .from(users)
       .innerJoin(memberships, eq(memberships.userId, users.id))
-      .where(and(scoped, matching))
+      .where(and(scoped, matching, query.suspended ? ne(users.status, "active") : undefined))
       .groupBy(users.id, users.name)
       .having(having);
 

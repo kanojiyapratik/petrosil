@@ -67,14 +67,19 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const segmentRaw = one(search, "segment");
   const segment = SEGMENTS.includes(segmentRaw as Segment) ? (segmentRaw as Segment) : undefined;
   const page = pageParam(one(search, "page"));
-  // "Upcoming Renewal" in the rail is this: paying, due inside 30 days.
+  // The old admin's "Upcoming Renewal" and "Inactive / Suspended Users" are
+  // chips here too: renewing = paying and due inside 30 days.
+  const renewing = segmentRaw === "renewing";
+  const suspended = segmentRaw === "suspended";
   const dueRaw = Number(one(search, "due"));
-  const due = Number.isFinite(dueRaw) && dueRaw > 0 ? Math.trunc(dueRaw) : undefined;
+  const due = renewing ? 30 : Number.isFinite(dueRaw) && dueRaw > 0 ? Math.trunc(dueRaw) : undefined;
 
-  const [brands, counts, clients] = await Promise.all([
+  const [brands, counts, clients, renewingCount, suspendedCount] = await Promise.all([
     brandsFor(viewer.siteIds),
     segmentCounts(viewer.siteIds),
-    listClients(viewer.siteIds, { site, search: q, segment, due, page }),
+    listClients(viewer.siteIds, { site, search: q, segment: renewing ? "premium" : segment, due, suspended, page }),
+    listClients(viewer.siteIds, { segment: "premium", due: 30, perPage: 1 }).then((r) => r.total),
+    listClients(viewer.siteIds, { suspended: true, perPage: 1 }).then((r) => r.total),
   ]);
 
   return (
@@ -84,7 +89,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       <Heading
         title="Customers"
         sub={
-          due
+          suspended
+            ? "Accounts that cannot sign in: the old sites' Inactive and Suspended users. Open one to switch it back on."
+            : due
             ? `Paying members whose subscription runs out within ${due} days.`
             : "The old admin's Directory: everyone registered across the estate. One person, one row, however many brands they read."
         }
@@ -120,14 +127,14 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </Popup>
       </Heading>
 
-      <BrandChips base="/dashboard/clients" brands={brands} value={site} here={{ q, segment }} />
+      <BrandChips base="/dashboard/clients" brands={brands} value={site} here={{ q, segment: segmentRaw || undefined }} />
 
-      <ListBar action="/dashboard/clients" q={q} placeholder="Search: name, email or company" keep={{ site, segment }}>
+      <ListBar action="/dashboard/clients" q={q} placeholder="Search: name, email or company" keep={{ site, segment: segmentRaw || undefined }}>
         <Chips
           base="/dashboard/clients"
           param="segment"
           here={{ site, q }}
-          value={segment}
+          value={segmentRaw === "renewing" || segmentRaw === "suspended" ? segmentRaw : segment}
           options={[
             { value: "", label: "Everyone" },
             ...SEGMENTS.map((value) => ({
@@ -135,6 +142,8 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
               label: sentence(SEGMENT_LABEL[value] ?? value),
               n: counts[value],
             })),
+            { value: "renewing", label: "Renewing in 30 days", n: renewingCount },
+            { value: "suspended", label: "Suspended", n: suspendedCount },
           ]}
         />
       </ListBar>
@@ -201,7 +210,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </table>
         <Pager
           base="/dashboard/clients"
-          here={{ site, q, segment, due: due ? String(due) : undefined }}
+          here={{ site, q, segment: segmentRaw || undefined, due: due && !renewing ? String(due) : undefined }}
           page={clients.page}
           perPage={clients.per_page}
           total={clients.total}

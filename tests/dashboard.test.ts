@@ -9,6 +9,7 @@ import { GET as clientsRoute } from "@/app/api/dashboard/clients/route";
 import { GET as clientRoute } from "@/app/api/dashboard/clients/[id]/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { memberships, users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/passwords";
@@ -477,5 +478,17 @@ describe("the customer record the profiles migration filled", () => {
       address: "Unit 4, Andheri East, Mumbai 400069",
       postcode: "400069",
     });
+  });
+});
+
+describe("suspended accounts", () => {
+  it("lists only people whose account is switched off", async () => {
+    const off = await person("off@x.example", [{ brand: baseoil, role: "subscriber", tier: "free" }]);
+    await person("on@x.example", [{ brand: baseoil, role: "subscriber", tier: "free" }]);
+    await db().update(users).set({ status: "disabled" }).where(eq(users.id, off));
+
+    const listed = await listClients([], { suspended: true }, db(), NOW);
+
+    expect(listed.rows.map((row) => row.id)).toEqual([off]);
   });
 });
