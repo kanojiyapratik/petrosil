@@ -1,0 +1,245 @@
+/**
+ * Every country, by its two-letter ISO code, with the names the government
+ * sources and the brands' own sheets use for it.
+ *
+ * The brands' place lists were typed by hand over years: "UAE" and "United
+ * Arab Emirates", "Kenya (60)", "LAO", "Republic of Turkiye", "Somaalia".
+ * The sources are no tidier: "Korea, Republic of", "Viet Nam", "Türkiye".
+ * Both sides are folded onto one code, and two names match when their codes
+ * do. A name nothing here knows answers null and is shown to a person.
+ */
+
+/** code → [the name we show, then every other spelling seen]. */
+const COUNTRIES: Record<string, string[]> = {
+  AE: ["United Arab Emirates", "UAE", "U.A.E.", "Emirates", "U Arab Emts"],
+  AF: ["Afghanistan"],
+  AG: ["Antigua and Barbuda", "Antigua"],
+  AL: ["Albania"],
+  AM: ["Armenia"],
+  AO: ["Angola"],
+  AR: ["Argentina"],
+  AS: ["American Samoa"],
+  AT: ["Austria"],
+  AU: ["Australia"],
+  AW: ["Aruba"],
+  AZ: ["Azerbaijan"],
+  BA: ["Bosnia and Herzegovina", "Bosnia & Herzegovina", "Bosnia-Herzegovina"],
+  BB: ["Barbados"],
+  BD: ["Bangladesh", "Bangladesh PR"],
+  BE: ["Belgium"],
+  BF: ["Burkina Faso"],
+  BG: ["Bulgaria"],
+  BH: ["Bahrain", "Bahrain Is"],
+  BI: ["Burundi"],
+  BJ: ["Benin"],
+  BN: ["Brunei", "Brunei Darussalam"],
+  BO: ["Bolivia"],
+  BR: ["Brazil"],
+  BS: ["Bahamas", "The Bahamas"],
+  BT: ["Bhutan"],
+  BW: ["Botswana"],
+  BY: ["Belarus"],
+  BZ: ["Belize"],
+  CA: ["Canada"],
+  CD: ["Congo, Dem Rep of", "Democratic Republic of the Congo", "DR Congo", "Congo DR", "Congo D. Rep.", "Congo, Democratic Republic of the", "Zaire"],
+  CG: ["Congo", "Republic of the Congo", "Congo P Rep", "Congo, Republic of"],
+  CH: ["Switzerland"],
+  CI: ["Cote d'Ivoire", "Cote D Ivoire", "Côte d'Ivoire", "Ivory Coast", "Cote D'"],
+  CK: ["Cook Islands"],
+  CL: ["Chile"],
+  CM: ["Cameroon"],
+  CN: ["China", "China P Rp", "People's Republic of China", "China, People's Republic of", "PR China"],
+  CO: ["Colombia"],
+  CR: ["Costa Rica"],
+  CU: ["Cuba"],
+  CY: ["Cyprus"],
+  CZ: ["Czech Republic", "Czechia"],
+  DE: ["Germany"],
+  DJ: ["Djibouti"],
+  DK: ["Denmark"],
+  DM: ["Dominica"],
+  DO: ["Dominican Republic", "Dominican", "Dominican Rep"],
+  DZ: ["Algeria"],
+  EC: ["Ecuador"],
+  EE: ["Estonia"],
+  EG: ["Egypt", "Egypt A Rp"],
+  ER: ["Eritrea"],
+  ES: ["Spain"],
+  ET: ["Ethiopia"],
+  FI: ["Finland"],
+  FJ: ["Fiji"],
+  FM: ["Micronesia", "Micronesia, Federated States of"],
+  FR: ["France"],
+  GA: ["Gabon"],
+  GB: ["United Kingdom", "UK", "U.K.", "U K", "Great Britain", "Britain"],
+  GE: ["Georgia"],
+  GF: ["French Guiana"],
+  GH: ["Ghana"],
+  GM: ["Gambia"],
+  GN: ["Guinea"],
+  GQ: ["Equatorial Guinea", "Equatorial Gn"],
+  GR: ["Greece"],
+  GT: ["Guatemala"],
+  GU: ["Guam"],
+  GW: ["Guinea-Bissau", "Guinea Bissau"],
+  GY: ["Guyana"],
+  HK: ["Hong Kong", "Hong Kong, China", "Hongkong", "China, Hong Kong SAR"],
+  HN: ["Honduras"],
+  HR: ["Croatia"],
+  HT: ["Haiti"],
+  HU: ["Hungary"],
+  ID: ["Indonesia"],
+  IE: ["Ireland"],
+  IL: ["Israel"],
+  IN: ["India"],
+  IQ: ["Iraq"],
+  IR: ["Iran", "Iran, Islamic Republic of", "Islamic Republic of Iran"],
+  IS: ["Iceland"],
+  IT: ["Italy"],
+  JM: ["Jamaica"],
+  JO: ["Jordan"],
+  JP: ["Japan"],
+  KE: ["Kenya"],
+  KG: ["Kyrgyzstan", "Kyrgyz Republic"],
+  KH: ["Cambodia"],
+  KI: ["Kiribati", "Kiribati Rep"],
+  KN: ["Saint Kitts and Nevis", "St Kitts and Nevis", "St. Kitts and Nevis"],
+  KP: ["North Korea", "Korea DP Rp", "Korea, Democratic People's Republic of", "DPRK", "Korea, North"],
+  KR: ["South Korea", "Korea", "Korea RP", "Korea, Republic of", "Republic of Korea", "Korea, South", "Rep. of Korea"],
+  KW: ["Kuwait"],
+  KZ: ["Kazakhstan", "Kazakhistan"],
+  LA: ["Laos", "Lao", "Lao PDR", "Lao Republic", "Lao People's Democratic Republic", "Lao PD Rp"],
+  LB: ["Lebanon"],
+  LC: ["Saint Lucia", "St Lucia"],
+  LI: ["Liechtenstein"],
+  LK: ["Sri Lanka", "Sri Lanka DSR"],
+  LR: ["Liberia"],
+  LT: ["Lithuania"],
+  LU: ["Luxembourg"],
+  LV: ["Latvia"],
+  LY: ["Libya"],
+  MA: ["Morocco"],
+  MD: ["Moldova"],
+  ME: ["Montenegro"],
+  MG: ["Madagascar"],
+  MH: ["Marshall Islands", "Marshall", "Marshalls", "Marshall Islands, Republic of the"],
+  MK: ["North Macedonia", "Macedonia"],
+  ML: ["Mali"],
+  MM: ["Myanmar", "Burma"],
+  MN: ["Mongolia"],
+  MO: ["Macao", "Macau", "China, Macao SAR"],
+  MP: ["Northern Mariana Islands", "N Marianas", "N. Mariana Islands"],
+  MR: ["Mauritania"],
+  MT: ["Malta"],
+  MU: ["Mauritius"],
+  MV: ["Maldives"],
+  MW: ["Malawi"],
+  MX: ["Mexico"],
+  MY: ["Malaysia"],
+  MZ: ["Mozambique"],
+  NA: ["Namibia"],
+  NC: ["New Caledonia"],
+  NE: ["Niger"],
+  NG: ["Nigeria"],
+  NI: ["Nicaragua"],
+  NL: ["Netherlands", "The Netherlands", "Holland"],
+  NO: ["Norway"],
+  NP: ["Nepal"],
+  NZ: ["New Zealand"],
+  OM: ["Oman"],
+  PA: ["Panama", "Panama Republic"],
+  PE: ["Peru"],
+  PF: ["French Polynesia"],
+  PG: ["Papua New Guinea", "Papua N Gna"],
+  PH: ["Philippines"],
+  PK: ["Pakistan", "Pakistan IR"],
+  PL: ["Poland"],
+  PR: ["Puerto Rico"],
+  PS: ["Palestine", "State of Palestine"],
+  PT: ["Portugal"],
+  PW: ["Palau"],
+  PY: ["Paraguay"],
+  QA: ["Qatar"],
+  RE: ["Reunion", "Réunion"],
+  RO: ["Romania"],
+  RS: ["Serbia"],
+  RU: ["Russia", "Russian Federation"],
+  RW: ["Rwanda"],
+  SA: ["Saudi Arabia", "Saudi Arab"],
+  SB: ["Solomon Islands", "Solomon Is"],
+  SC: ["Seychelles"],
+  SD: ["Sudan"],
+  SE: ["Sweden"],
+  SG: ["Singapore"],
+  SI: ["Slovenia"],
+  SK: ["Slovakia", "Slovak Republic"],
+  SL: ["Sierra Leone"],
+  SN: ["Senegal"],
+  SO: ["Somalia", "Somaalia"],
+  SR: ["Suriname"],
+  SS: ["South Sudan"],
+  SV: ["El Salvador"],
+  SY: ["Syria", "Syrian Arab Republic"],
+  TD: ["Chad"],
+  TG: ["Togo"],
+  TH: ["Thailand"],
+  TJ: ["Tajikistan"],
+  TL: ["Timor-Leste", "Timor Leste", "East Timor"],
+  TM: ["Turkmenistan"],
+  TN: ["Tunisia"],
+  TO: ["Tonga"],
+  TR: ["Turkey", "Turkiye", "Türkiye", "Republic of Turkiye", "Republic of Türkiye"],
+  TT: ["Trinidad and Tobago", "Trinidad & Tobago", "Trinidad"],
+  TW: ["Taiwan", "Chinese Taipei", "Taiwan, Province of China", "Other Asia, nes"],
+  TZ: ["Tanzania", "Tanzania Rep", "United Republic of Tanzania"],
+  UA: ["Ukraine"],
+  UG: ["Uganda"],
+  US: ["USA", "United States", "United States of America", "U.S.A.", "U S A", "US"],
+  UY: ["Uruguay"],
+  UZ: ["Uzbekistan"],
+  VC: ["Saint Vincent and the Grenadines", "St Vincent", "St. Vincent and the Grenadines"],
+  VE: ["Venezuela"],
+  VG: ["British Virgin Islands", "Virgin Islands (British)", "Virgin Is UK"],
+  VN: ["Vietnam", "Viet Nam", "Vietnam Soc Rep"],
+  VU: ["Vanuatu"],
+  WF: ["Wallis and Futuna Islands", "Wallis and Futuna"],
+  WS: ["Samoa"],
+  YE: ["Yemen", "Yemen Republc"],
+  ZA: ["South Africa"],
+  ZM: ["Zambia"],
+  ZW: ["Zimbabwe"],
+};
+
+/**
+ * Lower case, accents and punctuation gone, a trailing "(51)" dropped —
+ * the old admin's way of telling two Georgias apart — and runs of space
+ * squeezed to one.
+ */
+export function normaliseName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\(\s*\d+\s*\)\s*$/, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+const BY_NAME = new Map<string, string>();
+
+for (const [code, names] of Object.entries(COUNTRIES)) {
+  for (const name of names) {
+    BY_NAME.set(normaliseName(name), code);
+  }
+}
+
+/** The ISO code for a name, or null when it is not a country we know. */
+export function countryCode(name: string): string | null {
+  return BY_NAME.get(normaliseName(name)) ?? null;
+}
+
+/** The name we show for a code. */
+export function countryName(code: string): string | null {
+  return COUNTRIES[code.toUpperCase()]?.[0] ?? null;
+}

@@ -24,7 +24,8 @@
     "jobs": "tsx --env-file-if-exists=.env scripts/jobs.ts",
     "import:files": "tsx --env-file-if-exists=.env scripts/import-files.ts",
     "engine:link": "tsx --env-file-if-exists=.env scripts/engine-link.ts",
-    "backfill:profiles": "tsx --env-file-if-exists=.env scripts/backfill-profiles.ts"
+    "backfill:profiles": "tsx --env-file-if-exists=.env scripts/backfill-profiles.ts",
+    "trade:feeds": "tsx --env-file-if-exists=.env scripts/seed-trade-feeds.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1146.0",

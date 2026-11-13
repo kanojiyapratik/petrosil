@@ -75,7 +75,7 @@ describe("a country's year", () => {
     const sheet = (await tradeYear(baseoil.siteId, { location: place.India!, kind: "import" }, paying))!;
 
     expect(sheet).toMatchObject({ country: { title: "India" }, unit: "MT", years: [2026, 2025], year: 2026, figures: { allowed: true, reason: null } });
-    expect(sheet.months).toEqual([{ month: "2026-01", partners: 1, total: 950, flows: [{ country: "Singapore", qty: 950 }] }]);
+    expect(sheet.months).toEqual([{ month: "2026-01", partners: 1, total: 950, flows: [{ country: "Singapore", qty: 950 }], insight: null }]);
 
     const before = (await tradeYear(baseoil.siteId, { location: place.India!, kind: "import", year: 2025 }, paying))!;
 
@@ -88,6 +88,7 @@ describe("a country's year", () => {
           { country: "Singapore", qty: 1200.5 },
           { country: "Korea", qty: 800 },
         ],
+        insight: null,
       },
     ]);
   });
@@ -95,7 +96,7 @@ describe("a country's year", () => {
   it("gives everyone else the months without a figure, and says why", async () => {
     const sheet = (await tradeYear(baseoil.siteId, { location: place.India!, kind: "import", year: 2025 }, free))!;
 
-    expect(sheet.months).toEqual([{ month: "2025-11", partners: 2, total: null, flows: [] }]);
+    expect(sheet.months).toEqual([{ month: "2025-11", partners: 2, total: null, flows: [], insight: null }]);
     expect(sheet.figures).toEqual({ allowed: false, reason: "subscribe" });
     expect(JSON.stringify(sheet)).not.toContain("1200");
     expect((await tradeYear(baseoil.siteId, { location: place.India!, kind: "import" }, anonymous))!.figures.reason).toBe("sign_in");
@@ -105,7 +106,7 @@ describe("a country's year", () => {
   it("runs an export from the reporting country", async () => {
     const sheet = (await tradeYear(baseoil.siteId, { location: place.Singapore!, kind: "export" }, paying))!;
 
-    expect(sheet.months).toEqual([{ month: "2026-02", partners: 1, total: 300, flows: [{ country: "UAE", qty: 300 }] }]);
+    expect(sheet.months).toEqual([{ month: "2026-02", partners: 1, total: 300, flows: [{ country: "UAE", qty: 300 }], insight: null }]);
   });
 
   it("falls back to the latest year for a year not on record", async () => {

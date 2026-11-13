@@ -10,6 +10,8 @@ that says so -- the app stores and shows it, and the editor tries again.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from app.ai.providers import AiCompletion
 from test_engine_api import ACTOR, HEADERS
 from test_engine_api_estate import Usage, build
@@ -17,7 +19,8 @@ from test_engine_api_estate import Usage, build
 URL = "/api/engine/sites/baseoil/batches/12/review"
 
 BODY = {
-    "price_date": "2026-11-03",
+    # A date still ahead: a past one is locked, and a locked row is not judged.
+    "price_date": (date.today() + timedelta(days=7)).isoformat(),
     "rows": [
         {"location": "Korea TOBS", "price": 1414},
         {"location": "Singapore SN 150", "price": 15150},
@@ -124,3 +127,37 @@ def test_a_customs_sheet_needs_a_title_and_figures():
     assert api.post("/api/engine/sites/baseoil/trade-analysis", headers=HEADERS, json={"figures": FIGURES}).status_code == 422
     failed = api.post("/api/engine/sites/baseoil/trade-analysis", headers=HEADERS, json={"title": "x", "figures": FIGURES})
     assert failed.status_code == 200
+
+
+TRADE_FIGURES = {
+    "product": "Lubricating base oil",
+    "direction": "imports",
+    "month": "April 2026",
+    "unit": "thousand litres (kilolitres)",
+    "total": 45331,
+    "leading_partners": [{"partner": "Singapore", "quantity": 31107, "share_percent": 68.6}],
+}
+
+
+def test_a_trade_insight_is_narrated_by_the_sites_model_from_the_figures_sent():
+    usage, driver = Usage(), Reviewer()
+    api, store = build(usage=usage, driver=driver)
+
+    response = api.post(
+        "/api/engine/sites/baseoil/trade-insight", headers=HEADERS,
+        json={"title": "Thailand Lubricating base oil imports — April 2026", "figures": TRADE_FIGURES},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["analysis"]["status"] == "complete"
+    prompt = driver.prompts[0]
+    assert "market insight" in prompt and "31107" in prompt and "Thailand Lubricating base oil" in prompt
+    assert usage.recorded[-1]["kind"] == "trade_update"
+    assert store.recorded[-1][1] == "asked for a trade insight"
+
+
+def test_a_trade_insight_needs_a_title_and_figures():
+    api, _ = build(driver=Reviewer())
+
+    assert api.post("/api/engine/sites/baseoil/trade-insight", headers=HEADERS, json={"title": "x"}).status_code == 422
+    assert api.post("/api/engine/sites/baseoil/trade-insight", headers=HEADERS, json={"figures": TRADE_FIGURES}).status_code == 422

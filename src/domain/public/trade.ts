@@ -22,7 +22,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { db, type Database } from "@/db";
-import { tradeLocations, tradeQuantities } from "@/db/schema";
+import { tradeFeeds, tradeLocations, tradeQuantities, tradeUpdates } from "@/db/schema";
 import { SHEET_KINDS, type SheetKind } from "@/domain/trade/sheets";
 import type { Entitlement } from "./paywall";
 import { refusalFor, type Refusal } from "./reports";
@@ -84,6 +84,8 @@ export type TradeMonth = {
   total: number | null;
   /** Each partner and its quantity, largest first; empty when this reader may not see figures. */
   flows: { country: string; qty: number }[];
+  /** The AI market insight written when the month was published from a trade feed; null when there is none or this reader may not see figures. */
+  insight: string | null;
 };
 
 export type TradeYear = {
@@ -156,7 +158,7 @@ export async function tradeYear(
 
   for (const row of rows) {
     const key = String(row.date).slice(0, 7);
-    const month = months.get(key) ?? { month: key, partners: 0, total: lock ? null : 0, flows: [] };
+    const month = months.get(key) ?? { month: key, partners: 0, total: lock ? null : 0, flows: [], insight: null };
 
     month.partners++;
 
@@ -168,6 +170,33 @@ export async function tradeYear(
     }
 
     months.set(key, month);
+  }
+
+  // The insight quotes the figures, so it is shown to whoever may see them.
+  if (!lock) {
+    const insights = await database
+      .select({ date: tradeUpdates.qtyDate, text: tradeUpdates.insightText })
+      .from(tradeUpdates)
+      .innerJoin(tradeFeeds, eq(tradeFeeds.id, tradeUpdates.feedId))
+      .where(
+        and(
+          eq(tradeUpdates.siteId, siteId),
+          eq(tradeFeeds.locationId, place.id),
+          eq(tradeFeeds.kind, input.kind),
+          eq(tradeUpdates.status, "published"),
+          eq(tradeUpdates.insightStatus, "complete"),
+          sql`extract(year from ${tradeUpdates.qtyDate}) = ${year}`,
+        ),
+      )
+      .orderBy(tradeUpdates.id);
+
+    for (const row of insights) {
+      const month = months.get(String(row.date).slice(0, 7));
+
+      if (month && row.text) {
+        month.insight = row.text;
+      }
+    }
   }
 
   try {

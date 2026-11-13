@@ -647,6 +647,44 @@ def create_engine_api(
             },
         )
 
+    # ----------------------------------------------------------- trade feeds
+
+    @router.post("/trade/check")
+    def trade_check(slug: str, actor: str = Depends(caller)):
+        """The brand's trade feeds checked now, rather than at the next daily
+        pass: each missing month its source has published is fetched and
+        reported to the app, which stages it. Answers what became of each."""
+        from .crawl_now import trade_site_now
+
+        site = site_or_404(slug)
+
+        try:
+            results = trade_site_now(site)
+        except Exception as error:  # noqa: BLE001 - said, never a 500
+            return JSONResponse({"error": str(error)}, status_code=502)
+
+        store.record(actor, "checked the trade feeds by hand", site.slug, f"{len(results)} result(s)")
+
+        return {"results": results}
+
+    @router.post("/trade-insight")
+    async def trade_insight(slug: str, request: Request, actor: str = Depends(caller)):
+        """{title, figures}: a published month of trade quantities, as figures
+        the app worked out, put into a market insight by the site's model.
+        Always 200 once the request is sound -- a model that fails says so."""
+        site = site_or_404(slug)
+        body = await request.json()
+        title = str(body.get("title") or "").strip()[:200]
+        figures = body.get("figures")
+
+        if not title or not isinstance(figures, dict) or not figures:
+            raise HTTPException(status_code=422, detail="Send a title and the figures to describe.")
+
+        analysis = narrate(engine, site, "trade_update", title, figures)
+        store.record(actor, "asked for a trade insight", site.slug, f"{title}: {analysis['status']}")
+
+        return {"analysis": analysis}
+
     # --------------------------------------------------------------- crawling
 
     @router.post("/crawl")

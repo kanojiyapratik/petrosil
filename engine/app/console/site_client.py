@@ -87,6 +87,19 @@ class SiteClient:
             "data", []
         )
 
+    # ---- trade feeds -----------------------------------------------------
+
+    def trade_feeds(self) -> dict:
+        """The site's trade feeds, each with the months it is missing."""
+        return self._request("GET", "/trade-feeds")
+
+    def report_trade(self, results: list[dict]) -> list[dict]:
+        """A whole trade pass in one request, as with the price crawl."""
+        if not results:
+            return []
+
+        return self._request("POST", "/trade-feeds/results", json={"results": results}).get("data", [])
+
     # ---- console: crawler screens ---------------------------------------
 
     def watched_urls(self) -> dict:

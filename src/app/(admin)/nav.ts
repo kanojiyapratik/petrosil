@@ -209,6 +209,7 @@ const SPECS: Spec[] = [
       ["AI price update", "ai-update", "read reports, draft prices, save them", true],
       ["Price update", "batches", "what the module staged", true],
       ["Watched pages", "crawl", "where prices are read from", true],
+      ["Trade feeds", "trade-feeds", "import and export quantities from government statistics", true],
       ["Published AI note", "ai-note", "the note above the prices", true],
       ["Per-market rules", "rules", "prices worked out from others, and rounding", true],
       ["AI settings", "ai-settings", "the model and the instructions", true],

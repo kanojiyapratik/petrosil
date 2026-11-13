@@ -148,6 +148,13 @@
       "when": 1794472513904,
       "tag": "0020_content_authors_keywords",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794558436921,
+      "tag": "0021_trade_feeds",
+      "breakpoints": true
     }
   ]
 }

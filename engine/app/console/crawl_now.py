@@ -173,3 +173,14 @@ def propose_matches(
         return parse_match_answer(completion.text, {r["id"] for r in unmatched}, location_titles)
     except Exception:  # noqa: BLE001 - proposals are a convenience, never a blocker
         return {}
+
+
+def trade_site_now(site: StoredSite) -> list[dict]:
+    """One trade pass over one site's feeds: every missing month each feed's
+    government source has published, reported to the site to stage. No AI
+    is involved in reading the statistics, so no provider is needed."""
+    from scraper.trade import run_trade_pass
+
+    client = SiteClient(base_url=site.api_url, token=site.token, name=site.name)
+
+    return run_trade_pass(client)

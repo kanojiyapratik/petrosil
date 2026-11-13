@@ -1385,6 +1385,122 @@ export const tradeShipments = pgTable(
   }),
 );
 
+/* ----------------------------------------------------------- trade feeds */
+
+/** The government statistics the engine knows how to read. */
+export const TRADE_SOURCES = ["thailand", "japan", "india", "singapore", "korea", "comtrade"] as const;
+export type TradeSource = (typeof TRADE_SOURCES)[number];
+
+/**
+ * Where one reporting country's monthly import or export sheet comes from:
+ * which government source, and which product codes add up to the brand's
+ * product. The engine reads these, fetches any month the sheet does not
+ * have yet, and hands back the figures as a staged update.
+ */
+export const tradeFeeds = pgTable(
+  "trade_feeds",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    /** The reporting country's place: the sheet this feed fills. */
+    locationId: integer("location_id")
+      .notNull()
+      .references(() => tradeLocations.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 16 }).$type<"import" | "export">().notNull(),
+    source: varchar("source", { length: 24 }).$type<TradeSource>().notNull(),
+    /** Product codes as the source writes them, summed together. */
+    hsCodes: jsonb("hs_codes").$type<string[]>().notNull(),
+    /** What the codes are, for people: "Lubricating base oil". */
+    product: varchar("product", { length: 120 }).notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    /** Publish a fetched month without review when every partner matched. */
+    autoPublish: boolean("auto_publish").default(false).notNull(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastStatus: varchar("last_status", { length: 24 }),
+    lastError: text("last_error"),
+    createdBy: integer("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    oneSheet: uniqueIndex("trade_feeds_sheet_unique").on(t.siteId, t.locationId, t.kind),
+  }),
+);
+
+/** One partner line of a fetched month. */
+export type TradeUpdateRow = {
+  /** As the source wrote it. */
+  partner: string;
+  iso2: string | null;
+  /** The source's figure divided by a thousand and rounded, as the team always entered it. */
+  qty: string;
+  /** The brand's place it was matched to, or null until someone matches it. */
+  locationId: number | null;
+  /** Left out on purpose by whoever reviewed it. */
+  skipped?: boolean;
+};
+
+/**
+ * A month the engine fetched for a feed, held until it is published (its
+ * rows written into trade_quantities) or discarded. Fetching the same month
+ * again replaces a pending update rather than piling up a second one.
+ */
+export const tradeUpdates = pgTable(
+  "trade_updates",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    feedId: integer("feed_id")
+      .notNull()
+      .references(() => tradeFeeds.id, { onDelete: "cascade" }),
+    qtyDate: date("qty_date").notNull(),
+    status: varchar("status", { length: 16 }).$type<"pending" | "published" | "discarded">().default("pending").notNull(),
+    rows: jsonb("rows").$type<TradeUpdateRow[]>().notNull(),
+    sourceUrl: text("source_url"),
+    /** The source's unit before the division: KGS (so tonnes) or LTR (so kilolitres). */
+    sourceUnit: varchar("source_unit", { length: 16 }),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** Null with a decision means the engine published it on its own. */
+    decidedBy: integer("decided_by").references(() => users.id),
+    insightStatus: varchar("insight_status", { length: 24 }),
+    insightText: text("insight_text"),
+    insightModel: varchar("insight_model", { length: 120 }),
+    insightError: text("insight_error"),
+    insightAt: timestamp("insight_at", { withTimezone: true }),
+  },
+  (t) => ({
+    bySite: index("trade_updates_site_idx").on(t.siteId, t.id),
+    onePending: uniqueIndex("trade_updates_pending_unique")
+      .on(t.feedId, t.qtyDate)
+      .where(sql`status = 'pending'`),
+  }),
+);
+
+/**
+ * A name a source uses for one of the brand's places, learnt when someone
+ * matched it by hand: "Korea, Republic of" is the brand's "South Korea".
+ */
+export const tradeLocationAliases = pgTable(
+  "trade_location_aliases",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    alias: varchar("alias", { length: 191 }).notNull(),
+    locationId: integer("location_id")
+      .notNull()
+      .references(() => tradeLocations.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    onePerName: uniqueIndex("trade_location_aliases_unique").on(t.siteId, sql`lower(${t.alias})`),
+  }),
+);
+
 /* ------------------------------------------------------------------- ads */
 
 /** Where an ad can go: 6 slots per site in the old `adlocations`. */

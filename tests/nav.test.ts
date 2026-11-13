@@ -311,6 +311,7 @@ describe("the cards tell the truth", () => {
         "ads",
         "batches",
         "crawl",
+        "trade-feeds",
         "trade-analysis",
         "settings",
         "enquiries",

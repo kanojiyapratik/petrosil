@@ -65,6 +65,27 @@ def run_estate_pass(sites: Iterable, crawl: Callable, stop: Callable[[], bool] =
     return report
 
 
+def run_trade_estate_pass(sites: Iterable, check: Callable, stop: Callable[[], bool] = lambda: False) -> dict:
+    """Every enabled brand's trade feeds. A brand with no feeds costs one
+    small request; one that fails is logged and the rest still run."""
+    report: dict = {}
+
+    for site in sites:
+        if not getattr(site, "enabled", True) or stop():
+            continue
+
+        try:
+            results = check(site)
+        except Exception as error:  # noqa: BLE001 - one brand never stops the rest
+            logger.error("%s trade: %s", site.slug, error)
+            report[site.slug] = f"failed: {error}"
+            continue
+
+        report[site.slug] = len(results)
+
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Every brand's watched pages, on a loop")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
@@ -95,6 +116,13 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
+    # Government trade statistics change monthly, on no fixed day: checking
+    # every six hours finds a release the same day without hammering anyone.
+    from app.console.crawl_now import trade_site_now
+
+    trade_interval = int(os.environ.get("TRADE_INTERVAL_SECONDS", "21600"))
+    last_trade = 0.0
+
     while True:
         # Read every pass: a brand added, switched off or given a new
         # provider on the AI settings screen is picked up without a restart.
@@ -105,6 +133,11 @@ def main(argv: list[str] | None = None) -> int:
             stop=lambda: _stopping,
         )
         logger.info("Pass complete over %s brand(s).", len(report))
+
+        if trade_interval > 0 and time.monotonic() - last_trade >= trade_interval and not _stopping:
+            last_trade = time.monotonic()
+            trade = run_trade_estate_pass(store.sites(), trade_site_now, stop=lambda: _stopping)
+            logger.info("Trade pass complete: %s", trade)
 
         if args.once or _stopping:
             return 0
