@@ -23,6 +23,8 @@ export type OutgoingMail = {
   fromEmail?: string;
   /** Where a reply goes: the member who wrote, on a forwarded enquiry. */
   replyTo?: string;
+  /** Extra headers: a newsletter's List-Unsubscribe pair. */
+  headers?: Record<string, string>;
   /** Files sent with the mail: a report's PDF, sample reports. */
   attachments?: { name: string; content: Uint8Array }[];
 };
@@ -76,6 +78,7 @@ export function brevoTransport(options: {
             htmlContent: mail.html,
             textContent: mail.text,
             ...(mail.replyTo ? { replyTo: { email: mail.replyTo } } : {}),
+            ...(mail.headers ? { headers: mail.headers } : {}),
             ...(mail.attachments?.length
               ? {
                   attachment: mail.attachments.map((file) => ({

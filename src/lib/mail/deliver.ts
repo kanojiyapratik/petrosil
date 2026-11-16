@@ -17,7 +17,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
-import { mailOutbox, mailTemplates, sites } from "@/db/schema";
+import { mailOutbox, mailSends, mailTemplates, sites } from "@/db/schema";
 import { renderMail, SYSTEM_PREFIX, TemplateUnavailable, UnknownTemplate, type StoredTemplate } from "./render";
 import { SendError, type Transport } from "./transport";
 import { fileStore, type FileStore } from "@/lib/files/store";
@@ -187,6 +187,8 @@ export async function deliverPending(
 
   // One lookup per brand per run, not per mail: a report send is hundreds of rows for one brand.
   const senders = new Map<number, BrandSender>();
+  // A newsletter's body, once per send: a run is mostly one send's rows.
+  const bodies = new Map<number, string | null>();
 
   for (const { mail, siteName, slug, domain } of rows) {
     try {
@@ -197,9 +199,26 @@ export async function deliverPending(
         senders.set(mail.siteId, sender);
       }
 
+      let sendBody: string | null = null;
+
+      if (mail.template === "newsletter" && typeof mail.payload.send === "number") {
+        if (!bodies.has(mail.payload.send)) {
+          const [send] = await database
+            .select({ body: mailSends.body })
+            .from(mailSends)
+            .where(eq(mailSends.id, mail.payload.send))
+            .limit(1);
+
+          bodies.set(mail.payload.send, send?.body ?? null);
+        }
+
+        sendBody = bodies.get(mail.payload.send) ?? null;
+      }
+
       const rendered = renderMail(mail, {
         linkBase: linkBaseFor({ slug, domain }, options.env),
         stored: await storedTemplate(database, mail),
+        sendBody,
       });
       const attachments = await attachmentsFor(mail, options.store ?? fileStore());
       const { messageId } = await transport.send({
@@ -213,6 +232,7 @@ export async function deliverPending(
         // A forwarded enquiry replies to the member who wrote; anything else to the brand.
         replyTo: typeof mail.payload.reply_to === "string" ? mail.payload.reply_to : (sender?.replyTo ?? undefined),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(rendered.headers ? { headers: rendered.headers } : {}),
       });
 
       await database

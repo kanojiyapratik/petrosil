@@ -7,7 +7,13 @@
  * somebody typed into a registration form.
  */
 
-export type Rendered = { subject: string; html: string; text: string };
+export type Rendered = {
+  subject: string;
+  html: string;
+  text: string;
+  /** Extra mail headers: a newsletter's List-Unsubscribe pair. */
+  headers?: Record<string, string>;
+};
 
 export type Queued = {
   template: string;
@@ -23,6 +29,8 @@ export type RenderContext = {
   linkBase: string;
   /** Loaded by the caller for a `system:` mail; absent when the brand has none, or it is off. */
   stored?: StoredTemplate | null;
+  /** A newsletter's body, read once per send at delivery rather than copied into every queued row. */
+  sendBody?: string | null;
 };
 
 export class UnknownTemplate extends Error {
@@ -178,6 +186,44 @@ const TEMPLATES: Record<string, (mail: Queued, context: RenderContext) => Render
     const html = String(mail.payload.html ?? "");
 
     return { subject: mail.subject, html, text: htmlToText(html) };
+  },
+
+  /**
+   * One subscriber's copy of a newsletter. The issue's HTML is the send's, read
+   * at delivery; the row carries only this reader's unsubscribe link and open
+   * pixel. Mail clients show their own unsubscribe button from the headers, and
+   * the one-click POST (RFC 8058) is what Gmail and Yahoo ask bulk senders for.
+   */
+  newsletter: (mail, context) => {
+    if (!context.sendBody) {
+      throw new UnknownTemplate("newsletter (its send is gone)");
+    }
+
+    const unsubscribe = String(mail.payload.unsubscribe ?? "");
+    // The header points at the endpoint that takes the one-click POST; the
+    // footer at the page a person reads.
+    const oneClick = String(mail.payload.one_click ?? unsubscribe);
+    const pixel = String(mail.payload.pixel ?? "");
+    const footer =
+      `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;text-align:center;margin:24px 0">` +
+      `You get this because you have an account with ${escape(mail.payload.siteName ?? "us")}. ` +
+      `<a href="${escape(unsubscribe)}" style="color:#888">Unsubscribe from this newsletter</a></p>`;
+    const image = pixel
+      ? `<img src="${escape(pixel)}" width="1" height="1" alt="" style="display:block;border:0" />`
+      : "";
+    // Inside </body> when the issue is a whole document, after it when not.
+    const html = /<\/body>/i.test(context.sendBody)
+      ? context.sendBody.replace(/<\/body>/i, () => `${footer}${image}</body>`)
+      : context.sendBody + footer + image;
+
+    return {
+      subject: mail.subject,
+      html,
+      text: `${htmlToText(context.sendBody)}\n\nUnsubscribe: ${unsubscribe}`,
+      headers: unsubscribe
+        ? { "List-Unsubscribe": `<${oneClick}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+        : undefined,
+    };
   },
 
   /** A staff invitation: the link sets a password on this admin, not a brand site. */

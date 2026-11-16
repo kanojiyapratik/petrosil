@@ -16,6 +16,7 @@ import {
   saveNewsletter,
   sendTestNewsletter,
 } from "@/domain/content/newsletters";
+import { sendNewsletter } from "@/domain/content/newsletter-send";
 import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
@@ -72,6 +73,27 @@ export async function saveAction(_state: unknown, form: FormData): Promise<Issue
   revalidatePath("/dashboard/sites/[slug]/newsletters", "layout");
 
   return result.ok ? { saved: "Saved." } : { error: result.message };
+}
+
+export async function sendAction(_state: unknown, form: FormData): Promise<IssueResult> {
+  const viewer = await staff();
+  const site = String(form.get("site") ?? "");
+  const id = Number(form.get("id"));
+  const result = await orRefused(
+    sendNewsletter(
+      viewer,
+      { id, audience: String(form.get("audience") ?? ""), confirm: String(form.get("confirm") ?? "") },
+      { ip: await callerIp() },
+    ),
+  );
+
+  if (!result.ok) {
+    return { error: result.message };
+  }
+
+  revalidatePath("/dashboard/sites/[slug]/newsletters", "layout");
+  // Outside any try: redirect() works by throwing.
+  redirect(`/dashboard/sites/${site}/newsletters/${id}`);
 }
 
 export async function testSendAction(_state: unknown, form: FormData): Promise<IssueResult> {

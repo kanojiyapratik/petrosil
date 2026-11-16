@@ -8,6 +8,7 @@
  * what the brand already has, into a brand whose other content is already here.
  * `--only offer-owners` fills in who posted each offer and changes nothing else.
  * `--only offer-countries` names the offers whose country came across as a number.
+ * `--only reports-impex` carries reports and impex sheets into a brand that has none.
  * `--only impex-dates` dates the impex sheets that came across undated, from their titles.
  * `--only crawl-watch` carries the pages the crawler watches, and the crawler's
  * instructions, so the brand's crawler picks up where the old site's left off.
@@ -100,7 +101,7 @@ function options(): Options {
   const site = read("site");
 
   if (!from || !site) {
-    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|articles|offer-owners|offer-countries|impex-dates|crawl-watch]");
+    throw new Error("usage: migrate-content --from <mysql database> --site <platform slug> [--fresh | --only mails|enquiries|articles|reports-impex|offer-owners|offer-countries|impex-dates|crawl-watch]");
   }
 
   return {
@@ -866,6 +867,118 @@ async function carryArticlesOnly(
   await carryArticles(source, database, siteId, filedUnder);
 }
 
+async function carryReports(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (have.has("reports")) {
+    const [rows] = await source.query<Row[]>(
+      `select id, title, description, attach_file, report_type, thumb_image, publish_options,
+              authored_on, clicks, meta_title, meta_description, path, created_at, updated_at,
+              (select lower(trim(u.email)) from users u where u.id = reports.authored_by) as author_email
+         from reports where deleted_at is null order by id`,
+    );
+    const reportAuthors = await usersByEmail(database, rows);
+
+    const seen = new Set<string>();
+
+    const values = rows.map((row) => {
+      const read = readStatus(text(row.publish_options));
+      const title = clipped(row.title, 255) ?? `Report ${row.id}`;
+
+      return {
+        siteId: siteId,
+        slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
+        title,
+        description: text(row.description),
+        reportType: clipped(row.report_type, 64) ?? "report",
+        file: clipped(row.attach_file, 512),
+        thumbnail: clipped(row.thumb_image, 512),
+        // Listed meant paid: the old report page sat behind auth + premium (see migration 0015).
+        status: read.premium || read.status === "published" ? "premium" : read.status,
+        authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
+        authorId: reportAuthors.get(text(row.author_email) ?? "") ?? null,
+        clicks: Number(row.clicks ?? 0),
+        metaTitle: clipped(row.meta_title, 255),
+        metaDescription: text(row.meta_description),
+        createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+        updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
+      };
+    });
+
+    await insertAll(reports, values);
+    console.log(`reports      ${values.length} carried`);
+  }
+}
+
+async function carryImpex(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  have: Set<string>,
+): Promise<void> {
+  if (have.has("impexes")) {
+    const [rows] = await source.query<Row[]>(
+      `select id, title, description, attach_file, publish_options, authored_on, clicks,
+              path, created_at, updated_at,
+              (select lower(trim(u.email)) from users u where u.id = impexes.authored_by) as author_email
+         from impexes where deleted_at is null order by id`,
+    );
+    const sheetAuthors = await usersByEmail(database, rows);
+
+    const seen = new Set<string>();
+
+    const values = rows.map((row) => {
+      const read = readStatus(text(row.publish_options));
+      const title = clipped(row.title, 255) ?? `Sheet ${row.id}`;
+
+      return {
+        siteId: siteId,
+        slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
+        title,
+        description: text(row.description),
+        file: clipped(row.attach_file, 512),
+        // Listed meant paid, as for reports.
+        status: read.premium || read.status === "published" ? "premium" : read.status,
+        // Half of baseoil’s carry a zero date; their title still names the month.
+        authoredOn: readDay(row.authored_on) ?? readDay(row.created_at) ?? monthFromTitle(title),
+        authorId: sheetAuthors.get(text(row.author_email) ?? "") ?? null,
+        clicks: Number(row.clicks ?? 0),
+        createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
+        updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
+      };
+    });
+
+    await insertAll(impexSheets, values);
+    console.log(`impex        ${values.length} carried`);
+  }
+}
+
+/**
+ * Reports and impex sheets into a brand that has neither: Fertilizer,
+ * Glycerine and Methanol Report were first carried from sources without them.
+ * The same rules as the full run (status, authors by email, slugs).
+ */
+async function carryReportsAndImpexOnly(
+  source: mysql.Connection,
+  database: ReturnType<typeof db>,
+  siteId: number,
+  tables: Set<string>,
+): Promise<void> {
+  const [heldReports] = await database.select({ n: count() }).from(reports).where(eq(reports.siteId, siteId));
+  const [heldSheets] = await database.select({ n: count() }).from(impexSheets).where(eq(impexSheets.siteId, siteId));
+  const held = Number(heldReports?.n ?? 0) + Number(heldSheets?.n ?? 0);
+
+  if (held > 0) {
+    throw new Error(`this brand already holds ${held} reports and impex sheets; --only reports-impex runs only into a brand with none`);
+  }
+
+  await carryReports(source, database, siteId, tables);
+  await carryImpex(source, database, siteId, tables);
+}
+
 async function main(): Promise<void> {
   const opts = options();
   const database = db();
@@ -910,11 +1023,14 @@ async function main(): Promise<void> {
       } else if (opts.only === "articles") {
         // Into a brand with no articles only: refuses otherwise.
         await carryArticlesOnly(source, database, brand.id, tables);
+      } else if (opts.only === "reports-impex") {
+        // Into a brand with no reports or impex sheets only: refuses otherwise.
+        await carryReportsAndImpexOnly(source, database, brand.id, tables);
       } else if (opts.only === "offer-owners") {
         // A fill-in, not a replace: safe to run again.
         await carryOfferOwners(source, database, brand.id, tables);
       } else {
-        throw new Error(`--only knows "mails", "enquiries", "articles", "offer-owners", "offer-countries", "impex-dates" and "crawl-watch"; "${opts.only}" is not a section it can carry alone`);
+        throw new Error(`--only knows "mails", "enquiries", "articles", "reports-impex", "offer-owners", "offer-countries", "impex-dates" and "crawl-watch"; "${opts.only}" is not a section it can carry alone`);
       }
 
       return;
@@ -1147,44 +1263,7 @@ async function main(): Promise<void> {
 
     /* ------------------------------------------------------------- reports */
 
-    if (have.has("reports")) {
-      const [rows] = await source.query<Row[]>(
-        `select id, title, description, attach_file, report_type, thumb_image, publish_options,
-                authored_on, clicks, meta_title, meta_description, path, created_at, updated_at,
-                (select lower(trim(u.email)) from users u where u.id = reports.authored_by) as author_email
-           from reports where deleted_at is null order by id`,
-      );
-      const reportAuthors = await usersByEmail(database, rows);
-
-      const seen = new Set<string>();
-
-      const values = rows.map((row) => {
-        const read = readStatus(text(row.publish_options));
-        const title = clipped(row.title, 255) ?? `Report ${row.id}`;
-
-        return {
-          siteId: brand.id,
-          slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
-          title,
-          description: text(row.description),
-          reportType: clipped(row.report_type, 64) ?? "report",
-          file: clipped(row.attach_file, 512),
-          thumbnail: clipped(row.thumb_image, 512),
-          // Listed meant paid: the old report page sat behind auth + premium (see migration 0015).
-          status: read.premium || read.status === "published" ? "premium" : read.status,
-          authoredOn: readDay(row.authored_on) ?? readDay(row.created_at),
-          authorId: reportAuthors.get(text(row.author_email) ?? "") ?? null,
-          clicks: Number(row.clicks ?? 0),
-          metaTitle: clipped(row.meta_title, 255),
-          metaDescription: text(row.meta_description),
-          createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
-          updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
-        };
-      });
-
-      await insertAll(reports, values);
-      console.log(`reports      ${values.length} carried`);
-    }
+    await carryReports(source, database, brand.id, have);
 
     /* -------------------------------------------------------------- offers */
 
@@ -1235,41 +1314,7 @@ async function main(): Promise<void> {
 
     /* -------------------------------------------------------- impex sheets */
 
-    if (have.has("impexes")) {
-      const [rows] = await source.query<Row[]>(
-        `select id, title, description, attach_file, publish_options, authored_on, clicks,
-                path, created_at, updated_at,
-                (select lower(trim(u.email)) from users u where u.id = impexes.authored_by) as author_email
-           from impexes where deleted_at is null order by id`,
-      );
-      const sheetAuthors = await usersByEmail(database, rows);
-
-      const seen = new Set<string>();
-
-      const values = rows.map((row) => {
-        const read = readStatus(text(row.publish_options));
-        const title = clipped(row.title, 255) ?? `Sheet ${row.id}`;
-
-        return {
-          siteId: brand.id,
-          slug: uniqueSlug(text(row.path) ?? title, Number(row.id), seen),
-          title,
-          description: text(row.description),
-          file: clipped(row.attach_file, 512),
-          // Listed meant paid, as for reports.
-          status: read.premium || read.status === "published" ? "premium" : read.status,
-          // Half of baseoil’s carry a zero date; their title still names the month.
-          authoredOn: readDay(row.authored_on) ?? readDay(row.created_at) ?? monthFromTitle(title),
-          authorId: sheetAuthors.get(text(row.author_email) ?? "") ?? null,
-          clicks: Number(row.clicks ?? 0),
-          createdAt: readDate(row.created_at) ?? new Date("2015-01-01"),
-          updatedAt: readDate(row.updated_at) ?? readDate(row.created_at) ?? new Date("2015-01-01"),
-        };
-      });
-
-      await insertAll(impexSheets, values);
-      console.log(`impex        ${values.length} carried`);
-    }
+    await carryImpex(source, database, brand.id, have);
 
     /* ----------------------------------------------------------------- ads */
 

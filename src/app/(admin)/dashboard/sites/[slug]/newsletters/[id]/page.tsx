@@ -11,10 +11,12 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { getNewsletter } from "@/domain/content/newsletters";
+import { audienceCounts, newsletterDelivery } from "@/domain/content/newsletter-send";
+import { can } from "@/domain/staff/permissions";
 import { copyAction } from "../actions";
-import { EditIssueForm, TestSendForm } from "../forms";
+import { EditIssueForm, SendForm, TestSendForm } from "../forms";
 import { STATUS } from "../status";
-import { Heading, Panel, count, one, when, type Search } from "@/app/(admin)/ui";
+import { Heading, Panel, Tile, count, one, when, type Search } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,9 @@ export default async function NewsletterPage({
   }
 
   const shown = STATUS[issue.status] ?? { label: issue.status, tone: "" };
+  const mayKnowSend = issue.status === "draft" && (await can(viewer, issue.siteId, "newsletter-send"));
+  const counts = mayKnowSend ? await audienceCounts(viewer, issue.id) : null;
+  const delivery = issue.status === "sent" ? await newsletterDelivery(viewer, issue.id) : null;
 
   return (
     <>
@@ -70,15 +75,26 @@ export default async function NewsletterPage({
               Copy into a new draft
             </button>
           </form>
-          <button type="button" disabled title="Waiting on a decision: which list a newsletter goes to.">
-            Send to subscribers
-          </button>
+          {counts ? <SendForm id={issue.id} site={slug} counts={counts} /> : null}
         </div>
-        <p className="small muted" style={{ margin: ".4rem 0 0" }}>
-          Sending to subscribers is not switched on yet: it needs a decision on who receives it (a Brevo list, or
-          this brand&apos;s own subscribers).
-        </p>
       </Panel>
+
+      {delivery ? (
+        <Panel title="Delivery" flush={false}>
+          <div className="tiles">
+            <Tile n={delivery.recipients} k="recipients" />
+            <Tile n={delivery.waiting} k="waiting to go" />
+            <Tile n={delivery.sent} k="sent" />
+            <Tile n={delivery.failed} k="failed" />
+            <Tile n={delivery.opened} k="opened" />
+            <Tile n={delivery.optedOut} k="unsubscribed" />
+          </div>
+          <p className="small muted" style={{ margin: ".4rem 0 0" }}>
+            {delivery.waiting > 0 ? "Waiting mails leave with the mail runs, once a mail key is set. " : ""}
+            <Link href={`/dashboard/sites/${slug}/deliveries/${delivery.sendId}`}>Every recipient →</Link>
+          </p>
+        </Panel>
+      ) : null}
 
       {issue.status === "draft" ? (
         <Panel title="Edit" flush={false}>

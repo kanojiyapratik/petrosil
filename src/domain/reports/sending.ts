@@ -505,8 +505,13 @@ export type RecipientRow = {
 export type SendDetail = Omit<SendRow, "recipients"> & {
   body: string;
   site: string;
+  /** Up to SHOWN of them, failures first: a newsletter can go to tens of thousands. */
   recipients: RecipientRow[];
+  total: number;
+  queued: number;
 };
+
+const SHOWN = 1000;
 
 export async function getSend(
   guard: Pick<Guarded, "siteIds" | "isSuperadmin">,
@@ -530,7 +535,20 @@ export async function getSend(
     .from(mailSendRecipients)
     .leftJoin(mailOutbox, eq(mailOutbox.id, mailSendRecipients.outboxId))
     .where(eq(mailSendRecipients.sendId, id))
-    .orderBy(asc(mailSendRecipients.id));
+    .orderBy(sql`(${mailOutbox.failedAt} is null)`, asc(mailSendRecipients.id))
+    .limit(SHOWN);
+
+  const [totals] = await database
+    .select({
+      total: sql<number>`count(*)::int`,
+      sent: sql<number>`count(${mailOutbox.sentAt})::int`,
+      failed: sql<number>`count(${mailOutbox.failedAt})::int`,
+      opened: sql<number>`count(${mailSendRecipients.openedAt})::int`,
+      queued: sql<number>`count(*) filter (where ${mailOutbox.id} is not null and ${mailOutbox.sentAt} is null and ${mailOutbox.failedAt} is null)::int`,
+    })
+    .from(mailSendRecipients)
+    .leftJoin(mailOutbox, eq(mailOutbox.id, mailSendRecipients.outboxId))
+    .where(eq(mailSendRecipients.sendId, id));
 
   const recipients: RecipientRow[] = people.map(({ recipient, mail }) => ({
     email: recipient.email,
@@ -549,8 +567,6 @@ export async function getSend(
     openedAt: recipient.openedAt,
   }));
 
-  const counted = (status: RecipientRow["status"]) => recipients.filter((row) => row.status === status).length;
-
   return {
     id: found.send.id,
     kind: found.send.kind,
@@ -562,9 +578,12 @@ export async function getSend(
     legacy: found.send.legacy,
     createdAt: found.send.createdAt,
     recipients,
-    sent: counted("sent"),
-    failed: counted("failed"),
-    opened: recipients.filter((row) => row.openedAt !== null).length,
+    total: totals?.total ?? 0,
+    // A carried send has no outbox rows: nothing of it is sent, failed or waiting.
+    sent: found.send.legacy ? 0 : (totals?.sent ?? 0),
+    failed: found.send.legacy ? 0 : (totals?.failed ?? 0),
+    queued: found.send.legacy ? 0 : (totals?.queued ?? 0),
+    opened: totals?.opened ?? 0,
   };
 }
 

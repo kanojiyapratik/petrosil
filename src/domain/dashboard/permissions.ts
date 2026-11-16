@@ -86,6 +86,7 @@ export const PERMISSIONS: PermissionGroup[] = [
       { key: "enquiry-list", label: "Read enquiries" },
       { key: "enquiry-edit", label: "Mark enquiries handled" },
       { key: "report-send", label: "Send a report or a sample" },
+      { key: "newsletter-send", label: "Send a newsletter to subscribers" },
       { key: "file-upload", label: "Upload files" },
       { key: "trade-qty-edit", label: "Enter import and export quantities" },
       { key: "price-note-edit", label: "Correct the published price note" },

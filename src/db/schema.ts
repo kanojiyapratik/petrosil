@@ -928,8 +928,10 @@ export const mailSends = pgTable(
     siteId: integer("site_id")
       .notNull()
       .references(() => sites.id, { onDelete: "cascade" }),
-    /** "report" | "sample" */
+    /** "report" | "sample" | "newsletter" */
     kind: varchar("kind", { length: 16 }).notNull(),
+    /** The issue sent, when `kind` is "newsletter". */
+    newsletterId: integer("newsletter_id"),
     /** The report ids attached, in order. */
     reportIds: jsonb("report_ids").$type<number[]>().default([]).notNull(),
     /** The report title (or titles), kept as text so the log survives a deleted report. */
@@ -1606,6 +1608,29 @@ export const newsletters = pgTable(
   },
   (t) => ({
     bySite: index("newsletters_site_idx").on(t.siteId, t.status, t.createdAt),
+  }),
+);
+
+/**
+ * Addresses that asked to stop getting a brand's newsletter, from the link in
+ * every issue or put there by staff. Keyed by address, lowercased, so it holds
+ * whichever account the address belongs to now. Only newsletters read it: a
+ * paid report or a password reset still goes.
+ */
+export const newsletterOptOuts = pgTable(
+  "newsletter_opt_outs",
+  {
+    id: serial("id").primaryKey(),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 191 }).notNull(),
+    /** "link" | "staff" */
+    source: varchar("source", { length: 16 }).default("link").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    onePerAddress: uniqueIndex("newsletter_opt_outs_site_email_unique").on(t.siteId, t.email),
   }),
 );
 

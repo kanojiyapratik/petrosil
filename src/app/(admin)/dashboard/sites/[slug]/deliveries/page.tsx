@@ -29,7 +29,7 @@ export default async function DeliveriesPage({
 
   return (
     <>
-      <Heading title="Delivery log" sub="Who was sent which report or sample, whether it went, and who opened it." />
+      <Heading title="Delivery log" sub="Who was sent which report, sample or newsletter, whether it went, and who opened it." />
 
       <div style={{ margin: "0 0 14px" }}>
         <Chips
@@ -41,6 +41,7 @@ export default async function DeliveriesPage({
             { value: "", label: "Everything" },
             { value: "report", label: "Report sends" },
             { value: "sample", label: "Samples" },
+            { value: "newsletter", label: "Newsletters" },
           ]}
         />
       </div>
@@ -65,7 +66,7 @@ export default async function DeliveriesPage({
                     <strong>{row.about ?? row.subject}</strong>
                   </Link>
                   <div className="small muted">
-                    {row.kind === "sample" ? "sample" : "report"}
+                    {row.kind === "sample" ? "sample" : row.kind === "newsletter" ? "newsletter" : "report"}
                     {row.sentByName ? ` · by ${row.sentByName}` : ""}
                   </div>
                 </td>

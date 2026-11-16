@@ -5,9 +5,10 @@
  * editing a draft, and a test send.
  */
 
-import { useActionState } from "react";
+import { startTransition, useActionState, useState } from "react";
 
-import { composeAction, saveAction, testSendAction, type IssueResult } from "./actions";
+import { Popup } from "@/app/(admin)/popup";
+import { composeAction, saveAction, sendAction, testSendAction, type IssueResult } from "./actions";
 
 function Flash({ state }: { state: IssueResult }) {
   if (state?.error) {
@@ -106,5 +107,86 @@ export function TestSendForm({ id }: { id: number }) {
       </button>
       <Flash state={state} />
     </form>
+  );
+}
+
+const CHOICES = [
+  { value: "everyone", label: "Every subscriber" },
+  { value: "paying", label: "Paying readers only" },
+  { value: "free", label: "Free and trial readers only" },
+] as const;
+
+/**
+ * Sending to subscribers, in a popup: who it goes to, then the number typed
+ * back as the confirmation. The server re-counts and refuses a number that no
+ * longer matches.
+ */
+export function SendForm({
+  id,
+  site,
+  counts,
+}: {
+  id: number;
+  site: string;
+  counts: { everyone: number; paying: number; free: number; optedOut: number };
+}) {
+  const [state, action, pending] = useActionState(sendAction, null as IssueResult);
+  const [audience, setAudience] = useState<(typeof CHOICES)[number]["value"]>("everyone");
+  const reach = counts[audience];
+
+  // Submitted by hand, not through `action=`: React resets a form after its
+  // action, which put the radio back on "Every subscriber" while the count
+  // beside the box still said the paying number. The next press would have
+  // gone to the wrong list.
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+
+    startTransition(() => action(data));
+  };
+
+  return (
+    <Popup label="Send to subscribers" title="Send this issue to subscribers">
+      <form onSubmit={submit}>
+        <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="site" value={site} />
+        <Flash state={state} />
+
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: "0 0 .8rem" }}>
+          <legend>Who it goes to</legend>
+          {CHOICES.map((choice) => (
+            <label key={choice.value} style={{ display: "block", margin: ".25rem 0" }}>
+              <input
+                type="radio"
+                name="audience"
+                value={choice.value}
+                checked={audience === choice.value}
+                onChange={() => setAudience(choice.value)}
+              />{" "}
+              {choice.label} — <strong>{counts[choice.value].toLocaleString("en-GB")}</strong>
+            </label>
+          ))}
+        </fieldset>
+
+        <p className="small muted">
+          Active accounts on this brand only. {counts.optedOut.toLocaleString("en-GB")} address
+          {counts.optedOut === 1 ? " has" : "es have"} unsubscribed and {counts.optedOut === 1 ? "is" : "are"} left out.
+          Every copy has its own unsubscribe link. Once sent, the issue can no longer be edited.
+        </p>
+
+        <div className="field">
+          <label htmlFor="send-confirm">
+            Type <strong>{reach.toLocaleString("en-GB")}</strong> to send it to that many people
+          </label>
+          <input id="send-confirm" name="confirm" type="text" inputMode="numeric" autoComplete="off" required />
+        </div>
+
+        <div className="actions">
+          <button type="submit" disabled={pending || reach === 0}>
+            {pending ? "Queuing…" : `Send to ${reach.toLocaleString("en-GB")}`}
+          </button>
+        </div>
+      </form>
+    </Popup>
   );
 }

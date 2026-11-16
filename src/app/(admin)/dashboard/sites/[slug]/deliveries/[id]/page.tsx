@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { getSend } from "@/domain/reports/sending";
-import { Heading, Panel, Tile, when } from "@/app/(admin)/ui";
+import { Heading, Panel, Tile, count, when } from "@/app/(admin)/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,8 @@ export default async function DeliveryPage({ params }: { params: Promise<{ slug:
     notFound();
   }
 
-  const queued = send.recipients.filter((row) => row.status === "queued").length;
+  const queued = send.queued;
+  const what = send.kind === "sample" ? "Sample" : send.kind === "newsletter" ? "Newsletter" : "Report send";
 
   return (
     <>
@@ -30,11 +31,11 @@ export default async function DeliveryPage({ params }: { params: Promise<{ slug:
 
       <Heading
         title={send.about ?? send.subject}
-        sub={`${send.kind === "sample" ? "Sample" : "Report send"}${send.sentByName ? ` by ${send.sentByName}` : ""}, ${when(send.createdAt.toISOString())}.`}
+        sub={`${what}${send.sentByName ? ` by ${send.sentByName}` : ""}, ${when(send.createdAt.toISOString())}.`}
       />
 
       <div className="tiles">
-        <Tile n={send.recipients.length} k="recipients" />
+        <Tile n={send.total} k="recipients" />
         <Tile n={queued} k="waiting to go" />
         <Tile n={send.sent} k="sent" />
         <Tile n={send.failed} k="failed" />
@@ -47,7 +48,13 @@ export default async function DeliveryPage({ params }: { params: Promise<{ slug:
         </p>
       ) : null}
 
-      <Panel title="Recipients">
+      <Panel
+        title={
+          send.total > send.recipients.length
+            ? `Recipients — the first ${count(send.recipients.length)} of ${count(send.total)}, failures first`
+            : "Recipients"
+        }
+      >
         <table className="tight">
           <thead>
             <tr>
