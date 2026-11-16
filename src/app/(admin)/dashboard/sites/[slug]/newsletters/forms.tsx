@@ -8,7 +8,15 @@
 import { startTransition, useActionState, useState } from "react";
 
 import { Popup } from "@/app/(admin)/popup";
-import { composeAction, saveAction, sendAction, testSendAction, type IssueResult } from "./actions";
+import {
+  addOptOutAction,
+  composeAction,
+  removeOptOutAction,
+  saveAction,
+  sendAction,
+  testSendAction,
+  type IssueResult,
+} from "./actions";
 
 function Flash({ state }: { state: IssueResult }) {
   if (state?.error) {
@@ -188,5 +196,54 @@ export function SendForm({
         </div>
       </form>
     </Popup>
+  );
+}
+
+/** Taking one address off the brand's newsletter by hand. */
+export function AddOptOutForm({ site }: { site: string }) {
+  const [state, action, pending] = useActionState(addOptOutAction, null as IssueResult);
+
+  return (
+    <form action={action}>
+      <input type="hidden" name="site" value={site} />
+      <Flash state={state} />
+      <div className="bar">
+        <div className="field grow">
+          <label htmlFor="optout-email">Email address</label>
+          <input id="optout-email" name="email" type="email" maxLength={191} required placeholder="name@company.com" />
+        </div>
+        <button type="submit" disabled={pending}>
+          {pending ? "Saving…" : "Take off the newsletter"}
+        </button>
+      </div>
+      <p className="small muted" style={{ margin: ".4rem 0 0" }}>
+        For someone who asked by email or phone. They keep their account and their reports; only the newsletter stops.
+      </p>
+    </form>
+  );
+}
+
+/** Putting one address back: asks first, since they may have asked for no mail. */
+export function PutBackForm({ site, id, email, source }: { site: string; id: number; email: string; source: string }) {
+  return (
+    <form
+      action={removeOptOutAction}
+      onSubmit={(event) => {
+        const warning =
+          source === "link"
+            ? `${email} unsubscribed themselves. Only put them back if they have asked you to. Put back on the newsletter?`
+            : `Put ${email} back on the newsletter?`;
+
+        if (!window.confirm(warning)) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="site" value={site} />
+      <input type="hidden" name="id" value={id} />
+      <button className="ghost small" type="submit">
+        Put back
+      </button>
+    </form>
   );
 }

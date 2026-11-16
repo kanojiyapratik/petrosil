@@ -17,6 +17,7 @@ import {
   sendTestNewsletter,
 } from "@/domain/content/newsletters";
 import { sendNewsletter } from "@/domain/content/newsletter-send";
+import { addOptOut, removeOptOut } from "@/domain/content/newsletter-opt-outs";
 import { orRefused } from "@/domain/staff/permissions";
 import { callerIp } from "@/app/(admin)/dashboard/actions";
 
@@ -103,4 +104,25 @@ export async function testSendAction(_state: unknown, form: FormData): Promise<I
   return result.ok
     ? { saved: `Queued to ${result.to}. It leaves with the next mail run, once a mail key is set.` }
     : { error: result.message };
+}
+
+export async function addOptOutAction(_state: unknown, form: FormData): Promise<IssueResult> {
+  const viewer = await staff();
+  const result = await orRefused(
+    addOptOut(viewer, { site: String(form.get("site") ?? ""), email: String(form.get("email") ?? "") }, { ip: await callerIp() }),
+  );
+
+  revalidatePath("/dashboard/sites/[slug]/newsletters", "layout");
+
+  return result.ok ? { saved: result.message } : { error: result.message };
+}
+
+export async function removeOptOutAction(form: FormData) {
+  const viewer = await staff();
+  const site = String(form.get("site") ?? "");
+  const result = await orRefused(removeOptOut(viewer, { site, id: Number(form.get("id")) }, { ip: await callerIp() }));
+  const back = `/dashboard/sites/${site}/newsletters/unsubscribed`;
+
+  revalidatePath("/dashboard/sites/[slug]/newsletters", "layout");
+  redirect(`${back}?${result.ok ? "done" : "refused"}=${encodeURIComponent(result.message)}`);
 }

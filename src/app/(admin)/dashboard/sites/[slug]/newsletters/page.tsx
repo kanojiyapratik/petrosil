@@ -58,6 +58,9 @@ export default async function NewslettersPage({
         title="Newsletters"
         sub="Start an issue from a template, edit it, and send yourself a test. Issues from the old site are kept to read and copy."
       >
+        <Link className="button ghost small" href={`${base}/unsubscribed`}>
+          Unsubscribed
+        </Link>
         <Popup label="New issue" title="New issue">
           <ComposeForm
             site={slug}
