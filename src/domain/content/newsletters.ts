@@ -47,6 +47,32 @@ function escape(value: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * The old templates' {WEBSITELINK}, upper case so the placeholder fill never
+ * touched it: left as typed, the logo and every link in the mail pointed
+ * nowhere. Links go to the brand's pages on this platform; pictures (/img,
+ * /mailer) exist only on the brand's old website, so they keep pointing there.
+ * The old /contact page is /contact-us here.
+ */
+export function fillSiteLink(body: string, site: { slug: string; domain: string | null }): string {
+  if (!/\{WEBSITELINK\}/i.test(body)) {
+    return body;
+  }
+
+  const pages = linkBaseFor({ slug: site.slug, domain: site.domain });
+  const old = site.domain ? `https://${site.domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")}` : pages;
+
+  return body.replace(/\{WEBSITELINK\}(\/[^"'\s>]*)?/gi, (_whole, path: string | undefined) => {
+    const rest = path ?? "";
+
+    if (/^\/(img|mailer|images|uploads|assets)\//i.test(rest)) {
+      return old + rest;
+    }
+
+    return pages + (/^\/contact\/?$/i.test(rest) ? "/contact-us" : rest);
+  });
+}
+
 export type NewsletterDetail = {
   id: number;
   siteId: number;
@@ -68,7 +94,13 @@ export async function getNewsletter(
   database: Database = db(),
 ): Promise<NewsletterDetail | null> {
   const [found] = await database
-    .select({ issue: newsletters, slug: sites.slug, name: sites.name, template: newsletterTemplates.title })
+    .select({
+      issue: newsletters,
+      slug: sites.slug,
+      name: sites.name,
+      domain: sites.legacyDomain,
+      template: newsletterTemplates.title,
+    })
     .from(newsletters)
     .innerJoin(sites, eq(sites.id, newsletters.siteId))
     .leftJoin(newsletterTemplates, eq(newsletterTemplates.id, newsletters.templateId))
@@ -88,7 +120,8 @@ export async function getNewsletter(
     site: found.slug,
     siteName: found.name,
     title: issue.title,
-    body: issue.body,
+    // Filled on the way out, so the preview, a copy and a send all get working links.
+    body: fillSiteLink(issue.body, { slug: found.slug, domain: found.domain }),
     status: issue.status,
     template: found.template,
     sentAt: issue.sentAt,
@@ -200,7 +233,10 @@ export async function composeNewsletter(
 
   // Every placeholder goes: the four with content are filled, and the rest —
   // the customer lists, the ad slots — are emptied rather than sent as typed.
-  const body = found.template.body.replace(/\{([a-z_-]+)\}/g, (_whole, name: string) => blocks[name] ?? "");
+  const body = fillSiteLink(found.template.body, { slug: found.site.slug, domain: found.site.legacyDomain }).replace(
+    /\{([a-z_-]+)\}/g,
+    (_whole, name: string) => blocks[name] ?? "",
+  );
 
   const title =
     input.title?.trim() ||

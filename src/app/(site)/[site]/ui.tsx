@@ -11,6 +11,7 @@ import type { Entitlement } from "@/domain/public/paywall";
 import { liveAds } from "@/domain/public/ads";
 import type { ArticleCard as ArticleCardData } from "@/domain/content/articles";
 import { plainText } from "@/lib/public/html";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -140,8 +141,8 @@ export function ArticleCard({ site, article }: { site: string; article: ArticleC
     <Link className="bs-art" href={`/${site}/articles/${article.slug}`}>
       {article.hero_image ? (
         <div className="img">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <SafeImg
+            hide=".img"
             src={`/api/public/${site}/files/articles/thumbnail/${encodeURIComponent(article.hero_image)}`}
             alt=""
             loading="lazy"
@@ -171,8 +172,7 @@ export async function AdSlot({ brand, slot, spaced = false }: { brand: { id: num
     <div className="bs-ads" aria-label="Advertisement" style={spaced ? { marginBlock: 24 } : undefined}>
       {running.ads.map((ad) => {
         const art = ad.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={ad.image_url} alt={ad.title} loading="lazy" />
+          <SafeImg src={ad.image_url} alt={ad.title} loading="lazy" fallback={null} />
         ) : ad.video_url ? (
           <video src={ad.video_url} autoPlay muted loop playsInline aria-label={ad.title} />
         ) : null;

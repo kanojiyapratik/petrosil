@@ -9,6 +9,7 @@ import { publishedReport } from "@/domain/public/reports";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { cleanHtml, plainText } from "@/lib/public/html";
 import { Download, day } from "../../ui";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 export const dynamic = "force-dynamic";
 
@@ -53,8 +54,7 @@ export default async function Report({ params }: Props) {
       </Link>
       <div className="bs-docbody">
         {report.thumbnail_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="bs-cover" src={report.thumbnail_url} alt="" />
+          <SafeImg className="bs-cover" src={report.thumbnail_url} alt="" fallback={null} />
         ) : null}
         <div>
           <h1 style={{ fontSize: "clamp(24px, 3.4vw, 32px)", maxWidth: "30ch" }}>{report.title}</h1>

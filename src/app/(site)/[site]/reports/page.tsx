@@ -7,6 +7,7 @@ import { publishedReports } from "@/domain/public/reports";
 import { liveBrandBySlug } from "@/lib/public/reader";
 import { plainText } from "@/lib/public/html";
 import { Pager, day, pageParam } from "../ui";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Reports" };
@@ -52,8 +53,7 @@ export default async function Reports({
           {found.reports.map((report) => (
             <Link key={report.slug} className="bs-art bs-doc" href={`/${site}/reports/${report.slug}`}>
               {report.thumbnail_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={report.thumbnail_url} alt="" loading="lazy" />
+                <SafeImg src={report.thumbnail_url} alt="" loading="lazy" fallback={null} />
               ) : null}
               <h3>
                 {report.title}

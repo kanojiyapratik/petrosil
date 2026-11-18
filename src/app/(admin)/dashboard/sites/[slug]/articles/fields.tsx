@@ -8,6 +8,7 @@
 import { useRef, useState } from "react";
 
 import { addCategoryAction, withdrawArticleAction } from "./actions";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 /* ---------------------------------------------------------------- cover */
 
@@ -55,8 +56,12 @@ export function CoverImage({ site, name, initial }: { site: string; name: string
       <input type="hidden" name={name} value={value} />
       <div className="cover-pick">
         {value ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/api/public/${site}/files/${folder}/${encodeURIComponent(value)}`} alt="The cover picture" />
+          <SafeImg
+            key={value}
+            src={`/api/public/${site}/files/${folder}/${encodeURIComponent(value)}`}
+            alt="The cover picture"
+            fallback={<div className="cover-none">The picture file is missing. Upload it again.</div>}
+          />
         ) : (
           <div className="cover-none">No picture yet</div>
         )}

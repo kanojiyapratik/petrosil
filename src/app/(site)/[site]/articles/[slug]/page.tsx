@@ -9,6 +9,7 @@ import { publishedArticle } from "@/domain/content/articles";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { cleanHtml, plainText } from "@/lib/public/html";
 import { Gate, day } from "../../ui";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 export const dynamic = "force-dynamic";
 
@@ -58,8 +59,8 @@ export default async function Article({ params }: Props) {
         {article.premium_only ? <span className="bs-tag">Subscribers</span> : null}
       </div>
       {article.hero_image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <SafeImg
+          fallback={null}
           className="bs-story-img"
           src={`/api/public/${site}/files/articles/thumbnail/${encodeURIComponent(article.hero_image)}`}
           alt=""

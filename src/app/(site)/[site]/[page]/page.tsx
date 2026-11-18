@@ -3,7 +3,7 @@
  * staff gave them. Any path that is not a section and not a page is a 404.
  */
 
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 
 import { pageBySlug } from "@/domain/content/pages";
@@ -27,10 +27,20 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   return page ? { title: page.title } : {};
 }
 
+/** The old sites' addresses for pages that have another slug here, so old links and mails still land. */
+const OLD_SLUGS: Record<string, string> = { contact: "contact-us", about: "about-us" };
+
 export default async function BrandPage(props: Props) {
   const page = await load(props);
 
   if (!page) {
+    const { site, page: slug } = await props.params;
+    const moved = OLD_SLUGS[decodeURIComponent(slug).toLowerCase()];
+
+    if (moved) {
+      permanentRedirect(`/${site}/${moved}`);
+    }
+
     notFound();
   }
 

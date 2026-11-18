@@ -10,6 +10,7 @@ import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { cleanHtml, plainText } from "@/lib/public/html";
 import { MessageBox } from "../../contact";
 import { Gate, day } from "../../ui";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 export const dynamic = "force-dynamic";
 
@@ -68,8 +69,7 @@ export default async function Offer({ params }: Props) {
       <h1 style={{ fontSize: "clamp(24px, 3.4vw, 32px)", maxWidth: "30ch", marginBottom: 16 }}>{offer.subject}</h1>
 
       {offer.image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="bs-offer-img" src={offer.image_url} alt="" />
+        <SafeImg className="bs-offer-img" src={offer.image_url} alt="" fallback={null} />
       ) : null}
 
       {offer.description ? <div className="bs-prose" dangerouslySetInnerHTML={{ __html: cleanHtml(offer.description) }} /> : null}

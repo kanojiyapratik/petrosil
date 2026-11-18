@@ -15,6 +15,7 @@ import { brandLook } from "@/domain/public/look";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { plainText } from "@/lib/public/html";
 import { AdSlot, ArticleCard, Gate, PriceTable, day } from "./ui";
+import { SafeImg } from "@/lib/ui/safe-img";
 
 export const dynamic = "force-dynamic";
 
@@ -140,8 +141,7 @@ export default async function BrandHome({ params }: { params: Promise<{ site: st
                 {research.reports.map((report) => (
                   <Link key={report.slug} className="bs-row" href={`/${site}/reports/${report.slug}`}>
                     {report.thumbnail_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img className="thumb" src={report.thumbnail_url} alt="" loading="lazy" />
+                      <SafeImg className="thumb" src={report.thumbnail_url} alt="" loading="lazy" fallback={null} />
                     ) : null}
                     <span className="t">
                       {report.title}

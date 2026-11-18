@@ -83,9 +83,8 @@ function Chart({ points, currency }: { points: HistoryPoint[]; currency: string 
         <path d={line} fill="none" stroke="var(--brand)" strokeWidth="2.2" strokeLinejoin="round" />
         {series.map((p, i) => (
           <circle key={p.price_date} cx={x(i)} cy={y(p.price)} r={series.length > 60 ? 0 : 2.6} fill="var(--brand)">
-            <title>
-              {day(p.price_date)}: {figure(p.price, currency)}
-            </title>
+            {/* One string: React 19 treats <title> specially, and several text pieces broke hydration. */}
+            <title>{`${day(p.price_date)}: ${figure(p.price, currency)}`}</title>
           </circle>
         ))}
         <text x={pad.l} y={H - 8} fontSize="11" fill="#6b7f8b">

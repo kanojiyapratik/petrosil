@@ -293,10 +293,14 @@ h2 {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.85rem 0.95rem;
+  /* A grid item shrinks only when allowed to: a long figure stayed wider than a phone. */
+  min-width: 0;
 }
 
 .tile .n {
-  font-size: 1.5rem;
+  /* Big figures (tonnes, rupees) step down on a narrow tile instead of overflowing it. */
+  font-size: clamp(1.1rem, 5.2vw, 1.5rem);
+  overflow-wrap: anywhere;
   font-weight: 680;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -686,8 +690,15 @@ input[type="file"]::file-selector-button:hover {
 .heading {
   display: flex;
   align-items: center;
-  gap: 12px;
+  /* A long title and its buttons wrap on a phone instead of pushing the page sideways. */
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 4px;
+}
+
+.heading h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .heading .spacer {
@@ -1193,9 +1204,15 @@ button.quick-one:hover {
 
 .split {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 1rem;
   margin-bottom: 1.3rem;
+}
+
+/* A grid column will not shrink below its content unless told to: without
+ * this, a wide table widened the whole page instead of scrolling in its panel. */
+.split > * {
+  min-width: 0;
 }
 
 .plain {
