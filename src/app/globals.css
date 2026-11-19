@@ -1224,6 +1224,154 @@ dialog.popup {
   overflow: auto;
 }
 
+/* A long list inside a popup scrolls inside it, not the page behind. */
+.popup-scroll {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* ──────────────────────────────────────────────── settings pages
+ *
+ * Site defaults and a brand's Settings tab. One card; inside it each group
+ * is a row with its name and purpose on the left and its fields in two
+ * columns on the right, the usual settings-page layout. */
+.settings {
+  display: grid;
+  gap: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.settings > .flash {
+  margin: 1rem 1.4rem 0;
+}
+
+.settings-group {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) 1fr;
+  gap: 2rem;
+  padding: 1.5rem 1.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.settings-group:first-of-type {
+  border-top: 0;
+}
+
+.settings-about h2 {
+  font-size: 0.98rem;
+  margin-bottom: 0.3rem;
+}
+
+.settings-about p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1rem 1.25rem;
+  align-content: start;
+}
+
+.settings-field {
+  min-width: 0;
+}
+
+.settings-field.wide {
+  grid-column: 1 / -1;
+}
+
+.settings-field label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.settings-field label .tag {
+  font-weight: 500;
+}
+
+.settings-field label .tag.on {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.settings-field input,
+.settings-field textarea {
+  max-width: none;
+  width: 100%;
+}
+
+.settings-field textarea {
+  min-height: 0;
+  resize: vertical;
+}
+
+.settings-field input::placeholder,
+.settings-field textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.settings-help {
+  margin: 0.35rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* Save stays in view at the bottom of the screen. */
+.settings-save {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.4rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.settings-save-note {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.settings > .note {
+  margin: 0;
+  padding: 1rem 1.4rem;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 900px) {
+  .settings-group {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .settings-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-save-note {
+    display: none;
+  }
+}
+
 dialog.popup::backdrop {
   background: rgba(0, 0, 0, 0.55);
 }

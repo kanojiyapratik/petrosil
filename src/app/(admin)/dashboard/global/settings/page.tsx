@@ -7,15 +7,18 @@
  * brand alone, and the estate's defaults live here with the rest of what the
  * brands share.
  *
- * Keys found in the database that the catalogue does not know are listed at
- * the bottom rather than presented as settings: 621 rows came across and a
- * good number of them were read by nothing.
+ * Keys found in the database that the catalogue does not know are not
+ * presented as settings: 621 rows came across and a good number of them are
+ * read by nothing. They used to fill the bottom of this page as an 88-row
+ * table; now a button in the heading opens them in a popup, for the rare
+ * time someone needs to look.
  */
 
 import { currentViewer } from "@/lib/auth/server";
 import { settingsFor, strandedSettings } from "@/domain/dashboard/settings";
 import { SettingsForm } from "../../sites/[slug]/settings/form";
-import { Heading, Panel, count } from "../../../ui";
+import { Heading, count } from "../../../ui";
+import { Popup } from "../../../popup";
 
 export const metadata = { title: "Site defaults · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -33,34 +36,40 @@ export default async function SiteDefaultsPage() {
             ? "What every brand uses unless it sets its own value on its Settings tab."
             : "What every brand uses unless it sets its own value. Only a superadmin can change these."
         }
-      />
+      >
+        {stranded.length > 0 ? (
+          <Popup ghost label={`Old unused keys (${count(stranded.length)})`} title="Carried over from the old sites, read by nothing">
+            <p className="small muted" style={{ marginTop: 0 }}>
+              These came across from the nine old admins. Nothing on the platform reads them, so changing them would do
+              nothing; they are kept only so nothing is lost.
+            </p>
+            <div className="popup-scroll">
+              <table className="tight">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Brand</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stranded.map((row) => (
+                    <tr key={`${row.site ?? "estate"}-${row.key}`}>
+                      <td>
+                        <code>{row.key}</code>
+                      </td>
+                      <td>{row.site ?? <span className="muted">estate</span>}</td>
+                      <td className="muted">{row.sample}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Popup>
+        ) : null}
+      </Heading>
 
       <SettingsForm rows={rows.filter((row) => row.group !== "Mail")} site={null} canEdit={viewer.isSuperadmin} />
-
-      {stranded.length > 0 ? (
-        <Panel title="Carried over, read by nothing" hint={`${count(stranded.length)} key${stranded.length === 1 ? "" : "s"}`}>
-          <table className="tight">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Brand</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stranded.map((row) => (
-                <tr key={`${row.site ?? "estate"}-${row.key}`}>
-                  <td>
-                    <code>{row.key}</code>
-                  </td>
-                  <td>{row.site ?? <span className="muted">estate</span>}</td>
-                  <td className="muted">{row.sample}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      ) : null}
     </>
   );
 }
