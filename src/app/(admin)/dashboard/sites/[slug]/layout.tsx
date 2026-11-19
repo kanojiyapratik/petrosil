@@ -16,12 +16,12 @@
  * URL cannot be used to discover which brands exist.
  */
 
-import Link from "@/lib/ui/link";
 import { notFound } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { SiteTabs } from "./tabs";
+import { showAllBrands } from "../../../actions";
 
 export default async function SiteLayout({
   children,
@@ -42,7 +42,14 @@ export default async function SiteLayout({
   return (
     <>
       <nav className="crumbs" aria-label="Where you are">
-        <Link href="/dashboard">Overview</Link>
+        {/* Not a plain link to /dashboard: with this brand chosen, the
+            estate Dashboard sends you straight back here. This clears the
+            choice first. */}
+        <form action={showAllBrands}>
+          <button type="submit" className="crumb-link">
+            All brands
+          </button>
+        </form>
         <span aria-hidden="true">/</span>
         <strong>{brand.name}</strong>
       </nav>

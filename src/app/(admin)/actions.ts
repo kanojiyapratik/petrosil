@@ -136,3 +136,9 @@ export async function chooseBrand(slug: string) {
   // Every admin screen reads it, so every admin screen is now stale.
   revalidatePath("/dashboard", "layout");
 }
+
+/** Back to the whole estate: clear the brand choice and open the estate Dashboard. */
+export async function showAllBrands() {
+  await chooseBrand("");
+  redirect("/dashboard");
+}

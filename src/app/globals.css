@@ -1500,6 +1500,25 @@ button.quick-one:hover {
   color: var(--ink);
 }
 
+.crumbs form {
+  display: contents;
+}
+
+/* "All brands" is a button (it clears the brand choice) drawn as a crumb. */
+.crumbs .crumb-link {
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.crumbs .crumb-link:hover {
+  color: var(--ink);
+}
+
 .crumbs strong {
   color: var(--ink);
   font-weight: 600;

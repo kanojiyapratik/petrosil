@@ -5,23 +5,22 @@
  *
  * It replaced two things. The rail used to list all nine brands, each with a
  * price-freshness dot and a legend, and the header had a plain dropdown that
- * filtered the shared screens. The owner asked for the rail list to go, so
- * this one control now does both jobs: it filters, and once a brand is
- * chosen it offers that brand's own page. The freshness each rail entry
+ * filtered the shared screens. The owner asked for the rail list to go, and
+ * then for choosing a brand to open it directly, so this one control does
+ * both jobs: choosing a brand opens that brand's own page (its overview and
+ * all its tabs), and the choice is kept, so the shared screens visited after
+ * it show that brand too. The freshness each rail entry
  * carried is shown here, spelled out beside each brand, so the colour is
  * never the only signal.
  *
  * Where you are decides what a choice does:
  *
- * - On a brand's own page (`/dashboard/sites/<slug>/...`) the picker shows
- *   that brand, and choosing another opens the same tab of the other brand.
- *   "All brands" there goes to the Dashboard, since a brand page has no
- *   all-brands version.
- * - On the screens every brand shares (Global settings, Currencies, Roles)
- *   it still works, but says that this screen covers every brand.
- * - Everywhere else it narrows what the screen shows.
- *
- * Either way the choice is kept, so it is still chosen on the next screen.
+ * - Choosing a brand opens its page. From another brand's page it opens the
+ *   same tab, so switching brands while on Prices stays on Prices.
+ * - "All brands" goes back to the estate Dashboard from a brand's page, and
+ *   simply un-narrows any other screen.
+ * - Opening a brand's page another way (a link on the Dashboard) makes that
+ *   the chosen brand, so the picker and the shared screens agree with it.
  */
 
 import Link from "@/lib/ui/link";
@@ -29,7 +28,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { chooseBrand } from "./actions";
-import type { Freshness } from "./nav";
+import { hasTradeAnalysis, type Freshness } from "./nav";
 
 type Option = { slug: string; name: string; freshness: Freshness };
 
@@ -90,6 +89,15 @@ export function BrandSwitch({ brands, chosen }: { brands: Option[]; chosen: stri
     setOpen(false);
   }, [path]);
 
+  // Arrived on a brand's page some other way than the picker: make it the
+  // chosen brand, so Customers or Payments next show the same brand.
+  const pageSlug = brandPage(path)?.slug ?? null;
+  useEffect(() => {
+    if (pageSlug && pageSlug !== chosen && brands.some((brand) => brand.slug === pageSlug)) {
+      void chooseBrand(pageSlug);
+    }
+  }, [pageSlug, chosen, brands]);
+
   if (brands.length === 0) {
     return null;
   }
@@ -106,18 +114,25 @@ export function BrandSwitch({ brands, chosen }: { brands: Option[]; chosen: stri
   function pick(slug: string) {
     setOpen(false);
 
-    if (slug === value) {
+    // Already standing in this brand's page: nothing to do.
+    if (page && slug === page.slug) {
       return;
     }
 
     start(async () => {
       await chooseBrand(slug);
 
-      if (page) {
-        // The same tab of the other brand. A record's id under a tab belongs
-        // to the brand it came from, so only the tab itself is kept.
-        const tab = page.rest.split("/")[1];
-        router.push(slug ? `/dashboard/sites/${slug}${tab ? `/${tab}` : ""}` : "/dashboard");
+      if (slug) {
+        // The same tab of the other brand when switching between brands. A
+        // record's id under a tab belongs to the brand it came from, so only
+        // the tab itself is kept; trade analysis exists on baseoil alone.
+        let tab = page?.rest.split("/")[1] ?? "";
+        if (tab === "trade-analysis" && !hasTradeAnalysis(slug)) {
+          tab = "";
+        }
+        router.push(`/dashboard/sites/${slug}${tab ? `/${tab}` : ""}`);
+      } else if (page) {
+        router.push("/dashboard");
       } else {
         router.refresh();
       }
@@ -126,7 +141,15 @@ export function BrandSwitch({ brands, chosen }: { brands: Option[]; chosen: stri
 
   return (
     <div className="bswitch" ref={box}>
-      {single ? null : (
+      {single ? (
+        <Link className="bswitch-button on" href={`/dashboard/sites/${brands[0]!.slug}`}>
+          <span className="bswitch-kicker">Brand</span>
+          <span className="bswitch-value">
+            <i className={`freshdot ${TONE[brands[0]!.freshness]}`} aria-hidden />
+            <span className="bswitch-name">{brands[0]!.name}</span>
+          </span>
+        </Link>
+      ) : (
         <button
           type="button"
           className={current ? "bswitch-button on" : "bswitch-button"}
@@ -176,14 +199,6 @@ export function BrandSwitch({ brands, chosen }: { brands: Option[]; chosen: stri
             </button>
           ))}
         </div>
-      ) : null}
-
-      {/* The brand's own page, which the rail used to link to. */}
-      {(current || single) && !page ? (
-        <Link className="bswitch-open" href={`/dashboard/sites/${(current ?? brands[0]!).slug}`}>
-          Open {single ? brands[0]!.name : "brand page"}
-          <span aria-hidden> →</span>
-        </Link>
       ) : null}
 
       {shared && current ? <span className="bswitch-note">This screen covers every brand</span> : null}

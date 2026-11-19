@@ -10,6 +10,7 @@
  */
 
 import Link from "@/lib/ui/link";
+import { redirect } from "next/navigation";
 
 import { currentViewer } from "@/lib/auth/server";
 import { brandScope } from "../brand-scope";
@@ -31,12 +32,21 @@ const count = (n: number) => n.toLocaleString("en-IN");
 export default async function DashboardPage() {
   const viewer = (await currentViewer())!;
   const scope = await brandScope(viewer);
+
+  // One dashboard per brand, not two. With a brand chosen in the header,
+  // this page used to show a cut-down copy of that brand's own overview;
+  // the brand's page is the real one, with all its tabs. "All brands" in the
+  // header brings this page back.
+  if (scope.brand) {
+    redirect(`/dashboard/sites/${scope.brand.slug}`);
+  }
+
   const overview = await estateOverview(scope.siteIds);
   const { totals } = overview;
 
   return (
     <>
-      <h1>{scope.brand ? `${scope.brand.name} overview` : "Estate overview"}</h1>
+      <h1>Estate overview</h1>
 
       <div className="tiles">
         <Tile n={totals.sites} k="brands" />
