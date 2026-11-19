@@ -21,6 +21,8 @@ type Props = {
   /** Where pictures in the text are stored. */
   imageFolder?: string;
   minHeight?: number;
+  /** Told of every change, for a form that also offers the HTML itself. */
+  onChange?: (html: string) => void;
 };
 
 const BLOCKS = [
@@ -29,7 +31,7 @@ const BLOCKS = [
   { value: "h3", label: "Subheading" },
 ] as const;
 
-export function RichEditor({ name, initial, site, imageFolder = "articles/images", minHeight = 420 }: Props) {
+export function RichEditor({ name, initial, site, imageFolder = "articles/images", minHeight = 420, onChange }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null);
@@ -53,7 +55,10 @@ export function RichEditor({ name, initial, site, imageFolder = "articles/images
     if (box.current) {
       const now = box.current.innerHTML;
 
-      setHtml(now === "<p><br></p>" || now === "<br>" ? "" : now);
+      const next = now === "<p><br></p>" || now === "<br>" ? "" : now;
+
+      setHtml(next);
+      onChange?.(next);
     }
   }
 

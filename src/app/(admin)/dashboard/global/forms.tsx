@@ -243,11 +243,19 @@ export function GlobalEmailForm({
   variant,
   versions,
   brands,
+  missing,
+  placeholders,
+  about,
 }: {
   emailKey: string;
   variant: string;
   versions: EmailVersion[];
   brands: Brand[];
+  /** Brands that do not have this email yet: applying creates it there. */
+  missing: Brand[];
+  /** The `{placeholders}` this email uses or its sender fills. */
+  placeholders: string[];
+  about: { what: string; when: "auto" | "staff" | "none"; detail: string } | null;
 }) {
   const [state, action, pending] = useActionState(applyEmailAction, null as GlobalResult);
   const [at, setAt] = useState(0);
@@ -256,53 +264,149 @@ export function GlobalEmailForm({
   const version = versions[at]!;
 
   return (
-    <form action={action} key={at}>
+    <form action={action} key={at} className="email-edit">
       <input type="hidden" name="key" value={emailKey} />
       <input type="hidden" name="variant" value={variant} />
       <Flash state={state} />
 
-      <div className="cols wide">
+      <div className="email-edit-cols">
         <div className="panel">
-          <div className="head">
-            <h2>The email</h2>
-          </div>
+          {versions.length > 1 ? (
+            // The brands' wordings, as a strip to pick from. It replaces a
+            // numbered list of identical-looking subjects above the form and
+            // a "Start from" dropdown inside it, which said the same thing twice.
+            <div className="email-versions" role="tablist" aria-label="Wordings">
+              <span className="email-versions-label">
+                {versions.length} wordings across the brands. Start from:
+              </span>
+              <div className="email-versions-list">
+                {versions.map((v, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    role="tab"
+                    aria-selected={index === at}
+                    className={index === at ? "email-version on" : "email-version"}
+                    onClick={() => setAt(index)}
+                    title={v.brands.map((brand) => brand.name).join(", ")}
+                  >
+                    <strong>Wording {index + 1}</strong>
+                    <span>
+                      {v.brands.length === 1
+                        ? v.brands[0]!.name
+                        : `${v.brands[0]!.name} + ${v.brands.length - 1} more`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="body">
-            <VersionPicker versions={versions} at={at} onPick={setAt} />
             <div className="field">
               <label htmlFor="subject">Subject</label>
               <input id="subject" name="subject" type="text" required maxLength={255} defaultValue={version.subject} />
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="body">Body (HTML)</label>
-              <textarea id="body" name="body" className="code" rows={20} defaultValue={version.body} />
-              <div className="small muted">
-                {MARKER_NOTE} The email&apos;s own placeholders, like {"{name}"}, are filled when it is sent.
-              </div>
+              <span className="label">Message</span>
+              <EmailBody initial={version.body} site={brands[0]?.slug ?? ""} />
             </div>
           </div>
         </div>
 
-        <div className="stack">
+        <aside className="email-side">
+          {about ? (
+            <div className="panel">
+              <div className="head">
+                <h2>When it is sent</h2>
+              </div>
+              <div className="body">
+                <p className="email-side-text">{about.what}</p>
+                <p className="email-side-text muted">{about.detail}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {placeholders.length ? (
+            <div className="panel">
+              <div className="head">
+                <h2>Placeholders</h2>
+              </div>
+              <div className="body">
+                <p className="email-side-text muted">Filled in for each reader when the email is sent. Click one to copy it.</p>
+                <div className="email-chips">
+                  {placeholders.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className="email-chip"
+                      onClick={() => void navigator.clipboard?.writeText(`{${name}}`)}
+                      title="Copy"
+                    >
+                      {`{${name}}`}
+                    </button>
+                  ))}
+                </div>
+                <p className="email-side-text muted">{MARKER_NOTE}</p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="panel">
             <div className="head">
               <h2>Apply to</h2>
             </div>
             <div className="body">
               <BrandTicks brands={brands} chosen={chosen} onChange={setChosen} />
+              {missing.length ? (
+                <p className="email-side-text muted" style={{ marginTop: 10 }}>
+                  Not on {missing.map((brand) => brand.name).join(", ")} yet: applying adds it there.
+                </p>
+              ) : null}
               <label className="check" style={{ marginTop: 14 }}>
                 <input type="checkbox" name="enabled" defaultChecked={version.enabled} />
-                Sent (untick to stop this email on the brands ticked)
+                Switched on for the brands ticked
               </label>
             </div>
+            <div className="email-apply">
+              <button type="submit" disabled={pending || chosen.length === 0}>
+                {pending ? "Applying…" : `Apply to ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
+              </button>
+            </div>
           </div>
-          <div className="actions">
-            <button type="submit" disabled={pending || chosen.length === 0}>
-              {pending ? "Applying…" : `Apply to ${chosen.length} brand${chosen.length === 1 ? "" : "s"}`}
-            </button>
-          </div>
-        </div>
+        </aside>
       </div>
     </form>
+  );
+}
+
+/**
+ * The message, written in the visual editor or as HTML.
+ *
+ * Only one of the two is on the page at a time, and both post as `body`, so
+ * there is never a second copy to disagree with. Switching carries the text
+ * across. Visual is the default: the owner's complaint was a wall of tags.
+ */
+function EmailBody({ initial, site }: { initial: string; site: string }) {
+  const [mode, setMode] = useState<"visual" | "html">("visual");
+  const [html, setHtml] = useState(initial);
+
+  return (
+    <div className="email-body">
+      <div className="email-body-tabs" role="tablist" aria-label="Message view">
+        <button type="button" role="tab" aria-selected={mode === "visual"} className={mode === "visual" ? "on" : ""} onClick={() => setMode("visual")}>
+          Visual
+        </button>
+        <button type="button" role="tab" aria-selected={mode === "html"} className={mode === "html" ? "on" : ""} onClick={() => setMode("html")}>
+          HTML
+        </button>
+      </div>
+      {mode === "visual" ? (
+        <RichEditor key="visual" name="body" initial={html} site={site} imageFolder="mail/images" minHeight={360} onChange={setHtml} />
+      ) : (
+        <textarea name="body" className="code" rows={18} value={html} onChange={(event) => setHtml(event.target.value)} />
+      )}
+    </div>
   );
 }
 

@@ -1232,6 +1232,192 @@ dialog.popup {
   border-radius: 8px;
 }
 
+/* ──────────────────────────────────────────────── system emails */
+
+/* The list: titles read as names, not as a column of underlined links. */
+table.emails .email-title {
+  font-weight: 650;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+table.emails .email-title:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+table.emails .tag {
+  margin-left: 6px;
+}
+
+table.emails td {
+  vertical-align: middle;
+}
+
+/* One email: the editor, and beside it what sends it and where it applies. */
+.email-edit-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.email-side {
+  display: grid;
+  gap: 1.1rem;
+  position: sticky;
+  top: 5.5rem;
+}
+
+.email-side .panel {
+  margin: 0;
+}
+
+.email-side-text {
+  margin: 0 0 0.5rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.email-side-text:last-child {
+  margin-bottom: 0;
+}
+
+.email-apply {
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.email-apply button {
+  width: 100%;
+  justify-content: center;
+}
+
+/* The brands' wordings, as a strip of choices above the editor. */
+.email-versions {
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.email-versions-label {
+  display: block;
+  margin-bottom: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.email-versions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.email-version {
+  display: grid;
+  gap: 0.05rem;
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.email-version strong {
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.email-version:hover {
+  border-color: var(--brand);
+}
+
+.email-version.on {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+}
+
+/* Visual or HTML, as two tabs on the message box. */
+.label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.email-body-tabs {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.2rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.email-body-tabs button {
+  padding: 0.25rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.email-body-tabs button.on {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.email-body textarea.code {
+  width: 100%;
+  max-width: none;
+}
+
+.email-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.email-chip {
+  padding: 0.15rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: none;
+  cursor: copy;
+}
+
+.email-chip:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+@media (max-width: 1100px) {
+  .email-edit-cols {
+    grid-template-columns: 1fr;
+  }
+
+  .email-side {
+    position: static;
+  }
+}
+
 /* ──────────────────────────────────────────────── settings pages
  *
  * Site defaults and a brand's Settings tab. One card; inside it each group
