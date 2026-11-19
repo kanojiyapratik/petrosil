@@ -31,8 +31,8 @@ const group = (nav: NavSection[], name: string) => nav.find((s) => s.group === n
 const hrefs = (nav: NavSection[], name: string) => group(nav, name).items.map((i) => i.href);
 
 describe("the three groups", () => {
-  it("gives exactly Overview, Sites, Billing and Global settings, in that order", () => {
-    expect(navFor(BRANDS).map((s) => s.group)).toEqual(["Overview", "Sites", "Billing", "Global settings"]);
+  it("gives exactly Overview, Billing and Global settings, in that order", () => {
+    expect(navFor(BRANDS).map((s) => s.group)).toEqual(["Overview", "Billing", "Global settings"]);
   });
 
   it("holds the whole estate in three Overview entries", () => {
@@ -86,7 +86,7 @@ describe("the three groups", () => {
       freshness: "fresh" as const,
     }));
 
-    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(23);
+    expect(navFor(nine).flatMap((s) => s.items)).toHaveLength(14);
   });
 
   it("never nests: no entry carries children of its own", () => {
@@ -96,32 +96,13 @@ describe("the three groups", () => {
   });
 });
 
-describe("one entry per brand", () => {
-  it("lists the brands the viewer can see, in the order given", () => {
-    expect(group(navFor(BRANDS), "Sites").items.map((i) => i.label)).toEqual([
-      "Base Oil Report",
-      "Bitumart",
-      "Wax Report",
-    ]);
+describe("no brands in the rail", () => {
+  // Brands are chosen in the header now; the rail carries places only.
+  it("lists no brand, however many the viewer can see", () => {
+    expect(navFor(BRANDS).flatMap((s) => s.items).some((i) => i.href.startsWith("/dashboard/sites/"))).toBe(false);
   });
 
-  it("opens a brand on its own page, by slug and not by filter", () => {
-    expect(hrefs(navFor(BRANDS), "Sites")).toEqual([
-      "/dashboard/sites/baseoil",
-      "/dashboard/sites/bitumart",
-      "/dashboard/sites/waxreport",
-    ]);
-  });
-
-  it("carries each brand's price freshness, for the dot and its legend", () => {
-    expect(group(navFor(BRANDS), "Sites").items.map((i) => i.freshness)).toEqual([
-      "stale",
-      "due",
-      "fresh",
-    ]);
-  });
-
-  it("drops the Sites group entirely for a viewer with no brands", () => {
+  it("is the same for a viewer with no brands", () => {
     expect(navFor([]).map((s) => s.group)).toEqual(["Overview", "Billing", "Global settings"]);
   });
 });

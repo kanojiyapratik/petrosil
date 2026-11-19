@@ -19,21 +19,7 @@ import Link from "@/lib/ui/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { PEOPLE_TABS, navFor, type Freshness, type NavBrand } from "./nav";
-
-const DOT: Record<Freshness, string> = {
-  fresh: "ok",
-  due: "warn",
-  stale: "bad",
-  none: "",
-};
-
-const SAYS: Record<Freshness, string> = {
-  fresh: "prices up to date",
-  due: "update due",
-  stale: "overdue",
-  none: "no prices yet",
-};
+import { PEOPLE_TABS, navFor, type NavBrand } from "./nav";
 
 /**
  * Which entry is open.
@@ -43,8 +29,12 @@ const SAYS: Record<Freshness, string> = {
  * parameter wins over the path when it names a brand the viewer can see.
  */
 function currentHref(path: string, site: string | null, brands: NavBrand[]): string | null {
-  if (site && brands.some((brand) => brand.slug === site)) {
-    return `/dashboard/sites/${site}`;
+  // A brand's own pages belong to no rail entry now that the rail lists no
+  // brands; without this the Dashboard entry lit up on every one of them,
+  // because `/dashboard` is a prefix of `/dashboard/sites/...`. The header
+  // picker shows which brand you are in.
+  if (path.startsWith("/dashboard/sites/") || (site && brands.some((brand) => brand.slug === site))) {
+    return null;
   }
 
   // People's five screens sit at their own estate paths, not under
@@ -98,27 +88,7 @@ export function Rail({ brands }: { brands: NavBrand[] }) {
       <div className="rail-links" id="rail-links">
         {navFor(brands).map((group) => (
           <div key={group.group}>
-            {group.group === "Sites" ? (
-              // The dots mean nothing without this, and an unexplained colour is
-              // worse than no colour. It sits beside the heading, where the eye
-              // already is when it reads the list below.
-              <div className="rail-group with-legend">
-                <span>{group.group}</span>
-                <span className="rail-legend">
-                  <span>
-                    <i className="freshdot ok" /> up to date
-                  </span>
-                  <span>
-                    <i className="freshdot warn" /> due
-                  </span>
-                  <span>
-                    <i className="freshdot bad" /> overdue
-                  </span>
-                </span>
-              </div>
-            ) : (
-              <div className="rail-group">{group.group}</div>
-            )}
+            <div className="rail-group">{group.group}</div>
 
             {group.items.map((item) => (
               <Link
@@ -128,13 +98,6 @@ export function Rail({ brands }: { brands: NavBrand[] }) {
                 onClick={() => setOpen(false)}
               >
                 <span className="rail-label">{item.label}</span>
-                {item.freshness ? (
-                  <span
-                    className={`freshdot ${DOT[item.freshness]}`}
-                    title={SAYS[item.freshness]}
-                    aria-label={SAYS[item.freshness]}
-                  />
-                ) : null}
               </Link>
             ))}
 

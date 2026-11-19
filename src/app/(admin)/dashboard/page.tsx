@@ -9,6 +9,8 @@
  * scoping (`visibleSites`), one less round trip, and the type survives.
  */
 
+import Link from "@/lib/ui/link";
+
 import { currentViewer } from "@/lib/auth/server";
 import { brandScope } from "../brand-scope";
 import { estateOverview } from "@/domain/dashboard/overview";
@@ -73,7 +75,10 @@ export default async function DashboardPage() {
                 return (
                   <tr key={site.id}>
                     <td>
-                      <strong>{site.name}</strong>
+                      {/* The way into a brand now the rail lists none. */}
+                      <strong>
+                        <Link href={`/dashboard/sites/${site.slug}`}>{site.name}</Link>
+                      </strong>
                       <div className="small muted">
                         {site.slug}
                         {site.cadence ? ` · ${site.cadence}` : ""}

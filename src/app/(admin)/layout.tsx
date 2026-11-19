@@ -33,14 +33,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <div className="main">
         <header className="topbar">
+          {/* The one place a brand is chosen: it filters the shared screens
+              and opens a brand's own page. The rail lists no brands. */}
+          <BrandSwitch brands={brands} chosen={scope.brand?.slug ?? null} />
+          <span className="spacer" />
           <span className="badge brand">
             {viewer.isSuperadmin ? "Superadmin" : "Staff"}
           </span>
-          <BrandSwitch
-            brands={scope.brands.map(({ slug, name }) => ({ slug, name }))}
-            chosen={scope.brand?.slug ?? null}
-          />
-          <span className="spacer" />
           <span className="who">
             <strong>{viewer.identity.user.name}</strong>
             <span>{viewer.identity.user.email}</span>

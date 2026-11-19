@@ -37,12 +37,16 @@ export type NavSection = { group: string; items: NavItem[] };
 /**
  * The rail.
  *
- * Overview holds what belongs to the whole estate; Sites holds one entry per
- * brand the viewer may see; Billing holds what access costs; Global settings
- * holds what every brand shares. A viewer with no brands gets no Sites group
- * rather than an empty heading.
+ * Overview holds what belongs to the whole estate; Billing holds what access
+ * costs; Global settings holds what every brand shares.
+ *
+ * There is no Sites group any more. Nine brand entries in the rail beside a
+ * brand picker in the header were two ways to do one thing, and the owner
+ * asked for the rail ones to go: a brand is now chosen in the header, which
+ * both filters the shared screens and opens the brand's own page. The
+ * brands are still passed in so the callers need not change.
  */
-export function navFor(brands: NavBrand[]): NavSection[] {
+export function navFor(_brands: NavBrand[] = []): NavSection[] {
   const sections: NavSection[] = [
     {
       group: "Overview",
@@ -56,17 +60,6 @@ export function navFor(brands: NavBrand[]): NavSection[] {
       ],
     },
   ];
-
-  if (brands.length > 0) {
-    sections.push({
-      group: "Sites",
-      items: brands.map((brand) => ({
-        label: brand.name,
-        href: `/dashboard/sites/${brand.slug}`,
-        freshness: brand.freshness,
-      })),
-    });
-  }
 
   sections.push({
     group: "Billing",
