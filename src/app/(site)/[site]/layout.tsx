@@ -18,6 +18,7 @@ import { brandLook } from "@/domain/public/look";
 import { liveAnnouncements, pageIndex } from "@/domain/content/pages";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { BrandNav } from "./nav";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 type Props = { children: React.ReactNode; params: Promise<{ site: string }> };
 
@@ -106,6 +107,7 @@ export default async function BrandLayout({ children, params }: Props) {
           <Logo site={site} name={brand.name} tagline={look.tagline} />
           <BrandNav site={site} />
           <div className="bs-acct">
+            <ThemeToggle />
             {reader.name ? (
               <Link className="bs-me" href={`/${site}/account`} aria-label={`My account (${reader.name})`}>
                 <span className="av" aria-hidden>

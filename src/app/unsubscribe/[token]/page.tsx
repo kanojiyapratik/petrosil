@@ -5,6 +5,7 @@
 
 import { lookUpUnsubscribe } from "@/domain/content/newsletter-send";
 import type { Search } from "../../(admin)/ui";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 export const metadata = { title: "Newsletter · Unsubscribe", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export default async function UnsubscribePage({
 
   return (
     <div className="signin">
+      <ThemeToggle className="corner" />
       <div className="signin-col">
         <div className="panel">
           <div className="head">

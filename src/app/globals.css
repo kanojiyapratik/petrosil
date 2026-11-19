@@ -39,8 +39,12 @@
 
   --radius: 10px;
   --rail-width: 248px;
+  --shadow-menu: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.08);
+  color-scheme: light;
 }
 
+/* Dark mode: the computer's setting unless the switch chose otherwise
+ * (`data-theme` on <html>, from the cookie; see src/lib/ui/theme.ts). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0b1220;
@@ -49,12 +53,19 @@
     --muted: #9ca3af;
     --line: #1f2937;
     --line-strong: #374151;
+    --brand: #2dd4bf;
+    --brand-ink: #042f2e;
     --brand-soft: #134e4a;
+    --ok: #4ade80;
     --ok-soft: #14321f;
+    --warn: #fbbf24;
     --warn-soft: #3a2a08;
+    --bad: #f87171;
     --bad-soft: #3b1414;
     --rail: #080d16;
     --rail-line: #16202f;
+    --shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
   }
 }
 
@@ -65,12 +76,19 @@
   --muted: #9ca3af;
   --line: #1f2937;
   --line-strong: #374151;
+  --brand: #2dd4bf;
+  --brand-ink: #042f2e;
   --brand-soft: #134e4a;
+  --ok: #4ade80;
   --ok-soft: #14321f;
+  --warn: #fbbf24;
   --warn-soft: #3a2a08;
+  --bad: #f87171;
   --bad-soft: #3b1414;
   --rail: #080d16;
   --rail-line: #16202f;
+  --shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
 }
 
 * {
@@ -326,7 +344,7 @@ h2 {
   background: var(--panel);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-menu);
 }
 
 .bswitch-item {
@@ -391,7 +409,7 @@ h2 {
 }
 
 .bswitch .freshdot.warn {
-  background: #d97706;
+  background: var(--warn);
   box-shadow: none;
 }
 
@@ -448,24 +466,226 @@ h2 {
     width: 100%;
   }
 
-  .who span {
+  .account-text,
+  .account-caret {
     display: none;
   }
 }
 
-.who {
-  text-align: right;
-  line-height: 1.25;
+/* ─────────────────────────────── the header's right end: mode and account */
+
+.topbar-end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.who strong {
-  display: block;
-  font-size: 0.85rem;
+.topbar-sep {
+  width: 1px;
+  height: 1.6rem;
+  background: var(--line);
 }
 
-.who span {
-  font-size: 0.74rem;
+/* The light/dark switch. Both icons are in the page; this shows the one for
+ * the mode you would switch to, from the chosen theme or the system's. */
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
   color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: none;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--bg);
+}
+
+.theme-toggle-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-toggle-sun {
+  display: block;
+}
+
+:root[data-theme="dark"] .theme-toggle-moon {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle-sun {
+    display: block;
+  }
+
+  :root:not([data-theme="light"]) .theme-toggle-moon {
+    display: none;
+  }
+}
+
+/* On the pages with no header (staff sign-in, set password, unsubscribe). */
+.theme-toggle.corner {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10;
+  background: var(--panel);
+}
+
+.account {
+  position: relative;
+}
+
+.account-button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0.55rem 0.25rem 0.25rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.account-button:hover,
+.account-button[aria-expanded="true"] {
+  background: var(--bg);
+  border-color: var(--line);
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.avatar.large {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 0.95rem;
+}
+
+.account-text {
+  display: grid;
+  line-height: 1.2;
+}
+
+.account-name {
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.account-role {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.account-caret {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.account-button[aria-expanded="true"] .account-caret {
+  transform: rotate(180deg);
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 17.5rem;
+  padding: 0.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+.account-who {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.6rem 0.7rem;
+}
+
+.account-who-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  justify-items: start;
+}
+
+.account-who-text strong {
+  font-size: 0.92rem;
+}
+
+.account-who-text > span:not(.badge) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.account-sep {
+  height: 1px;
+  margin: 0.2rem 0.3rem 0.35rem;
+  background: var(--line);
+}
+
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  font-size: 0.88rem;
+  font-weight: 550;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.account-item:hover {
+  background: var(--bg);
+}
+
+/* Scoped under the menu: the app's `button.danger` is a solid red button,
+ * which here hid the label (red on red). */
+.account-menu .account-item.danger {
+  color: var(--bad);
+  background: transparent;
+  border-color: transparent;
+}
+
+.account-menu .account-item.danger:hover {
+  background: var(--bad-soft);
 }
 
 .content {

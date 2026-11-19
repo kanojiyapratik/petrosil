@@ -74,23 +74,23 @@ function Chart({ points, currency }: { points: HistoryPoint[]; currency: string 
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Price from ${day(series[0]!.price_date)} to ${day(series.at(-1)!.price_date)}`}>
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="#d9e0e3" strokeDasharray="3 4" />
-            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="#6b7f8b" fontFamily="IBM Plex Mono, monospace">
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeDasharray="3 4" />
+            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--ink-3)" fontFamily="IBM Plex Mono, monospace">
               {figure(Math.round(t * 100) / 100)}
             </text>
           </g>
         ))}
-        <path d={line} fill="none" stroke="var(--brand)" strokeWidth="2.2" strokeLinejoin="round" />
+        <path d={line} fill="none" stroke="var(--brand-text)" strokeWidth="2.2" strokeLinejoin="round" />
         {series.map((p, i) => (
-          <circle key={p.price_date} cx={x(i)} cy={y(p.price)} r={series.length > 60 ? 0 : 2.6} fill="var(--brand)">
+          <circle key={p.price_date} cx={x(i)} cy={y(p.price)} r={series.length > 60 ? 0 : 2.6} fill="var(--brand-text)">
             {/* One string: React 19 treats <title> specially, and several text pieces broke hydration. */}
             <title>{`${day(p.price_date)}: ${figure(p.price, currency)}`}</title>
           </circle>
         ))}
-        <text x={pad.l} y={H - 8} fontSize="11" fill="#6b7f8b">
+        <text x={pad.l} y={H - 8} fontSize="11" fill="var(--ink-3)">
           {day(series[0]!.price_date)}
         </text>
-        <text x={W - pad.r} y={H - 8} fontSize="11" fill="#6b7f8b" textAnchor="end">
+        <text x={W - pad.r} y={H - 8} fontSize="11" fill="var(--ink-3)" textAnchor="end">
           {day(series.at(-1)!.price_date)}
         </text>
       </svg>

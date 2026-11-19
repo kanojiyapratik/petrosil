@@ -6,6 +6,7 @@ import { DEVICE_COOKIE, linkHolder } from "@/lib/auth/session";
 import { SignInForm } from "./form";
 import { QuickSignIn } from "./quick";
 import type { Search } from "../(admin)/ui";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 export const metadata = { title: "Sign in · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="signin">
+      <ThemeToggle className="corner" />
       <div className="signin-col">
         <div className="panel">
           <div className="head">

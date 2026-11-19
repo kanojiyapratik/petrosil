@@ -10,6 +10,7 @@
 import "./(site)/site.css";
 
 import Link from "@/lib/ui/link";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 import type { Metadata } from "next";
 import { and, eq, isNull, max } from "drizzle-orm";
 
@@ -69,6 +70,7 @@ export default async function Home() {
           </span>
           {/* In plain sight: the footer link alone was too easy to miss. */}
           <div className="bs-acct">
+            <ThemeToggle />
             <Link href="/sign-in" className="bs-cta">
               Staff sign in
             </Link>

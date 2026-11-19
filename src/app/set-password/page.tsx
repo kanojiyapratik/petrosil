@@ -5,6 +5,7 @@
 
 import { SetPasswordForm } from "./form";
 import type { Search } from "../(admin)/ui";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 export const metadata = { title: "Set your password · Petrosil" };
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export default async function SetPasswordPage({ searchParams }: { searchParams: 
 
   return (
     <div className="signin">
+      <ThemeToggle className="corner" />
       <div className="signin-col">
         <div className="panel">
           <div className="head">

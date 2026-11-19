@@ -7,12 +7,14 @@
  */
 
 import { LinkSignIn } from "./sign-in";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 export const metadata = { title: "Sign in · Petrosil", robots: { index: false } };
 
 export default function LinkSignInPage() {
   return (
     <div className="signin">
+      <ThemeToggle className="corner" />
       <div className="signin-col">
         <div className="panel">
           <div className="head">

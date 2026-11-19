@@ -1,7 +1,11 @@
 /* The brand sites. Everything is scoped under .bs so the admin's globals and
    these rules never meet. --brand is set per brand on the wrapper; every
    other colour is derived from it, so nine brands share one look in their own
-   colours. Light only, as in the demo the owner signed off.
+   colours. Light and dark: the demo the owner signed off was light only, and
+   on 2026-11-19 he asked for dark mode across the whole website. The dark
+   values are at the end of this block; text in the brand's colour goes
+   through --brand-text, which dark mode lifts towards white so that a dark
+   brand colour stays readable on a dark page.
 
    The look: a market-intelligence publication. White surfaces on a cool grey
    page, one accent colour, quiet borders with a soft shadow, figures in
@@ -20,9 +24,15 @@
   --good-soft: #e5f4ec;
   --bad: #c0362c;
   --bad-soft: #fbe9e7;
-  --soft: color-mix(in srgb, var(--brand) 8%, white);
-  --soft-2: color-mix(in srgb, var(--brand) 16%, white);
+  --soft: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  --soft-2: color-mix(in srgb, var(--brand) 16%, var(--surface));
   --deep: color-mix(in srgb, var(--brand) 70%, #08131b);
+  --brand-text: var(--brand);
+  --deep-text: var(--deep);
+  --mast-bg: rgba(255, 255, 255, 0.94);
+  --field-line: #d3dbe1;
+  --field-line-hover: #b9c4cc;
+  --foot-bg: #0c1820;
   --shadow: 0 1px 2px rgba(15, 28, 38, 0.04), 0 4px 16px rgba(15, 28, 38, 0.05);
   --shadow-up: 0 2px 4px rgba(15, 28, 38, 0.06), 0 12px 32px rgba(15, 28, 38, 0.1);
   --radius: 14px;
@@ -39,6 +49,61 @@
   font-size: 16px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Dark mode: the computer's setting unless the switch chose otherwise. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .bs {
+    --bg: #0b141b;
+    --surface: #121d26;
+    --raised: #17242e;
+    --ink: #e6edf2;
+    --ink-2: #b4c2cc;
+    --ink-3: #8597a4;
+    --line: #24333e;
+    --line-2: #1b2832;
+    --good: #4ade80;
+    --good-soft: #12301f;
+    --bad: #f87171;
+    --bad-soft: #3a1714;
+    --soft: color-mix(in srgb, var(--brand) 18%, var(--surface));
+    --soft-2: color-mix(in srgb, var(--brand) 30%, var(--surface));
+    --brand-text: color-mix(in srgb, var(--brand) 55%, white);
+    --deep-text: color-mix(in srgb, var(--brand) 40%, white);
+    --mast-bg: rgba(18, 29, 38, 0.92);
+    --field-line: #31424e;
+    --field-line-hover: #435562;
+    --foot-bg: #070d12;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+    --shadow-up: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] .bs {
+  --bg: #0b141b;
+  --surface: #121d26;
+  --raised: #17242e;
+  --ink: #e6edf2;
+  --ink-2: #b4c2cc;
+  --ink-3: #8597a4;
+  --line: #24333e;
+  --line-2: #1b2832;
+  --good: #4ade80;
+  --good-soft: #12301f;
+  --bad: #f87171;
+  --bad-soft: #3a1714;
+  --soft: color-mix(in srgb, var(--brand) 18%, var(--surface));
+  --soft-2: color-mix(in srgb, var(--brand) 30%, var(--surface));
+  --brand-text: color-mix(in srgb, var(--brand) 55%, white);
+  --deep-text: color-mix(in srgb, var(--brand) 40%, white);
+  --mast-bg: rgba(18, 29, 38, 0.92);
+  --field-line: #31424e;
+  --field-line-hover: #435562;
+  --foot-bg: #070d12;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --shadow-up: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
 }
 
 .bs *,
@@ -60,7 +125,7 @@
 }
 
 .bs a {
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
   text-underline-offset: 3px;
 }
@@ -99,7 +164,7 @@
   font: 700 12px var(--font-b);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs .muted {
@@ -185,7 +250,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--mast-bg);
   backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 0 rgba(15, 28, 38, 0.02);
@@ -272,7 +337,7 @@
 }
 
 .bs-mast .bs-nav a[aria-current="page"] {
-  color: var(--brand);
+  color: var(--brand-text);
   border-bottom-color: var(--brand);
 }
 
@@ -293,7 +358,7 @@
 
 .bs-mast .bs-acct a:hover {
   text-decoration: none;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs-mast .bs-acct a.bs-cta {
@@ -322,7 +387,7 @@
   height: 32px;
   border-radius: 50%;
   background: var(--soft-2);
-  color: var(--brand);
+  color: var(--brand-text);
   font: 700 13px var(--font-b);
 }
 
@@ -639,7 +704,7 @@
 }
 
 .bs td a:hover {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs th.r,
@@ -839,7 +904,7 @@
 
 .bs-chips a:hover {
   border-color: var(--brand);
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
 }
 
@@ -870,7 +935,7 @@
 
 .bs-pager a:hover {
   border-color: var(--brand);
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
 }
 
@@ -930,7 +995,7 @@
   font: 700 11.5px var(--font-b);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs-art h3 {
@@ -940,7 +1005,7 @@
 }
 
 .bs a.bs-art:hover h3 {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs-art p {
@@ -969,7 +1034,7 @@
   border-radius: 999px;
   padding: 3px 9px;
   background: var(--soft-2);
-  color: var(--deep);
+  color: var(--deep-text);
   margin-left: 8px;
   vertical-align: 2px;
   white-space: nowrap;
@@ -1004,7 +1069,7 @@
 }
 
 .bs a.bs-row:hover .t {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs-row .t {
@@ -1216,7 +1281,7 @@
 /* ---- footer ---- */
 
 .bs-foot {
-  background: #0c1820;
+  background: var(--foot-bg);
   color: rgba(255, 255, 255, 0.7);
   margin-top: 64px;
 }
@@ -1380,7 +1445,7 @@
 .bs-field select,
 .bs-field textarea {
   font: 15.5px var(--font-b);
-  border: 1px solid #d3dbe1;
+  border: 1px solid var(--field-line);
   border-radius: 9px;
   padding: 11px 13px;
   background: var(--surface);
@@ -1393,7 +1458,7 @@
 .bs-field input:hover,
 .bs-field select:hover,
 .bs-field textarea:hover {
-  border-color: #b9c4cc;
+  border-color: var(--field-line-hover);
 }
 
 .bs-field input:focus,
@@ -1437,13 +1502,13 @@
 
 .bs-flash.good {
   background: var(--good-soft);
-  border-color: color-mix(in srgb, var(--good) 25%, white);
+  border-color: color-mix(in srgb, var(--good) 25%, var(--surface));
   color: var(--good);
 }
 
 .bs-flash.bad {
   background: var(--bad-soft);
-  border-color: color-mix(in srgb, var(--bad) 25%, white);
+  border-color: color-mix(in srgb, var(--bad) 25%, var(--surface));
   color: var(--bad);
 }
 
@@ -1613,7 +1678,7 @@
 }
 
 .bs-brands a:hover {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .bs-pill {
@@ -1772,7 +1837,7 @@
 
 .bs-kind.buy {
   background: var(--soft-2);
-  color: var(--deep);
+  color: var(--deep-text);
 }
 
 .bs-offer-img {

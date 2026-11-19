@@ -14,7 +14,8 @@ import { railBrands } from "@/domain/dashboard/rail";
 import { Rail } from "./rail";
 import { BrandSwitch } from "./brand-switch";
 import { brandScope } from "./brand-scope";
-import { signOut } from "./actions";
+import { AccountMenu } from "./account-menu";
+import { ThemeToggle } from "@/lib/ui/theme-toggle";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await currentViewer();
@@ -23,8 +24,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect("/sign-in");
   }
 
-  // The rail needs the brands themselves now, not a count: the Sites group is
-  // one entry per brand, each with its own price-freshness dot.
+  // The header picker needs the brands with their price freshness; the rail
+  // only counts them.
   const [brands, scope] = await Promise.all([railBrands(viewer.siteIds), brandScope(viewer)]);
 
   return (
@@ -37,18 +38,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               and opens a brand's own page. The rail lists no brands. */}
           <BrandSwitch brands={brands} chosen={scope.brand?.slug ?? null} />
           <span className="spacer" />
-          <span className="badge brand">
-            {viewer.isSuperadmin ? "Superadmin" : "Staff"}
-          </span>
-          <span className="who">
-            <strong>{viewer.identity.user.name}</strong>
-            <span>{viewer.identity.user.email}</span>
-          </span>
-          <form action={signOut}>
-            <button className="ghost" type="submit">
-              Sign out
-            </button>
-          </form>
+          <div className="topbar-end">
+            <ThemeToggle />
+            <span className="topbar-sep" aria-hidden />
+            <AccountMenu
+              name={viewer.identity.user.name}
+              email={viewer.identity.user.email}
+              role={viewer.isSuperadmin ? "Superadmin" : "Staff"}
+            />
+          </div>
         </header>
 
         <main className="content">{children}</main>
