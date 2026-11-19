@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { jsonBody } from "@/lib/auth/account";
 import { confirmEmail } from "@/domain/accounts/register";
 import { spendToken } from "@/domain/accounts/tokens";
+import { welcomeConfirmedReader } from "@/domain/mail/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    await confirmEmail(token.userId);
+    const first = await confirmEmail(token.userId);
+
+    // The brand they registered on welcomes them and tells its staff. A
+    // failure here must not undo a confirmed address, so it is only logged.
+    if (first && token.siteId !== null) {
+      await welcomeConfirmedReader(token.userId, token.siteId).catch((error) =>
+        console.error("welcome mail failed", { error, userId: token.userId }),
+      );
+    }
 
     return NextResponse.json({ message: "Your email address is confirmed." });
   } catch (error) {

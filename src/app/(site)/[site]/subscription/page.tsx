@@ -21,6 +21,7 @@ import { visitorCountry } from "@/lib/public/route";
 import { currentIdentity } from "@/lib/auth/server";
 import { liveBrandBySlug, readerFor } from "@/lib/public/reader";
 import { askForTrial } from "../actions";
+import { subscriptionPageOpened } from "@/domain/mail/lifecycle";
 import { ReaderForm } from "../forms";
 import { plainText } from "@/lib/public/html";
 import { day } from "../ui";
@@ -62,6 +63,15 @@ export default async function Subscription({ params, searchParams }: Props) {
 
   const held = identity?.memberships.find((m) => m.siteId === brand.id);
   const entitled = reader.entitlement.entitled;
+
+  // A signed-in reader without access, looking at the plans: the first time,
+  // the brand sends its Subscription Details and tells staff (see
+  // domain/mail/lifecycle.ts). Not for staff, nor for someone already paying.
+  if (identity && !entitled && held?.role !== "staff") {
+    await subscriptionPageOpened(identity.user.id, brand.id).catch((error) =>
+      console.error("subscription details mail failed", { error, userId: identity.user.id }),
+    );
+  }
 
   return (
     <>

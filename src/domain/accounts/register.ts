@@ -9,7 +9,7 @@
  * and return identical replies.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { memberships, sites, users } from "@/db/schema";
@@ -181,11 +181,18 @@ async function grant(userId: number, siteId: number, database: Database): Promis
 
 /* -------------------------------------------------------- confirming an address */
 
-export async function confirmEmail(userId: number, database: Database = db()): Promise<void> {
-  await database
+/**
+ * Marks the address confirmed. True only for the call that confirmed it, so
+ * the welcome email goes once even if a second link is spent later.
+ */
+export async function confirmEmail(userId: number, database: Database = db()): Promise<boolean> {
+  const changed = await database
     .update(users)
     .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, userId));
+    .where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)))
+    .returning({ id: users.id });
+
+  return changed.length > 0;
 }
 
 /* ------------------------------------------------------- forgotten password */

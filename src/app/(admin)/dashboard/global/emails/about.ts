@@ -2,12 +2,13 @@
  * What each system email is for and what sends it, in words for the list
  * and the email's own page.
  *
- * "When" is the truth about this platform, checked against the code on
- * 2026-11-19, not what the old PHP sites did: the four reminders go out from
- * the daily job (domain/billing/reminders.ts), the report and sample emails
- * are the wording staff pick when sending (domain/reports/sending.ts), and
- * the rest were carried over but nothing sends them yet. Saying so is better
- * than a page that implies a welcome email goes out when it does not.
+ * "When" is the truth about this platform, checked against the code, not
+ * what the old PHP sites did: the four reminders go out from the daily job
+ * (domain/billing/reminders.ts); Welcome, Subscription Details and the staff
+ * alerts from domain/mail/lifecycle.ts and domain/enquiries/submit.ts; the
+ * report and sample emails are the wording staff pick when sending
+ * (domain/reports/sending.ts). Trial Usage Exhausted has nothing to send it,
+ * and the page says so rather than implying it goes out.
  */
 
 export type EmailWhen = "auto" | "staff" | "none";
@@ -16,19 +17,20 @@ export type EmailAbout = { what: string; when: EmailWhen; detail: string };
 
 const ABOUT: Record<string, EmailAbout> = {
   welcome: {
-    what: "Greets a new reader with their sign-in details.",
-    when: "none",
-    detail: "Carried over from the old sites. Nothing on the platform sends it yet.",
+    what: "Welcomes a new reader to the brand.",
+    when: "auto",
+    detail:
+      "Sent when a new reader confirms their email address. Passwords are never emailed: {password} reads 'the password you chose when you registered'.",
   },
   "staff-alert": {
-    what: "Tells the brand's own staff that something needs a person.",
-    when: "none",
-    detail: "Carried over from the old sites. Nothing on the platform sends it yet.",
+    what: "Tells the brand's staff, at its admin address, that something needs a person.",
+    when: "auto",
+    detail: "Sent on a new registration, a free trial request, a reader first looking at the plans, and every enquiry (to a company, on an offer, about a plan).",
   },
   "subscription-details": {
-    what: "Confirms what a reader has bought and until when.",
-    when: "none",
-    detail: "Carried over from the old sites. Nothing on the platform sends it yet.",
+    what: "Answers a reader's interest in subscribing with the brand's prices.",
+    when: "auto",
+    detail: "Sent the first time a signed-in reader without access opens the brand's subscription page. Readers in the subcontinent get the Asia wording.",
   },
   "subscription-expiring": {
     what: "Reminds a paying reader that their subscription is about to end.",
@@ -53,7 +55,7 @@ const ABOUT: Record<string, EmailAbout> = {
   "trial-exhausted": {
     what: "Tells a reader their free trial has used up its allowance.",
     when: "none",
-    detail: "Carried over from the old sites. Nothing on the platform sends it yet.",
+    detail: "The old sites sent this when a trial used up its download allowance. Trials here have no allowance and end by date, which Trial Expired covers, so nothing sends it.",
   },
   "send-report": {
     what: "The covering note when staff send a report to paying readers.",

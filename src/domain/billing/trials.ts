@@ -18,6 +18,7 @@ import { entitlementFor } from "@/domain/public/paywall";
 import { today } from "@/domain/price/dates";
 import { addDays } from "./sweep";
 import { AccountError } from "@/domain/accounts/register";
+import { trialRequested } from "@/domain/mail/lifecycle";
 
 export const DEFAULT_TRIAL_DAYS = 14;
 
@@ -81,6 +82,11 @@ export async function requestTrial(
       days: DEFAULT_TRIAL_DAYS,
     })
     .returning();
+
+  // Staff decide trials, so they hear about the request.
+  await trialRequested(identity.user.id, brand.id, row!.note, database).catch((error) =>
+    console.error("trial request alert failed", { error, request: row!.id }),
+  );
 
   return { id: row!.id, status: row!.status };
 }

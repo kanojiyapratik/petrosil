@@ -32,32 +32,13 @@ import { visibleOfferFields } from "@/domain/public/offers";
 import { entitlementFor, type Entitlement } from "@/domain/public/paywall";
 import { today } from "@/domain/price/dates";
 import { SYSTEM_PREFIX } from "@/lib/mail/render";
+import { detailsTable } from "@/lib/mail/details";
 
 export const HOURLY_LIMIT = 10;
 
 export type EnquiryKind = "company" | "offer" | "plan";
 
 const KINDS: EnquiryKind[] = ["company", "offer", "plan"];
-
-function escape(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** The details table the staff-alert template's `{content}` expects, every value escaped. */
-function detailsTable(rows: [string, unknown][]): string {
-  return rows
-    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
-    .map(
-      ([label, value]) =>
-        `<tr><td style="width:30%;padding:8px;border-bottom:1px solid #ddd">${escape(label)}</td>` +
-        `<td style="padding:8px;border-bottom:1px solid #ddd">${escape(value).replace(/\n/g, "<br />")}</td></tr>`,
-    )
-    .join("");
-}
 
 /**
  * Refuse a message this reader's field rules do not allow. A paying reader
