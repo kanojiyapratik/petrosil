@@ -32,10 +32,15 @@
   --bad: #b91c1c;
   --bad-soft: #fee2e2;
 
-  --rail: #111827;
-  --rail-ink: #cbd5e1;
-  --rail-ink-strong: #ffffff;
-  --rail-line: #1f2937;
+  /* The left rail follows the mode: white with dark text here, dark below.
+   * It used to be dark in both, which read as a mode switch that missed it. */
+  --rail: #ffffff;
+  --rail-ink: #4b5563;
+  --rail-ink-strong: #111827;
+  --rail-line: #e5e7eb;
+  --rail-hover: #f3f4f6;
+  --rail-on: #f0fdfa;
+  --rail-edge: #e5e7eb;
 
   --radius: 10px;
   --rail-width: 248px;
@@ -63,7 +68,12 @@
     --bad: #f87171;
     --bad-soft: #3b1414;
     --rail: #080d16;
+    --rail-ink: #cbd5e1;
+    --rail-ink-strong: #ffffff;
     --rail-line: #16202f;
+    --rail-hover: rgba(255, 255, 255, 0.04);
+    --rail-on: rgba(255, 255, 255, 0.07);
+    --rail-edge: #16202f;
     --shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
@@ -86,7 +96,12 @@
   --bad: #f87171;
   --bad-soft: #3b1414;
   --rail: #080d16;
+  --rail-ink: #cbd5e1;
+  --rail-ink-strong: #ffffff;
   --rail-line: #16202f;
+  --rail-hover: rgba(255, 255, 255, 0.04);
+  --rail-on: rgba(255, 255, 255, 0.07);
+  --rail-edge: #16202f;
   --shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
@@ -134,6 +149,7 @@ h2 {
 .rail {
   background: var(--rail);
   color: var(--rail-ink);
+  border-right: 1px solid var(--rail-edge);
   padding: 0 0 2rem;
   position: sticky;
   top: 0;
@@ -198,12 +214,12 @@ h2 {
 
 .rail a:hover {
   color: var(--rail-ink-strong);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--rail-hover);
 }
 
 .rail a.on {
   color: var(--rail-ink-strong);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--rail-on);
   border-left-color: var(--brand);
   font-weight: 600;
 }
