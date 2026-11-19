@@ -7,6 +7,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "@/app/(admin)/brand-scope";
 import { EngineError } from "@/lib/engine/client";
 import { aiUsage } from "@/domain/ai/providers";
 import { Empty, Heading, Panel, count, one, type Search } from "@/app/(admin)/ui";
@@ -56,6 +57,13 @@ export default async function AiUsagePage({ searchParams }: { searchParams: Prom
     throw error;
   }
 
+  // The header's brand filter. The engine reports by day across every brand,
+  // so that table cannot be narrowed and is left out while a brand is chosen.
+  const { brand } = await brandScope(viewer);
+  if (brand) {
+    report = { ...report, by_site: report.by_site.filter((row) => row.site === brand.slug) };
+  }
+
   const totals = report.by_site.reduce(
     (sum, row) => ({
       calls: sum.calls + row.calls,
@@ -69,7 +77,13 @@ export default async function AiUsagePage({ searchParams }: { searchParams: Prom
     <>
       <Heading
         title="AI usage"
-        sub={report.estate ? "Every model call across the brands." : "Model calls for the brands you work on."}
+        sub={
+          brand
+            ? `Model calls for ${brand.name}.`
+            : report.estate
+              ? "Every model call across the brands."
+              : "Model calls for the brands you work on."
+        }
       >
         <div className="chips">
           {SPANS.map((span) => (
@@ -128,7 +142,7 @@ export default async function AiUsagePage({ searchParams }: { searchParams: Prom
         )}
       </Panel>
 
-      {report.estate ? (
+      {report.estate && !brand ? (
         <Panel title="By day and model">
           {report.by_day.length ? (
             <table className="tight">

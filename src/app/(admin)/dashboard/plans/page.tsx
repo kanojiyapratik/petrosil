@@ -10,7 +10,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
+import { brandScope } from "../../brand-scope";
 import { listPlans } from "@/domain/dashboard/catalogue";
 import {
   Empty,
@@ -18,24 +18,17 @@ import {
   Panel,
   count,
   money,
-  one,
   plain,
-  type Search,
-  BrandChips,
 } from "../../ui";
 
 export const metadata = { title: "Plans · Petrosil" };
 export const dynamic = "force-dynamic";
 
-export default async function PlansPage({ searchParams }: { searchParams: Promise<Search> }) {
+export default async function PlansPage() {
   const viewer = (await currentViewer())!;
-  const search = await searchParams;
-  const site = one(search, "site");
-
-  const [brands, rows] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listPlans(viewer.siteIds, { site }),
-  ]);
+  const scope = await brandScope(viewer);
+  const site = scope.brand?.slug;
+  const rows = await listPlans(viewer.siteIds, { site });
 
   return (
     <>
@@ -48,7 +41,6 @@ export default async function PlansPage({ searchParams }: { searchParams: Promis
         </Link>
       </Heading>
 
-      <BrandChips base="/dashboard/plans" brands={brands} value={site} here={{}} />
 
       <Panel title={`${count(rows.length)} plan${rows.length === 1 ? "" : "s"}`}>
         <table>

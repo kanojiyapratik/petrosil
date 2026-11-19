@@ -8,6 +8,7 @@
  */
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../../brand-scope";
 import { loginLog } from "@/domain/dashboard/activity";
 import { Chips, Empty, Heading, Panel, count, one, when, type Search } from "../../ui";
 import { PeopleNav } from "@/app/(admin)/people-nav";
@@ -20,7 +21,7 @@ export default async function LoginsPage({ searchParams }: { searchParams: Promi
   const search = await searchParams;
   const only = one(search, "only");
 
-  const rows = await loginLog(viewer.siteIds, {
+  const rows = await loginLog((await brandScope(viewer)).siteIds, {
     onlyFailures: only === "failures",
     limit: 200,
   });

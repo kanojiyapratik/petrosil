@@ -11,7 +11,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
+import { brandScope } from "../../brand-scope";
 import { listClients, segmentCounts, type Segment } from "@/domain/dashboard/clients";
 import { EXPORT_SEGMENTS } from "@/domain/clients/export";
 import {
@@ -25,7 +25,6 @@ import {
   pageParam,
   when,
   type Search,
-  BrandChips,
   ListBar,
 } from "../../ui";
 import { Popup } from "@/app/(admin)/popup";
@@ -62,7 +61,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const viewer = (await currentViewer())!;
   const search = await searchParams;
 
-  const site = one(search, "site");
   const q = one(search, "q");
   const segmentRaw = one(search, "segment");
   const segment = SEGMENTS.includes(segmentRaw as Segment) ? (segmentRaw as Segment) : undefined;
@@ -74,12 +72,14 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const dueRaw = Number(one(search, "due"));
   const due = renewing ? 30 : Number.isFinite(dueRaw) && dueRaw > 0 ? Math.trunc(dueRaw) : undefined;
 
-  const [brands, counts, clients, renewingCount, suspendedCount] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    segmentCounts(viewer.siteIds),
+  const scope = await brandScope(viewer);
+  const { brands } = scope;
+  const site = scope.brand?.slug;
+  const [counts, clients, renewingCount, suspendedCount] = await Promise.all([
+    segmentCounts(scope.siteIds),
     listClients(viewer.siteIds, { site, search: q, segment: renewing ? "premium" : segment, due, suspended, page }),
-    listClients(viewer.siteIds, { segment: "premium", due: 30, perPage: 1 }).then((r) => r.total),
-    listClients(viewer.siteIds, { suspended: true, perPage: 1 }).then((r) => r.total),
+    listClients(viewer.siteIds, { site, segment: "premium", due: 30, perPage: 1 }).then((r) => r.total),
+    listClients(viewer.siteIds, { site, suspended: true, perPage: 1 }).then((r) => r.total),
   ]);
 
   return (
@@ -127,13 +127,11 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </Popup>
       </Heading>
 
-      <BrandChips base="/dashboard/clients" brands={brands} value={site} here={{ q, segment: segmentRaw || undefined }} />
-
-      <ListBar action="/dashboard/clients" q={q} placeholder="Search: name, email or company" keep={{ site, segment: segmentRaw || undefined }}>
+      <ListBar action="/dashboard/clients" q={q} placeholder="Search: name, email or company" keep={{ segment: segmentRaw || undefined }}>
         <Chips
           base="/dashboard/clients"
           param="segment"
-          here={{ site, q }}
+          here={{ q }}
           value={segmentRaw === "renewing" || segmentRaw === "suspended" ? segmentRaw : segment}
           options={[
             { value: "", label: "Everyone" },
@@ -210,7 +208,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </table>
         <Pager
           base="/dashboard/clients"
-          here={{ site, q, segment: segmentRaw || undefined, due: due && !renewing ? String(due) : undefined }}
+          here={{ q, segment: segmentRaw || undefined, due: due && !renewing ? String(due) : undefined }}
           page={clients.page}
           perPage={clients.per_page}
           total={clients.total}

@@ -11,6 +11,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../../brand-scope";
 import { listStaff } from "@/domain/dashboard/catalogue";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listRoles } from "@/domain/dashboard/permissions";
@@ -25,8 +26,10 @@ export const dynamic = "force-dynamic";
 
 export default async function StaffPage() {
   const viewer = (await currentViewer())!;
+  const { siteIds } = await brandScope(viewer);
+  // The list follows the header's brand; the add form still offers every brand you hold.
   const [rows, brands, roles] = await Promise.all([
-    listStaff(viewer.siteIds),
+    listStaff(siteIds),
     brandsFor(viewer.siteIds),
     listRoles(viewer.siteIds),
   ]);

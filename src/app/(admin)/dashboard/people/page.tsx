@@ -18,6 +18,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../../brand-scope";
 import { segmentCounts } from "@/domain/dashboard/clients";
 import { PEOPLE_TABS } from "../../nav";
 import { Heading, Panel, Tile } from "../../ui";
@@ -35,7 +36,7 @@ const WHAT: Record<string, string> = {
 
 export default async function PeoplePage() {
   const viewer = (await currentViewer())!;
-  const counts = await segmentCounts(viewer.siteIds);
+  const counts = await segmentCounts((await brandScope(viewer)).siteIds);
   // Every standing added together: the segments are exclusive, so this is the
   // customer book. Staff are counted separately and are not customers.
   const customers =

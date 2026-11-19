@@ -12,6 +12,8 @@ import { redirect } from "next/navigation";
 import { currentViewer } from "@/lib/auth/server";
 import { railBrands } from "@/domain/dashboard/rail";
 import { Rail } from "./rail";
+import { BrandSwitch } from "./brand-switch";
+import { brandScope } from "./brand-scope";
 import { signOut } from "./actions";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   // The rail needs the brands themselves now, not a count: the Sites group is
   // one entry per brand, each with its own price-freshness dot.
-  const brands = await railBrands(viewer.siteIds);
+  const [brands, scope] = await Promise.all([railBrands(viewer.siteIds), brandScope(viewer)]);
 
   return (
     <div className="shell">
@@ -34,6 +36,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <span className="badge brand">
             {viewer.isSuperadmin ? "Superadmin" : "Staff"}
           </span>
+          <BrandSwitch
+            brands={scope.brands.map(({ slug, name }) => ({ slug, name }))}
+            chosen={scope.brand?.slug ?? null}
+          />
           <span className="spacer" />
           <span className="who">
             <strong>{viewer.identity.user.name}</strong>

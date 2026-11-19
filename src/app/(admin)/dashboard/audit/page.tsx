@@ -8,10 +8,9 @@
  */
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
+import { brandScope } from "../../brand-scope";
 import { auditTrail } from "@/domain/dashboard/activity";
 import {
-  BrandChips,
   ListBar,
   Empty,
   Heading,
@@ -46,13 +45,11 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const viewer = (await currentViewer())!;
   const search = await searchParams;
 
-  const site = one(search, "site");
   const action = one(search, "action");
+  const scope = await brandScope(viewer);
+  const site = scope.brand?.slug;
 
-  const [brands, rows] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    auditTrail(viewer.siteIds, { site, action, limit: 200 }),
-  ]);
+  const rows = await auditTrail(viewer.siteIds, { site, action, limit: 200 });
 
   return (
     <>
@@ -61,8 +58,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         sub="Who changed what, and from where. Nothing here can be edited, including by a superadmin."
       />
 
-      <BrandChips base="/dashboard/audit" brands={brands} value={site} here={{ action }} />
-      <ListBar action="/dashboard/audit" q={action} name="action" placeholder="Search: action, e.g. price.commit" keep={{ site }} />
+      <ListBar action="/dashboard/audit" q={action} name="action" placeholder="Search: action, e.g. price.commit" />
 
       <Panel title={`${count(rows.length)} entr${rows.length === 1 ? "y" : "ies"}`} hint="Newest first, 200 shown.">
         <table className="tight">

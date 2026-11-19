@@ -11,7 +11,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
-import { brandsFor } from "@/domain/dashboard/brands";
+import { brandScope } from "../../brand-scope";
 import { listTransactions } from "@/domain/dashboard/catalogue";
 import { PAYMENT_METHODS } from "@/domain/billing/manual";
 import { ORDER_STATUSES } from "@/db/schema";
@@ -26,7 +26,6 @@ import {
   pageParam,
   when,
   type Search,
-  BrandChips,
   Chips,
 } from "../../ui";
 
@@ -50,14 +49,12 @@ export default async function TransactionsPage({
   const viewer = (await currentViewer())!;
   const search = await searchParams;
 
-  const site = one(search, "site");
   const status = one(search, "status");
   const page = pageParam(one(search, "page"));
 
-  const [brands, paged] = await Promise.all([
-    brandsFor(viewer.siteIds),
-    listTransactions(viewer.siteIds, { site, status, page }),
-  ]);
+  const scope = await brandScope(viewer);
+  const site = scope.brand?.slug;
+  const paged = await listTransactions(viewer.siteIds, { site, status, page });
 
   // Per currency, never summed. The estate sells in rupees to the Indian subcontinent and in
   // dollars to everyone else, so one total over both is a number that means
@@ -77,12 +74,11 @@ export default async function TransactionsPage({
         sub="Every order, with what it listed at, what was taken off, and what was charged."
       />
 
-      <BrandChips base="/dashboard/transactions" brands={brands} value={site} here={{ status }} />
       <div className="listbar">
         <Chips
           base="/dashboard/transactions"
           param="status"
-          here={{ site }}
+          here={{}}
           value={status}
           options={[
             { value: "", label: "Any status" },
@@ -177,7 +173,7 @@ export default async function TransactionsPage({
         </table>
         <Pager
           base="/dashboard/transactions"
-          here={{ site, status }}
+          here={{ status }}
           page={paged.page}
           perPage={paged.per_page}
           total={paged.total}

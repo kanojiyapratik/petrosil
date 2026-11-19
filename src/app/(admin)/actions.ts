@@ -1,18 +1,22 @@
 "use server";
 
 /**
- * The two things the shell itself does.
+ * What the shell itself does: signing in and out, and the header's brand filter.
  *
- * Both go through the same `signIn`/`signOut` the API routes use. A server
- * action that reimplemented the throttle, the attempt log or the cookie
- * would be a second front door with its own locks.
+ * Sign-in and sign-out go through the same `signIn`/`signOut` the API routes
+ * use. A server action that reimplemented the throttle, the attempt log or
+ * the cookie would be a second front door with its own locks.
  */
 
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { COOKIE, SignInError, sessionCookie, signIn, signOut as endSession } from "@/lib/auth/session";
 import { DEV_PASSWORD, quickSignInHere } from "@/lib/auth/dev-sign-in";
+import { currentViewer } from "@/lib/auth/server";
+import { brandsFor } from "@/domain/dashboard/brands";
+import { BRAND_COOKIE } from "./brand-scope";
 
 export async function signInAction(_state: unknown, form: FormData) {
   const email = String(form.get("email") ?? "");
@@ -96,4 +100,39 @@ export async function signOut() {
 
   jar.delete(COOKIE);
   redirect("/sign-in");
+}
+
+/**
+ * Choose the brand the header filter shows, or all brands.
+ *
+ * The slug is checked against the brands this viewer may see before it is
+ * kept. `brandScope` would ignore a stranger's slug anyway, but a cookie
+ * holding a brand nobody granted is a confusing thing to leave lying about.
+ */
+export async function chooseBrand(slug: string) {
+  const viewer = await currentViewer();
+
+  if (!viewer) {
+    redirect("/sign-in");
+  }
+
+  const jar = await cookies();
+  const brands = await brandsFor(viewer.siteIds);
+
+  if (slug && brands.some((brand) => brand.slug === slug)) {
+    jar.set({
+      name: BRAND_COOKIE,
+      value: slug,
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  } else {
+    jar.delete(BRAND_COOKIE);
+  }
+
+  // Every admin screen reads it, so every admin screen is now stale.
+  revalidatePath("/dashboard", "layout");
 }

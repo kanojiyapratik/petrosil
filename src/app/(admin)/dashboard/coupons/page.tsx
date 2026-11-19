@@ -9,6 +9,7 @@
 import Link from "@/lib/ui/link";
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../../brand-scope";
 import { brandsFor } from "@/domain/dashboard/brands";
 import { listCoupons } from "@/domain/dashboard/catalogue";
 import { CouponForm } from "./form";
@@ -28,7 +29,7 @@ const TONE: Record<string, string> = {
 
 export default async function CouponsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const viewer = (await currentViewer())!;
-  const [rows, brands] = await Promise.all([listCoupons(viewer.siteIds), brandsFor(viewer.siteIds)]);
+  const [rows, brands] = await Promise.all([listCoupons((await brandScope(viewer)).siteIds), brandsFor(viewer.siteIds)]);
   const justMade = one(await searchParams, "saved") === "1";
   // Estate-wide codes are listed for everyone but only a superadmin may change one.
   const editable = (site: string | null) => site !== null || viewer.isSuperadmin;

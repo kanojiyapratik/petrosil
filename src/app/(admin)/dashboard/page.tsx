@@ -10,6 +10,7 @@
  */
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../brand-scope";
 import { estateOverview } from "@/domain/dashboard/overview";
 import { Tile } from "../ui";
 
@@ -27,12 +28,13 @@ const count = (n: number) => n.toLocaleString("en-IN");
 
 export default async function DashboardPage() {
   const viewer = (await currentViewer())!;
-  const overview = await estateOverview(viewer.siteIds);
+  const scope = await brandScope(viewer);
+  const overview = await estateOverview(scope.siteIds);
   const { totals } = overview;
 
   return (
     <>
-      <h1>Estate overview</h1>
+      <h1>{scope.brand ? `${scope.brand.name} overview` : "Estate overview"}</h1>
 
       <div className="tiles">
         <Tile n={totals.sites} k="brands" />

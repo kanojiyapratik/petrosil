@@ -217,40 +217,6 @@ export function BrandField({ brands, value }: { brands: Brand[]; value?: string 
   );
 }
 
-/**
- * The brand filter on an estate-wide list, as chips like every other filter.
- * It sits on its own line above the list's bar: nine brands and a status set
- * on one line would wrap into each other. Hidden for a viewer with one brand.
- */
-export function BrandChips({
-  base,
-  brands,
-  value,
-  here,
-}: {
-  base: string;
-  brands: Brand[];
-  value?: string;
-  /** The other filters to keep when the brand changes. */
-  here: Record<string, string | undefined>;
-}) {
-  if (brands.length < 2) {
-    return null;
-  }
-
-  return (
-    <div className="brandbar">
-      <Chips
-        base={base}
-        param="site"
-        here={here}
-        value={value}
-        options={[{ value: "", label: "All brands" }, ...brands.map((brand) => ({ value: brand.slug, label: brand.name }))]}
-      />
-    </div>
-  );
-}
-
 export function Filters({
   action,
   site,

@@ -7,6 +7,7 @@
  */
 
 import { currentViewer } from "@/lib/auth/server";
+import { brandScope } from "../../brand-scope";
 import { listTrials } from "@/domain/billing/trials";
 import { decide } from "../actions";
 import { Chips, Empty, Heading, Panel, count, one, when, type Search } from "../../ui";
@@ -28,9 +29,11 @@ export default async function TrialsPage({ searchParams }: { searchParams: Promi
   const search = await searchParams;
   const status = one(search, "status");
 
+  const { siteIds } = await brandScope(viewer);
+
   const [all, rows] = await Promise.all([
-    listTrials(viewer.siteIds, undefined),
-    listTrials(viewer.siteIds, status),
+    listTrials(siteIds, undefined),
+    listTrials(siteIds, status),
   ]);
 
   return (
