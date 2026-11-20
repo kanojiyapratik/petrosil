@@ -33,7 +33,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { mailOutbox, mailTemplates, sites, users } from "@/db/schema";
-import { brandSetting } from "@/domain/dashboard/settings";
+import { staffAddress } from "@/domain/dashboard/settings";
 import { preferredCurrency } from "@/domain/billing/pricing";
 import { linkBaseFor } from "@/lib/mail/deliver";
 import { detailsTable } from "@/lib/mail/details";
@@ -100,7 +100,7 @@ async function staffAlert(
   replyTo: string | null,
 ): Promise<Row | null> {
   const [to, enabled] = await Promise.all([
-    brandSetting(brand.id, "site_admin_email", database),
+    staffAddress(brand.id, database),
     enabledSubject(database, brand.id, "staff-alert", "default"),
   ]);
 
@@ -110,7 +110,7 @@ async function staffAlert(
 
   return {
     siteId: brand.id,
-    to: to.slice(0, 191),
+    to,
     subject: subject.slice(0, 255),
     template: `${SYSTEM_PREFIX}staff-alert`,
     payload: {

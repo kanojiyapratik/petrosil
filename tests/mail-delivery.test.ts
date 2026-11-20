@@ -16,7 +16,7 @@ import { mailOutbox, sites } from "@/db/schema";
 import { queueMail } from "@/lib/mail/outbox";
 import { renderMail, UnknownTemplate } from "@/lib/mail/render";
 import { brevoTransport, SendError, transportFromEnv, type OutgoingMail, type Transport } from "@/lib/mail/transport";
-import { deliverPending, MAX_ATTEMPTS, retryDelayMinutes } from "@/lib/mail/deliver";
+import { DEFAULT_MAX_AGE_HOURS, deliverPending, MAX_ATTEMPTS, maxAgeHours, retryDelayMinutes } from "@/lib/mail/deliver";
 import { makeBrand, resetDatabase, type Brand } from "./helpers";
 
 let baseoil: Brand;
@@ -180,7 +180,7 @@ describe("draining the outbox", () => {
 
     const result = await deliverPending(transport);
 
-    expect(result).toEqual({ sent: 1, retrying: 0, failed: 0 });
+    expect(result).toEqual({ sent: 1, retrying: 0, failed: 0, expired: 0 });
     expect(transport.sent[0]!.to).toBe("reader@company.example");
     expect(transport.sent[0]!.html).toContain("token=tok123");
     // The sender's name is the brand's, so a reader sees who wrote to them.
@@ -239,7 +239,7 @@ describe("draining the outbox", () => {
         new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 5_000)),
       ]);
 
-      expect(outcome).toEqual({ sent: 1, retrying: 0, failed: 0 });
+      expect(outcome).toEqual({ sent: 1, retrying: 0, failed: 0, expired: 0 });
     });
 
     expect(transport.sent.map((mail) => mail.to)).toEqual(["free@company.example"]);
@@ -253,7 +253,7 @@ describe("draining the outbox", () => {
 
     const result = await deliverPending(transport, { now });
 
-    expect(result).toEqual({ sent: 0, retrying: 1, failed: 0 });
+    expect(result).toEqual({ sent: 0, retrying: 1, failed: 0, expired: 0 });
 
     const waiting = await row(id);
 
@@ -301,7 +301,7 @@ describe("draining the outbox", () => {
 
     const result = await deliverPending(transport);
 
-    expect(result).toEqual({ sent: 0, retrying: 0, failed: 1 });
+    expect(result).toEqual({ sent: 0, retrying: 0, failed: 1, expired: 0 });
     expect((await row(id)).failedAt).not.toBeNull();
   });
 
@@ -334,5 +334,56 @@ describe("draining the outbox", () => {
     await deliverPending(transport, { env: { MAIL_LINK_BASE: "https://{domain}" } });
 
     expect(transport.sent[0]!.html).toContain("https://baseoilreport.com/verify-email?token=tok123");
+  });
+});
+
+describe("mail too old to send", () => {
+  const hours = (count: number) => count * 3_600_000;
+
+  async function backdate(id: number, ago: number) {
+    await db()
+      .update(mailOutbox)
+      .set({ createdAt: new Date((await databaseClock()).getTime() - ago) })
+      .where(eq(mailOutbox.id, id));
+  }
+
+  it("fails a confirmation link older than the link itself, with the reason, instead of sending it", async () => {
+    const id = await queueVerify();
+    await backdate(id, hours(maxAgeHours("verify_email") + 1));
+    const transport = recorder();
+
+    const result = await deliverPending(transport);
+
+    expect(result).toEqual({ sent: 0, retrying: 0, failed: 0, expired: 1 });
+    expect(transport.sent).toHaveLength(0);
+    const after = await row(id);
+    expect(after.failedAt).not.toBeNull();
+    expect(after.sentAt).toBeNull();
+    expect(after.error).toMatch(/^Too old to send: it waited \d+ hours, past its limit of 168 hours\.$/);
+  });
+
+  it("still sends one that is old but inside its limit", async () => {
+    const id = await queueVerify();
+    await backdate(id, hours(maxAgeHours("verify_email") - 1));
+
+    expect(await deliverPending(recorder())).toEqual({ sent: 1, retrying: 0, failed: 0, expired: 0 });
+  });
+
+  it("gives each kind its own limit, and anything unlisted a week", async () => {
+    expect(maxAgeHours("reset_password")).toBe(1);
+    expect(maxAgeHours("system:subscription-expiring")).toBe(48);
+    expect(maxAgeHours("system:welcome")).toBe(DEFAULT_MAX_AGE_HOURS);
+
+    const reset = await queueMail({ to: "a@company.example", subject: "Reset", template: "reset_password", payload: { token: "t" }, siteId: baseoil.siteId });
+    const verify = await queueVerify("b@company.example");
+    await backdate(reset, hours(2));
+    await backdate(verify, hours(2));
+
+    const transport = recorder();
+    const result = await deliverPending(transport);
+
+    expect(result.expired).toBe(1);
+    expect((await row(reset)).failedAt).not.toBeNull();
+    expect(transport.sent.map((mail) => mail.to)).toEqual(["b@company.example"]);
   });
 });

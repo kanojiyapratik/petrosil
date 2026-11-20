@@ -61,6 +61,7 @@ export async function saveSettings(_state: unknown, form: FormData) {
   const ip = await callerIp();
   let saved = 0;
   let refused = 0;
+  const problems: string[] = [];
 
   for (const [field, raw] of form.entries()) {
     if (!field.startsWith("set:") || typeof raw !== "string") {
@@ -78,6 +79,8 @@ export async function saveSettings(_state: unknown, form: FormData) {
 
     if (result.ok) {
       saved += 1;
+    } else if (result.error) {
+      problems.push(result.error);
     } else {
       refused += 1;
     }
@@ -90,12 +93,17 @@ export async function saveSettings(_state: unknown, form: FormData) {
       siteId: brand?.id ?? null,
       action: "setting.save",
       entity: "settings",
-      detail: { keys: saved, refused, scope: brand?.slug ?? "estate" },
+      detail: { keys: saved, refused: refused + problems.length, scope: brand?.slug ?? "estate" },
       ip,
     });
 
   revalidatePath("/dashboard/sites/[slug]", "layout");
   revalidatePath("/dashboard/global/settings");
+
+  // Everything valid is saved; what was not is named, so it can be fixed.
+  if (problems.length > 0) {
+    return { error: `${problems.join(" ")}${saved > 0 ? " Everything else was saved." : ""}` };
+  }
 
   if (refused > 0) {
     return { error: `${refused} key${refused === 1 ? "" : "s"} were not recognised and ignored.` };

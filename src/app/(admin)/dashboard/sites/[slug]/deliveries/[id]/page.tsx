@@ -44,7 +44,7 @@ export default async function DeliveryPage({ params }: { params: Promise<{ slug:
 
       {queued > 0 ? (
         <p className="small muted">
-          Waiting mails leave with the next mail run, once a mail key is set (BREVO_API_KEY and MAIL_FROM).
+          Waiting mails leave with the next mail run, once a mail key is set (BREVO_API_KEY and MAIL_FROM). Mail that waits past its useful life (an hour for a password reset, a week for most) is marked too old instead of sent late.
         </p>
       ) : null}
 

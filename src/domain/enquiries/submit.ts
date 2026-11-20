@@ -26,7 +26,7 @@ import { enquiries, mailOutbox, memberships, offers, planPrices, planSites, plan
 import { currencyFor } from "@/domain/billing/pricing";
 import type { Identity } from "@/lib/auth/session";
 import { AccountError } from "@/domain/accounts/register";
-import { brandSetting } from "@/domain/dashboard/settings";
+import { staffAddress } from "@/domain/dashboard/settings";
 import { listedOn, visibleDirectoryFields } from "@/domain/public/directory";
 import { visibleOfferFields } from "@/domain/public/offers";
 import { entitlementFor, type Entitlement } from "@/domain/public/paywall";
@@ -249,7 +249,7 @@ export async function submitEnquiry(
     });
   }
 
-  const staff = await brandSetting(brand.id, "site_admin_email", database);
+  const staff = await staffAddress(brand.id, database);
 
   if (staff) {
     const subjectLine = `${brand.name} - ${kind === "plan" ? "Plan enquiry" : "Message"} from ${sender!.name}${
@@ -258,7 +258,7 @@ export async function submitEnquiry(
 
     mails.push({
       siteId: brand.id,
-      to: staff.slice(0, 191),
+      to: staff,
       subject: subjectLine.slice(0, 255),
       template: `${SYSTEM_PREFIX}staff-alert`,
       payload: {

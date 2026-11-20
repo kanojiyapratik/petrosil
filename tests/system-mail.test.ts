@@ -175,7 +175,7 @@ describe("sending a stored template", () => {
     const transport = recorder();
     const result = await deliverPending(transport);
 
-    expect(result).toEqual({ sent: 0, retrying: 0, failed: 2 });
+    expect(result).toEqual({ sent: 0, retrying: 0, failed: 2, expired: 0 });
     expect(transport.sent).toHaveLength(0);
   });
 });

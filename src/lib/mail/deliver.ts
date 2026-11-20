@@ -86,7 +86,61 @@ export function linkBaseFor(
     .replace(/\/+$/, "");
 }
 
-export type DeliveryResult = { sent: number; retrying: number; failed: number };
+/**
+ * How long a mail may wait in the queue and still be worth sending, in hours.
+ *
+ * Mail waits whenever no Brevo key is set, and the day one is set the whole
+ * queue would go at once: confirmation links whose token died weeks ago,
+ * "your subscription ends in 3 days" for a date long past, a welcome a month
+ * late. Past its limit a mail is failed with a reason instead, and the
+ * deliveries screens show it. A link lives as long as its token
+ * (accounts/tokens.ts); a notice or reminder only while it is still true.
+ */
+export const MAX_AGE_HOURS: Record<string, number> = {
+  reset_password: 1,
+  change_email: 24,
+  verify_email: 7 * 24,
+  staff_invite: 7 * 24,
+  account_exists: 2 * 24,
+  change_email_taken: 2 * 24,
+  email_changed: 2 * 24,
+  newsletter_test: 24,
+  newsletter: 7 * 24,
+  // A report a reader paid for is still wanted late, within reason.
+  prepared: 14 * 24,
+  [`${SYSTEM_PREFIX}subscription-expiring`]: 2 * 24,
+  [`${SYSTEM_PREFIX}trial-expiring`]: 2 * 24,
+};
+
+/** Anything not listed above: welcome, staff alerts, expired notices, the rest. */
+export const DEFAULT_MAX_AGE_HOURS = 7 * 24;
+
+export function maxAgeHours(template: string): number {
+  return MAX_AGE_HOURS[template] ?? DEFAULT_MAX_AGE_HOURS;
+}
+
+/** Fail every waiting mail that is past its limit; returns how many. */
+async function expireStale(database: Database, now: Date): Promise<number> {
+  const limits = Object.entries(MAX_AGE_HOURS).map(
+    ([template, hours]) => sql`when ${template} then ${hours}`,
+  );
+  const hours = sql`(case ${mailOutbox.template} ${sql.join(limits, sql` `)} else ${DEFAULT_MAX_AGE_HOURS} end)::int`;
+
+  const expired = (await database.execute(sql`
+    update ${mailOutbox}
+       set failed_at = ${now.toISOString()},
+           error = 'Too old to send: it waited ' || floor(extract(epoch from (${now.toISOString()}::timestamptz - created_at)) / 3600)::int
+                   || ' hours, past its limit of ' || ${hours} || ' hours.'
+     where sent_at is null
+       and failed_at is null
+       and created_at < ${now.toISOString()}::timestamptz - make_interval(hours => ${hours})
+    returning id
+  `)) as unknown as { id: number }[];
+
+  return expired.length;
+}
+
+export type DeliveryResult = { sent: number; retrying: number; failed: number; expired: number };
 
 /**
  * A file the mail names is not in the store. Failed, not sent without it: a
@@ -150,6 +204,7 @@ export async function deliverPending(
   const now = options.now ?? (await databaseNow(database));
   const limit = options.limit ?? 50;
   const lease = new Date(now.getTime() + LEASE_MINUTES * 60_000);
+  const expired = await expireStale(database, now);
 
   const claimed = (await database.execute(sql`
     update ${mailOutbox}
@@ -167,7 +222,7 @@ export async function deliverPending(
     returning id
   `)) as unknown as { id: number }[];
 
-  const result: DeliveryResult = { sent: 0, retrying: 0, failed: 0 };
+  const result: DeliveryResult = { sent: 0, retrying: 0, failed: 0, expired };
 
   if (claimed.length === 0) {
     return result;

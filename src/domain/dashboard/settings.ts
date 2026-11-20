@@ -22,6 +22,7 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { db, type Database } from "@/db";
 import { settings, sites } from "@/db/schema";
+import { readEmail } from "@/domain/accounts/policy";
 
 export type SettingKind = "text" | "textarea" | "email" | "number" | "secret";
 
@@ -210,6 +211,31 @@ export async function strandedSettings(
 }
 
 /**
+ * What is wrong with a value for its kind, or null. The browser checks an
+ * email box too, but only in the browser: a typo or a list like
+ * "a@x.com, b@y.com" in the Admin address would make every staff alert fail
+ * at Brevo, with nothing on screen to say why. A blank value is always fine;
+ * it clears the setting.
+ */
+export function settingProblem(def: { label: string; kind: SettingKind }, value: string): string | null {
+  const text = value.trim();
+
+  if (text === "") {
+    return null;
+  }
+
+  if (def.kind === "email" && (/[,;]/.test(text) || readEmail(text) === null)) {
+    return `${def.label}: "${text.slice(0, 80)}" is not one email address.`;
+  }
+
+  if (def.kind === "number" && !/^\d+$/.test(text)) {
+    return `${def.label}: "${text.slice(0, 80)}" is not a whole number.`;
+  }
+
+  return null;
+}
+
+/**
  * Save one setting, for a brand or for the estate.
  *
  * A blank value deletes the row rather than storing an empty string, so
@@ -221,12 +247,22 @@ export async function saveSetting(
   key: string,
   value: string,
   database: Database = db(),
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   // The Mail group belongs to the Mail screen: a sender is confirmed by a
   // test mail there, and that must not be skipped by posting the key here.
-  if (!SETTINGS.some((def) => def.key === key && def.group !== "Mail")) {
+  const def = SETTINGS.find((row) => row.key === key && row.group !== "Mail");
+
+  if (!def) {
     return { ok: false };
   }
+
+  const problem = settingProblem(def, value);
+
+  if (problem) {
+    return { ok: false, error: problem };
+  }
+
+  value = def.kind === "email" ? value.trim() : value;
 
   const where = and(
     eq(settings.key, key),
@@ -271,4 +307,26 @@ export async function brandSetting(
   const value = (rows.find((row) => row.siteId === siteId) ?? rows.find((row) => row.siteId === null))?.value;
 
   return value?.trim() ? value.trim() : null;
+}
+
+/**
+ * Where a brand's staff alerts go: its Admin address, when that is one valid
+ * email address. A bad value (saved before saving checked it, or carried over
+ * from the old sites) would only fail at Brevo for every alert, so it is
+ * skipped here, with a line in the log saying so.
+ */
+export async function staffAddress(siteId: number, database: Database = db()): Promise<string | null> {
+  const value = await brandSetting(siteId, "site_admin_email", database);
+
+  if (value === null) {
+    return null;
+  }
+
+  const address = /[,;]/.test(value) ? null : readEmail(value);
+
+  if (address === null) {
+    console.warn("staff alert skipped: the brand's Admin address is not one email address", { siteId, value });
+  }
+
+  return address;
 }

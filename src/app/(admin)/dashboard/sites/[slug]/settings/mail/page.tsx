@@ -60,7 +60,7 @@ export default async function MailPage({ params }: { params: Promise<{ slug: str
                 ) : (
                   <>
                     <span className="badge bad">not connected</span>
-                    <div className="small muted">Mail waits in the queue until BREVO_API_KEY and MAIL_FROM are set on the server. Nothing is lost.</div>
+                    <div className="small muted">Mail waits in the queue until BREVO_API_KEY and MAIL_FROM are set on the server. Mail that waits past its useful life (an hour for a password reset, a week for most) is marked too old instead of sent late.</div>
                   </>
                 )}
               </td>
