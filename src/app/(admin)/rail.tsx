@@ -10,30 +10,23 @@
  * against the query string, because the Directory group pointed seven entries
  * at `/dashboard/clients` and told them apart by `?segment=`. Those seven are
  * now filters inside the People page, so an entry here matches on path alone
- * — with one wrinkle kept: a brand's module screens live at estate paths like
- * `/dashboard/articles?site=baseoil`, so while you are on one of those the
- * rail lights up that brand rather than nothing at all.
+ * — and a brand's own pages (`/dashboard/sites/<slug>/...`) light nothing,
+ * because the header picker is what shows the brand you are in.
  */
 
 import Link from "@/lib/ui/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PEOPLE_TABS, navFor, type NavBrand } from "./nav";
 
-/**
- * Which entry is open.
- *
- * A brand's page is `/dashboard/sites/<slug>`; its modules are estate screens
- * carrying `?site=<slug>`. Both should light the same brand, so the site
- * parameter wins over the path when it names a brand the viewer can see.
- */
-function currentHref(path: string, site: string | null, brands: NavBrand[]): string | null {
+/** Which entry is open, matched on the path alone. */
+function currentHref(path: string, brands: NavBrand[]): string | null {
   // A brand's own pages belong to no rail entry now that the rail lists no
   // brands; without this the Dashboard entry lit up on every one of them,
   // because `/dashboard` is a prefix of `/dashboard/sites/...`. The header
   // picker shows which brand you are in.
-  if (path.startsWith("/dashboard/sites/") || (site && brands.some((brand) => brand.slug === site))) {
+  if (path.startsWith("/dashboard/sites/")) {
     return null;
   }
 
@@ -55,8 +48,7 @@ function currentHref(path: string, site: string | null, brands: NavBrand[]): str
 
 export function Rail({ brands }: { brands: NavBrand[] }) {
   const path = usePathname();
-  const params = useSearchParams();
-  const current = currentHref(path, params.get("site"), brands);
+  const current = currentHref(path, brands);
   // Only a phone ever sees it closed: the toggle and the hiding are both in
   // the narrow-screen CSS. Opening a screen closes it again.
   const [open, setOpen] = useState(false);

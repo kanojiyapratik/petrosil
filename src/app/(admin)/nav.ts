@@ -275,47 +275,20 @@ export const PEOPLE_TABS = [
 ] as const;
 
 /**
- * Whether a screen is standing inside a brand, or looking across the estate.
+ * Where a brand's page opens when the header picker moves you to it.
  *
- * Every module screen carries a brand filter, and when the screen was reached
- * from a brand's own section that filter was a "Brand" dropdown offering all
- * nine. That contradicts the thing the Sites group claims — the brand is
- * where you are standing, not something you pick again on arrival — and it
- * made each section look like a filter with extra steps.
- *
- * So the same control has three states:
- *
- *   - **pinned**: the URL names a brand the viewer may see. Show the brand's
- *     name as context, with a way back to its page, and carry the slug
- *     through any filtering rather than offering to change it.
- *   - **picker**: an estate-wide screen, or a slug that is unknown or not
- *     theirs. An unknown slug must never be turned into a printed label.
- *   - **none**: fewer than two brands. A dropdown of one is furniture, and so
- *     is telling a per-site editor which brand they are in.
+ * The same tab you were on, so switching brands while on Prices stays on
+ * Prices. Only the first segment is kept: a record's id belongs to the brand
+ * it came from. Trade analysis exists on baseoil alone, so a brand without it
+ * opens on its AI tools tab, the tab trade analysis sits in, rather than on a
+ * refusal.
  */
-export type BrandContext =
-  | { kind: "pinned"; slug: string; name: string; href: string }
-  | { kind: "picker" }
-  | { kind: "none" };
+export function brandTabPath(slug: string, tab: string): string {
+  const home = `/dashboard/sites/${slug}`;
 
-export function brandContext(
-  brands: { slug: string; name: string }[],
-  site: string | null | undefined,
-): BrandContext {
-  if (brands.length < 2) {
-    return { kind: "none" };
+  if (tab === "trade-analysis" && !hasTradeAnalysis(slug)) {
+    return siteTabs(slug).find((t) => t.slug === "ai")?.href ?? home;
   }
 
-  const found = site ? brands.find((brand) => brand.slug === site) : undefined;
-
-  if (!found) {
-    return { kind: "picker" };
-  }
-
-  return {
-    kind: "pinned",
-    slug: found.slug,
-    name: found.name,
-    href: `/dashboard/sites/${found.slug}`,
-  };
+  return tab ? `${home}/${tab}` : home;
 }

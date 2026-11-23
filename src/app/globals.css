@@ -2011,46 +2011,6 @@ button.quick-one:hover {
   }
 }
 
-/* The brand control when a screen is standing inside a brand: context and a
- * way back, not a dropdown asking you to choose what you already chose. */
-.field.pinned {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  justify-content: flex-end;
-}
-
-.pinned-label {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-
-.pinned-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.pinned-brand a {
-  color: var(--ink);
-  text-decoration: none;
-  border-bottom: 1px solid var(--line);
-}
-
-.pinned-brand a:hover {
-  border-bottom-color: var(--brand);
-}
-
-.pinned-brand::before {
-  content: "↖";
-  color: var(--muted);
-  font-weight: 400;
-}
-
 /* Where you are, above a brand's own screens. */
 .crumbs {
   display: flex;

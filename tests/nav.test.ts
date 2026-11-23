@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  brandContext,
+  brandTabPath,
   hasTradeAnalysis,
   navFor,
   siteTabs,
@@ -314,50 +314,6 @@ describe("the cards tell the truth", () => {
   });
 });
 
-describe("standing inside a brand", () => {
-  // The whole claim of the Sites group is "the brand is where you are
-  // standing". A module screen reached from a brand then showed a "Brand"
-  // dropdown offering all nine — which says the opposite, and makes the
-  // section look like a filter with extra steps.
-  const seen = [
-    { id: 1, slug: "baseoil", name: "Base Oil Report" },
-    { id: 2, slug: "bitumart", name: "Bitumart" },
-  ];
-
-  it("pins the brand when the screen was opened from one", () => {
-    expect(brandContext(seen, "bitumart")).toEqual({
-      kind: "pinned",
-      slug: "bitumart",
-      name: "Bitumart",
-      href: "/dashboard/sites/bitumart",
-    });
-  });
-
-  it("offers the picker on an estate-wide screen", () => {
-    expect(brandContext(seen, undefined)).toEqual({ kind: "picker" });
-    expect(brandContext(seen, "")).toEqual({ kind: "picker" });
-  });
-
-  it("offers the picker for a brand the viewer cannot see", () => {
-    // Not pinned to a name we would then print: an unknown or forbidden slug
-    // must not become a label.
-    expect(brandContext(seen, "waxreport")).toEqual({ kind: "picker" });
-  });
-
-  it("shows nothing at all to someone with a single brand", () => {
-    // A per-site editor has one brand. A dropdown of one is furniture, and so
-    // is a pin telling them where they already are.
-    const one = [{ id: 1, slug: "baseoil", name: "Base Oil Report" }];
-
-    expect(brandContext(one, undefined)).toEqual({ kind: "none" });
-    expect(brandContext(one, "baseoil")).toEqual({ kind: "none" });
-  });
-
-  it("shows nothing when the viewer has no brands", () => {
-    expect(brandContext([], undefined)).toEqual({ kind: "none" });
-  });
-});
-
 describe("a screen only one brand has", () => {
   // Trade analysis exists on baseoil and on no other site — one of the five
   // per-site route deltas. Leaving the menu to enforce that is not enforcing
@@ -377,6 +333,16 @@ describe("a screen only one brand has", () => {
 
       expect(labels.includes("Trade analysis")).toBe(hasTradeAnalysis(slug));
     }
+  });
+
+  it("keeps the tab when the picker switches brands", () => {
+    expect(brandTabPath("bitumart", "prices")).toBe("/dashboard/sites/bitumart/prices");
+    expect(brandTabPath("bitumart", "")).toBe("/dashboard/sites/bitumart");
+    expect(brandTabPath("baseoil", "trade-analysis")).toBe("/dashboard/sites/baseoil/trade-analysis");
+  });
+
+  it("opens the AI tools tab, not a refusal, on a brand without trade analysis", () => {
+    expect(brandTabPath("bitumart", "trade-analysis")).toBe("/dashboard/sites/bitumart/ai-update");
   });
 });
 

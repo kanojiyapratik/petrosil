@@ -28,7 +28,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { chooseBrand } from "./actions";
-import { hasTradeAnalysis, type Freshness } from "./nav";
+import { brandTabPath, type Freshness } from "./nav";
 
 type Option = { slug: string; name: string; freshness: Freshness };
 
@@ -123,14 +123,7 @@ export function BrandSwitch({ brands, chosen }: { brands: Option[]; chosen: stri
       await chooseBrand(slug);
 
       if (slug) {
-        // The same tab of the other brand when switching between brands. A
-        // record's id under a tab belongs to the brand it came from, so only
-        // the tab itself is kept; trade analysis exists on baseoil alone.
-        let tab = page?.rest.split("/")[1] ?? "";
-        if (tab === "trade-analysis" && !hasTradeAnalysis(slug)) {
-          tab = "";
-        }
-        router.push(`/dashboard/sites/${slug}${tab ? `/${tab}` : ""}`);
+        router.push(brandTabPath(slug, page?.rest.split("/")[1] ?? ""));
       } else if (page) {
         router.push("/dashboard");
       } else {
