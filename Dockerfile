@@ -19,7 +19,7 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY drizzle ./drizzle
 COPY scripts/migrate.mjs ./scripts/migrate.mjs
-RUN npm install --no-save --omit=dev drizzle-orm@0.36.4 postgres@3.4.5
+RUN npm install --no-save --omit=dev drizzle-orm@0.45.4 postgres@3.4.5
 
 # Schema first, so a deploy whose migration fails never starts serving.
 # Railway sets PORT; server.js reads it.
