@@ -12,7 +12,7 @@ import fs from "node:fs";
 
 import { closeDb, db } from "@/db";
 import { sql } from "drizzle-orm";
-import { fileStore } from "@/lib/files/store";
+import { storeFromEnv } from "@/lib/files/store";
 
 const [since, outFile] = process.argv.slice(2);
 
@@ -33,12 +33,15 @@ const rows = (await db().execute(sql`
    where m.created_at >= ${since}::timestamptz
    order by m.id`)) as unknown as { path: string; name: string; kind: string; bytes: number; folder: string; slug: string }[];
 
-// The local disk store: same code, without the S3 variables.
-const saved = { ...process.env };
-for (const key of Object.keys(process.env)) if (key.startsWith("FILES_S3_")) delete process.env[key];
-const local = fileStore();
-Object.assign(process.env, saved);
-const live = sqlOnly ? local : fileStore();
+// The local disk store is the same environment without the S3 variables. Built with
+// storeFromEnv, not fileStore(): fileStore() keeps the first store for the whole process,
+// which once made this copy disk -> disk and upload nothing (2026-11-27).
+const withoutS3 = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("FILES_S3_")));
+const local = storeFromEnv(withoutS3);
+const live = sqlOnly ? local : storeFromEnv(process.env);
+if (!sqlOnly && (live.name === local.name || local.name !== "disk")) {
+  throw new Error(`refusing to copy ${local.name} -> ${live.name}: the target must be the bucket`);
+}
 console.log(`${rows.length} files: ${local.name} -> ${sqlOnly ? "(SQL only, nothing uploaded)" : live.name}`);
 
 let put = 0;
